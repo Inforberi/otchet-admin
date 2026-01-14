@@ -1,0 +1,56 @@
+// Prisma schema для админ-панели отчетов
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Отчеты
+model Report {
+  id          String   @id @default(uuid())
+  title       String
+  subtitle    String?
+  client      String?
+  date        String?
+  status      String   @default("draft") // draft | published
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  blocks      ReportBlock[]
+
+  @@map("reports")
+}
+
+// Блоки внутри отчета
+model ReportBlock {
+  id        String   @id @default(uuid())
+  reportId  String   @map("report_id")
+  type      String   // text | screenshot
+  position  Int      // порядок блока
+  data      Json     // содержимое блока (title, content, images, layout, etc.)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@map("report_blocks")
+  @@index([reportId])
+}
+
+// Метаданные загруженных файлов (изображения)
+model Upload {
+  id        String   @id @default(uuid())
+  reportId  String?  @map("report_id")
+  filename  String
+  path      String   @unique // относительный путь на сервере
+  mimeType  String   @map("mime_type")
+  size      Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("uploads")
+  @@index([reportId])
+}

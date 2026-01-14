@@ -1,0 +1,42 @@
+services:
+    postgres:
+        image: postgres:16-alpine
+        container_name: admin-panel-db
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: admin
+            POSTGRES_PASSWORD: password
+            POSTGRES_DB: admin_panel
+        ports:
+            - '5433:5432'
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U admin -d admin_panel']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: admin-panel-app
+        restart: unless-stopped
+        environment:
+            DATABASE_URL: postgresql://admin:password@postgres:5432/admin_panel?schema=public
+            PORT: 3000
+            UPLOAD_DIR: /app/uploads
+            MAX_UPLOAD_SIZE: 10485760
+        ports:
+            - '3000:3000'
+        volumes:
+            - ./uploads:/app/uploads
+        depends_on:
+            postgres:
+                condition: service_healthy
+        command: sh -c "pnpm prisma migrate deploy && pnpm start"
+
+volumes:
+    postgres_data:
+        driver: local
