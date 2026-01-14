@@ -40,14 +40,27 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# Копируем Prisma схему, package.json и lockfile
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
 
-# Создаем директорию для uploads
-RUN mkdir -p /app/uploads && chown nextjs:nodejs /app/uploads
+# Устанавливаем только production зависимости (включая Prisma)
+RUN pnpm install --prod --frozen-lockfile
+
+# Генерируем Prisma клиент в production
+# DATABASE_URL будет установлен через docker-compose.yml
+RUN pnpm prisma generate
+
+# Создаем директорию для uploads с правильными правами
+# Права 777 нужны, так как volume может монтироваться с хоста
+RUN mkdir -p /app/uploads && chmod 777 /app/uploads
 
 USER nextjs
+
+# Убеждаемся что директория доступна после переключения пользователя
+RUN mkdir -p /app/uploads || true
 
 EXPOSE 3000
 

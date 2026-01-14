@@ -35,7 +35,7 @@ services:
         depends_on:
             postgres:
                 condition: service_healthy
-        command: sh -c "pnpm prisma migrate deploy && pnpm start"
+        command: sh -c "mkdir -p /app/uploads && pnpm prisma migrate deploy && node server.js"
 
 volumes:
     postgres_data:

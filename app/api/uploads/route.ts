@@ -8,6 +8,14 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || "./uploads"
 const MAX_FILE_SIZE = Number.parseInt(process.env.MAX_UPLOAD_SIZE || "10485760") // 10MB default
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"]
 
+// Получаем абсолютный путь к директории загрузок
+function getUploadDir(): string {
+  if (path.isAbsolute(UPLOAD_DIR)) {
+    return UPLOAD_DIR
+  }
+  return path.join(process.cwd(), UPLOAD_DIR)
+}
+
 // Генерация безопасного имени файла
 function generateSafeFilename(originalName: string): string {
   const timestamp = Date.now()
@@ -48,20 +56,43 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Получаем абсолютный путь к директории загрузок
+    const uploadDir = getUploadDir()
+    
     // Создаем директорию если не существует
-    if (!existsSync(UPLOAD_DIR)) {
-      await mkdir(UPLOAD_DIR, { recursive: true })
+    try {
+      if (!existsSync(uploadDir)) {
+        await mkdir(uploadDir, { recursive: true })
+        console.log(`Created upload directory: ${uploadDir}`)
+      }
+    } catch (dirError) {
+      console.error(`Error creating upload directory ${uploadDir}:`, dirError)
+      return NextResponse.json(
+        { error: `Failed to create upload directory: ${dirError}` },
+        { status: 500 }
+      )
     }
 
     // Генерируем безопасное имя и путь
     const safeFilename = generateSafeFilename(file.name)
     const relativePath = safeFilename // Только имя файла, без "uploads/"
-    const absolutePath = path.join(process.cwd(), UPLOAD_DIR, safeFilename)
+    const absolutePath = path.join(uploadDir, safeFilename)
+
+    console.log(`Uploading file to: ${absolutePath} (uploadDir: ${uploadDir})`)
 
     // Сохраняем файл
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    await writeFile(absolutePath, buffer)
+    try {
+      const bytes = await file.arrayBuffer()
+      const buffer = Buffer.from(bytes)
+      await writeFile(absolutePath, buffer)
+      console.log(`File saved successfully: ${absolutePath}`)
+    } catch (writeError) {
+      console.error(`Error writing file to ${absolutePath}:`, writeError)
+      return NextResponse.json(
+        { error: `Failed to save file: ${writeError}` },
+        { status: 500 }
+      )
+    }
 
     // Сохраняем метаданные в БД
     const upload = await prisma.upload.create({
@@ -77,7 +108,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         upload,
-        url: `/${relativePath}`, // URL для доступа к файлу
+        url: `/api/static/uploads/${relativePath}`, // URL для доступа к файлу
       },
       { status: 201 },
     )
