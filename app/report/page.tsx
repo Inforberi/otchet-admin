@@ -118,9 +118,25 @@ export default function ReportPage() {
         <div className="space-y-12">
           {draft.blocks.map((block) =>
             block.type === "screenshot" ? (
-              <ScreenshotBlockView key={block.id} block={block} />
+              <ScreenshotBlockView 
+                key={block.id} 
+                data={{
+                  title: block.title,
+                  description: block.description,
+                  images: block.images.map((url) => ({ url, alt: '', caption: '' })),
+                  layout: block.layout,
+                  imageSize: block.imageSize,
+                  customWidth: block.customWidth,
+                }} 
+              />
             ) : (
-              <TextBlockView key={block.id} block={block} />
+              <TextBlockView 
+                key={block.id} 
+                data={{
+                  title: block.title,
+                  content: block.content,
+                }} 
+              />
             ),
           )}
         </div>

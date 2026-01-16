@@ -22,6 +22,7 @@ export interface ImageData {
     url: string; // путь к файлу на сервере (не base64!)
     caption?: string; // подпись под изображением
     alt?: string; // alt текст
+    uploadId?: string; // ID записи в таблице uploads (для удаления)
 }
 
 // Данные скриншот-блока в БД
@@ -58,6 +59,9 @@ export interface ReportFromDB {
     client?: string | null;
     date?: string | null;
     status: string;
+    titleFontSize?: string | null; // размер шрифта заголовка в px (по умолчанию 40px)
+    descriptionFontSize?: string | null; // размер шрифта описания в px (по умолчанию 20px)
+    captionFontSize?: string | null; // размер шрифта подписи к изображениям в px (по умолчанию 16px)
     createdAt: Date;
     updatedAt: Date;
     blocks?: ReportBlockFromDB[];
@@ -74,6 +78,9 @@ export interface CreateReportInput {
 
 export interface UpdateReportInput extends Partial<CreateReportInput> {
     id: string;
+    titleFontSize?: string | null;
+    descriptionFontSize?: string | null;
+    captionFontSize?: string | null;
 }
 
 export interface CreateBlockInput {

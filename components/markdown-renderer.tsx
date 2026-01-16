@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeRaw from "rehype-raw"
 import rehypeSanitize from "rehype-sanitize"
+import type { Components } from "react-markdown"
 
 interface MarkdownRendererProps {
   content: string
@@ -29,8 +30,10 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
               {children}
             </blockquote>
           ),
-          code: ({ inline, children }: any) =>
-            inline ? (
+          code: (props) => {
+            const { children, className } = props
+            const isInline = !className || !className.includes('language-')
+            return isInline ? (
               <code style={{ background: '#f3f4f6', padding: '0.125rem 0.375rem', borderRadius: '0.25rem', fontFamily: 'monospace', fontSize: '0.875rem', color: '#1f2937' }}>
                 {children}
               </code>
@@ -38,7 +41,8 @@ export function MarkdownRenderer({ content, className = "" }: MarkdownRendererPr
               <code style={{ display: 'block', overflowX: 'auto', borderRadius: '0.375rem', background: '#1f2937', color: '#f9fafb', padding: '1rem', fontFamily: 'monospace', fontSize: '0.875rem' }}>
                 {children}
               </code>
-            ),
+            )
+          },
           pre: ({ children }) => <pre style={{ margin: '1rem 0' }}>{children}</pre>,
           a: ({ children, href }) => (
             <a href={href} style={{ color: '#2563eb', textDecoration: 'none' }} target="_blank" rel="noopener noreferrer">

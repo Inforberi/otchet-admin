@@ -76,20 +76,6 @@ export function BlockEditorModal({ block, onClose, onSave }: BlockEditorModalPro
                 </p>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-[var(--color-grayscale-5)]">
-                  Размер текста
-                </label>
-                <select
-                  value={(data as TextBlockData).fontSize || "medium"}
-                  onChange={(e) => setData({ ...data, fontSize: e.target.value as "small" | "medium" | "large" })}
-                  className="w-full rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-3 py-2 text-[var(--color-grayscale-3)] focus:border-[var(--color-primary)] focus:outline-none"
-                >
-                  <option value="small">Маленький</option>
-                  <option value="medium">Средний</option>
-                  <option value="large">Большой</option>
-                </select>
-              </div>
             </div>
           ) : (
             <div className="space-y-4">

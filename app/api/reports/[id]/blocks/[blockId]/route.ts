@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import type { UpdateBlockInput } from "@/lib/db-types"
+import type { Prisma } from "@prisma/client"
 
 // PATCH /api/reports/[id]/blocks/[blockId] - обновить блок
 export async function PATCH(
@@ -11,12 +12,18 @@ export async function PATCH(
     const { blockId } = await params
     const body: Partial<UpdateBlockInput> = await request.json()
 
+    const updateData: Prisma.ReportBlockUpdateInput = {}
+    
+    if (body.data !== undefined) {
+      updateData.data = body.data as Prisma.InputJsonValue
+    }
+    if (body.position !== undefined) {
+      updateData.position = body.position
+    }
+
     const block = await prisma.reportBlock.update({
       where: { id: blockId },
-      data: {
-        ...(body.data !== undefined && { data: body.data }),
-        ...(body.position !== undefined && { position: body.position }),
-      },
+      data: updateData,
     })
 
     return NextResponse.json({ block }, { status: 200 })
