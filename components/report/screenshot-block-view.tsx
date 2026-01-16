@@ -7,9 +7,17 @@ import { ImageOff } from 'lucide-react';
 
 interface ScreenshotBlockViewProps {
     data: ScreenshotBlockData;
+    titleFontSize?: string;
+    descriptionFontSize?: string;
+    captionFontSize?: string;
 }
 
-export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
+export function ScreenshotBlockView({ 
+    data, 
+    titleFontSize = '40', 
+    descriptionFontSize = '20',
+    captionFontSize = '16'
+}: ScreenshotBlockViewProps) {
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
@@ -62,15 +70,20 @@ export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
             <>
                 <section className="space-y-8">
                     {data.title && (
-                        <h2 className="text-[24px]! font-semibold text-zinc-100 mb-8 tracking-tight">
+                        <h2
+                            className="font-semibold text-zinc-100 mb-8 tracking-tight"
+                            style={{ fontSize: `${titleFontSize}px` }}
+                        >
                             {data.title}
                         </h2>
                     )}
 
                     {data.description && (
-                        <p className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                            {data.description}
-                        </p>
+                        <div
+                            className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                            style={{ fontSize: `${descriptionFontSize}px` }}
+                            dangerouslySetInnerHTML={{ __html: data.description }}
+                        />
                     )}
 
                     <div
@@ -95,7 +108,10 @@ export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
                                     <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/5" />
                                 </button>
                                 {img.caption && (
-                                    <p className="text-sm text-zinc-400 font-medium mt-3">
+                                    <p
+                                        className="text-zinc-400 font-medium mt-3"
+                                        style={{ fontSize: `${captionFontSize}px` }}
+                                    >
                                         {img.caption}
                                     </p>
                                 )}
@@ -123,15 +139,20 @@ export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
             <>
                 <section className="space-y-8">
                     {data.title && (
-                        <h2 className="text-[24px]! font-semibold text-zinc-100 mb-8 tracking-tight">
+                        <h2
+                            className="font-semibold text-zinc-100 mb-8 tracking-tight"
+                            style={{ fontSize: `${titleFontSize}px` }}
+                        >
                             {data.title}
                         </h2>
                     )}
 
                     {data.description && (
-                        <p className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                            {data.description}
-                        </p>
+                        <div
+                            className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                            style={{ fontSize: `${descriptionFontSize}px` }}
+                            dangerouslySetInnerHTML={{ __html: data.description }}
+                        />
                     )}
 
                     <div
@@ -199,9 +220,10 @@ export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
                     <div className="flex flex-col md:flex-row gap-8">
                         <div className="md:w-[40%]">
                             {data.description && (
-                                <p className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                    {data.description}
-                                </p>
+                                <div 
+                                    className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                                    dangerouslySetInnerHTML={{ __html: data.description }}
+                                />
                             )}
                         </div>
 
@@ -300,9 +322,10 @@ export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
 
                         <div className="md:w-[40%]">
                             {data.description && (
-                                <p className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed">
-                                    {data.description}
-                                </p>
+                                <div 
+                                    className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                                    dangerouslySetInnerHTML={{ __html: data.description }}
+                                />
                             )}
                         </div>
                     </div>
@@ -325,13 +348,19 @@ export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
     return (
         <section className="space-y-8">
             {data.title && (
-                <h2 className="text-[24px] font-semibold text-zinc-100 mb-8 tracking-tight">
+                <h2
+                    className="font-semibold text-zinc-100 mb-8 tracking-tight"
+                    style={{ fontSize: `${titleFontSize}px` }}
+                >
                     {data.title}
                 </h2>
             )}
 
             {data.description && (
-                <p className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                <p
+                    className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                    style={{ fontSize: `${descriptionFontSize}px` }}
+                >
                     {data.description}
                 </p>
             )}
@@ -367,7 +396,10 @@ export function ScreenshotBlockView({ data }: ScreenshotBlockViewProps) {
                                     <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/5" />
                                 </button>
                                 {img.caption && (
-                                    <p className="text-sm text-zinc-400 font-medium mt-3">
+                                    <p
+                                        className="text-zinc-400 font-medium mt-3"
+                                        style={{ fontSize: `${captionFontSize}px` }}
+                                    >
                                         {img.caption}
                                     </p>
                                 )}

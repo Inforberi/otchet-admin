@@ -90,8 +90,10 @@
 }
 
 @theme inline {
-    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+        'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+        'Liberation Mono', monospace;
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --color-card: var(--card);
@@ -141,6 +143,13 @@
 
 h2 {
     font-size: 32px;
+}
+
+/* Placeholder для contentEditable */
+[contenteditable][data-placeholder]:empty:before {
+    content: attr(data-placeholder);
+    color: #737373;
+    pointer-events: none;
 }
 
 /* Adding print styles for PDF export */

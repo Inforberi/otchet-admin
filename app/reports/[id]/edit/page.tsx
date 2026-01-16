@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import type {
     ReportFromDB,
     ReportBlockFromDB,
     TextBlockData,
     ScreenshotBlockData,
+    DividerBlockData,
     ImageData,
 } from '@/lib/db-types';
 import {
@@ -22,6 +23,9 @@ import {
     X,
     Save,
     Clock,
+    Bold,
+    Italic,
+    Palette,
 } from 'lucide-react';
 import {
     DndContext,
@@ -71,12 +75,13 @@ function SortableBlockCard({
     };
 
     const getBlockTitle = () => {
-        const data = block.data as any;
         if (block.type === 'text') {
+            const data = block.data as TextBlockData;
             if (data.title) return data.title.substring(0, 30);
             if (data.content) return data.content.substring(0, 30);
             return 'Текстовый блок';
         } else if (block.type === 'screenshot') {
+            const data = block.data as ScreenshotBlockData;
             if (data.title) return data.title.substring(0, 30);
             return `Фото (${data.images?.length || 0})`;
         } else {
@@ -157,13 +162,16 @@ function SortableBlockCard({
 function BlockEditor({
     block,
     onUpdate,
+    reportId,
 }: {
     block: ReportBlockFromDB;
-    onUpdate: (id: string, data: any) => void;
+    onUpdate: (id: string, data: TextBlockData | ScreenshotBlockData | DividerBlockData) => void;
+    reportId: string;
 }) {
     const [localData, setLocalData] = useState(block.data);
     const [uploading, setUploading] = useState(false);
     const [isExpanded, setIsExpanded] = useState(true);
+    const [isDragOver, setIsDragOver] = useState(false);
 
     useEffect(() => {
         setLocalData(block.data);
@@ -178,8 +186,7 @@ function BlockEditor({
         return () => clearTimeout(debounce);
     }, [localData]);
 
-    async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-        const files = e.target.files;
+    async function processFiles(files: FileList | File[]) {
         if (!files || files.length === 0) return;
 
         setUploading(true);
@@ -187,8 +194,14 @@ function BlockEditor({
             const newImages: ImageData[] = [];
 
             for (const file of Array.from(files)) {
+                // Проверяем, что это изображение
+                if (!file.type.startsWith('image/')) {
+                    continue;
+                }
+
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('reportId', reportId);
 
                 const res = await fetch('/api/uploads', {
                     method: 'POST',
@@ -201,6 +214,7 @@ function BlockEditor({
                         url: `/api/static/uploads/${upload.path}`,
                         caption: '',
                         alt: file.name,
+                        uploadId: upload.id,
                     });
                 }
             }
@@ -208,9 +222,9 @@ function BlockEditor({
             const currentImages =
                 (localData as ScreenshotBlockData).images || [];
             setLocalData({
-                ...localData,
+                ...(localData as ScreenshotBlockData),
                 images: [...currentImages, ...newImages],
-            });
+            } as ScreenshotBlockData);
         } catch (error) {
             console.error('Upload error:', error);
             alert('Ошибка загрузки изображения');
@@ -219,23 +233,74 @@ function BlockEditor({
         }
     }
 
-    function handleRemoveImage(index: number) {
-        const images = (localData as ScreenshotBlockData).images.filter(
-            (_, i) => i !== index
-        );
-        setLocalData({ ...localData, images });
+    async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        const files = e.target.files;
+        if (!files) return;
+        await processFiles(files);
+    }
+
+    function handleDragOver(e: React.DragEvent) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(true);
+    }
+
+    function handleDragLeave(e: React.DragEvent) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
+    }
+
+    async function handleDrop(e: React.DragEvent) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
+
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+            await processFiles(files);
+        }
+    }
+
+    async function handleRemoveImage(index: number) {
+        const images = (localData as ScreenshotBlockData).images || [];
+        const imageToRemove = images[index];
+
+        if (!imageToRemove) return;
+
+        // Удаляем изображение из локального состояния
+        const updatedImages = images.filter((_, i) => i !== index);
+        setLocalData({ ...(localData as ScreenshotBlockData), images: updatedImages } as ScreenshotBlockData);
+
+        // Удаляем файл с сервера
+        try {
+            // Извлекаем path из URL: /api/static/uploads/{path}
+            const urlPath = imageToRemove.url.replace('/api/static/uploads/', '');
+            
+            const res = await fetch(`/api/uploads/by-path?path=${encodeURIComponent(urlPath)}`, {
+                method: 'DELETE',
+            });
+
+            if (!res.ok) {
+                console.error('Failed to delete file from server');
+                // Не показываем ошибку пользователю, файл уже удален из UI
+            }
+        } catch (error) {
+            console.error('Error deleting file:', error);
+            // Не показываем ошибку пользователю, файл уже удален из UI
+        }
     }
 
     function handleUpdateImageCaption(index: number, caption: string) {
         const images = [...(localData as ScreenshotBlockData).images];
         images[index] = { ...images[index], caption };
-        setLocalData({ ...localData, images });
+        setLocalData({ ...(localData as ScreenshotBlockData), images } as ScreenshotBlockData);
     }
 
     function handleUpdateImageAlt(index: number, alt: string) {
         const images = [...(localData as ScreenshotBlockData).images];
         images[index] = { ...images[index], alt };
-        setLocalData({ ...localData, images });
+        setLocalData({ ...(localData as ScreenshotBlockData), images } as ScreenshotBlockData);
     }
 
     if (block.type === 'divider') {
@@ -296,9 +361,9 @@ function BlockEditor({
                                     }
                                     onChange={(e) =>
                                         setLocalData({
-                                            ...localData,
+                                            ...(localData as TextBlockData),
                                             title: e.target.value,
-                                        })
+                                        } as TextBlockData)
                                     }
                                     className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Заголовок раздела..."
@@ -306,18 +371,18 @@ function BlockEditor({
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-zinc-300 mb-2">
-                                    Содержимое (опционально)
+                                    Описание (опционально)
                                 </label>
-                                <textarea
-                                    value={(localData as TextBlockData).content}
-                                    onChange={(e) =>
+                                <FormattedTextEditor
+                                    value={(localData as TextBlockData).content || ''}
+                                    onChange={(value) =>
                                         setLocalData({
-                                            ...localData,
-                                            content: e.target.value,
-                                        })
+                                            ...(localData as TextBlockData),
+                                            content: value,
+                                        } as TextBlockData)
                                     }
-                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 min-h-[200px] focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Основной текст..."
+                                    minHeight="200px"
                                 />
                             </div>
                         </>
@@ -335,9 +400,9 @@ function BlockEditor({
                                     }
                                     onChange={(e) =>
                                         setLocalData({
-                                            ...localData,
+                                            ...(localData as TextBlockData),
                                             title: e.target.value,
-                                        })
+                                        } as TextBlockData)
                                     }
                                     className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Заголовок блока..."
@@ -347,19 +412,19 @@ function BlockEditor({
                                 <label className="block text-sm font-medium text-zinc-300 mb-2">
                                     Описание (опционально)
                                 </label>
-                                <textarea
+                                <FormattedTextEditor
                                     value={
                                         (localData as ScreenshotBlockData)
                                             .description || ''
                                     }
-                                    onChange={(e) =>
+                                    onChange={(value) =>
                                         setLocalData({
-                                            ...localData,
-                                            description: e.target.value,
-                                        })
+                                            ...(localData as ScreenshotBlockData),
+                                            description: value,
+                                        } as ScreenshotBlockData)
                                     }
-                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[200px]"
                                     placeholder="Описание..."
+                                    minHeight="200px"
                                 />
                             </div>
 
@@ -423,22 +488,35 @@ function BlockEditor({
                                         </div>
                                     ))}
 
-                                    <label className="flex items-center justify-center gap-2 border-2 border-dashed border-zinc-700 rounded p-4 cursor-pointer hover:bg-zinc-800 transition-colors">
-                                        <Upload className="w-5 h-5 text-zinc-400" />
-                                        <span className="text-sm text-zinc-300">
-                                            {uploading
-                                                ? 'Загрузка...'
-                                                : 'Загрузить изображения'}
-                                        </span>
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            multiple
-                                            onChange={handleImageUpload}
-                                            disabled={uploading}
-                                            className="hidden"
-                                        />
-                                    </label>
+                                    <div
+                                        onDragOver={handleDragOver}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={handleDrop}
+                                        className={`flex items-center justify-center gap-2 border-2 rounded p-4 transition-all ${
+                                            isDragOver
+                                                ? 'border-blue-500 bg-blue-500/10 border-solid'
+                                                : 'border-zinc-700 border-dashed hover:bg-zinc-800'
+                                        }`}
+                                    >
+                                        <label className="flex items-center justify-center gap-2 cursor-pointer w-full">
+                                            <Upload className="w-5 h-5 text-zinc-400" />
+                                            <span className="text-sm text-zinc-300">
+                                                {uploading
+                                                    ? 'Загрузка...'
+                                                    : isDragOver
+                                                      ? 'Отпустите для загрузки'
+                                                      : 'Перетащите изображения или нажмите для выбора'}
+                                            </span>
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                multiple
+                                                onChange={handleImageUpload}
+                                                disabled={uploading}
+                                                className="hidden"
+                                            />
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
 
@@ -453,9 +531,9 @@ function BlockEditor({
                                     }
                                     onChange={(e) =>
                                         setLocalData({
-                                            ...localData,
-                                            layout: e.target.value,
-                                        })
+                                            ...(localData as ScreenshotBlockData),
+                                            layout: e.target.value as ScreenshotBlockData['layout'],
+                                        } as ScreenshotBlockData)
                                     }
                                     className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 >
@@ -477,6 +555,193 @@ function BlockEditor({
                     )}
                 </div>
             )}
+        </div>
+    );
+}
+
+// Компонент для форматированного текстового редактора
+function FormattedTextEditor({
+    value,
+    onChange,
+    placeholder,
+    minHeight = '200px',
+}: {
+    value: string;
+    onChange: (value: string) => void;
+    placeholder?: string;
+    minHeight?: string;
+}) {
+    const editorRef = useRef<HTMLDivElement>(null);
+    const [showColorPicker, setShowColorPicker] = useState(false);
+    const [customColor, setCustomColor] = useState('#ffffff');
+    const colorPickerRef = useRef<HTMLDivElement>(null);
+
+    const colors = [
+        { name: 'Белый', value: '#ffffff' },
+        { name: 'Красный', value: '#ef4444' },
+        { name: 'Оранжевый', value: '#f97316' },
+        { name: 'Желтый', value: '#eab308' },
+        { name: 'Зеленый', value: '#22c55e' },
+        { name: 'Синий', value: '#3b82f6' },
+        { name: 'Фиолетовый', value: '#a855f7' },
+        { name: 'Розовый', value: '#ec4899' },
+    ];
+
+    useEffect(() => {
+        if (editorRef.current && editorRef.current.innerHTML !== value) {
+            editorRef.current.innerHTML = value || '';
+        }
+    }, [value]);
+
+    // Закрытие color picker при клике вне его
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (
+                colorPickerRef.current &&
+                !colorPickerRef.current.contains(event.target as Node)
+            ) {
+                setShowColorPicker(false);
+            }
+        };
+
+        if (showColorPicker) {
+            document.addEventListener('mousedown', handleClickOutside);
+            return () => document.removeEventListener('mousedown', handleClickOutside);
+        }
+    }, [showColorPicker]);
+
+    const handleInput = () => {
+        if (editorRef.current) {
+            const html = editorRef.current.innerHTML.trim();
+            // Если содержимое пустое или только пробелы, сохраняем пустую строку
+            if (!html || html === '<br>' || html === '<div><br></div>') {
+                onChange('');
+            } else {
+                onChange(html);
+            }
+        }
+    };
+
+    const formatText = (command: string, value?: string) => {
+        // Фокусируемся на редакторе перед применением форматирования
+        editorRef.current?.focus();
+        
+        // Проверяем наличие выделения внутри редактора
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            const isInEditor = editorRef.current?.contains(range.commonAncestorContainer);
+            
+            // Если выделение есть и оно внутри редактора, применяем форматирование
+            // document.execCommand автоматически применяет форматирование только к выделенному тексту
+            if (isInEditor && !selection.isCollapsed) {
+                document.execCommand(command, false, value);
+                handleInput();
+            }
+        }
+    };
+
+    const handleColorChange = (color: string) => {
+        formatText('foreColor', color);
+        setShowColorPicker(false);
+    };
+
+    const handleCustomColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const color = e.target.value;
+        setCustomColor(color);
+        formatText('foreColor', color);
+    };
+
+    return (
+        <div className="space-y-2">
+            {/* Панель инструментов */}
+            <div className="flex items-center gap-2 p-2 bg-zinc-800 border border-zinc-700 rounded-t">
+                <button
+                    type="button"
+                    onClick={() => formatText('bold')}
+                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
+                    title="Жирный (Ctrl+B)"
+                >
+                    <Bold className="w-4 h-4" />
+                </button>
+                <button
+                    type="button"
+                    onClick={() => formatText('italic')}
+                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
+                    title="Курсив (Ctrl+I)"
+                >
+                    <Italic className="w-4 h-4" />
+                </button>
+                <div className="relative" ref={colorPickerRef}>
+                    <button
+                        type="button"
+                        onClick={() => setShowColorPicker(!showColorPicker)}
+                        className={`p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors flex items-center gap-1 ${
+                            showColorPicker ? 'bg-zinc-700' : ''
+                        }`}
+                        title="Цвет текста"
+                    >
+                        <Palette className="w-4 h-4" />
+                    </button>
+                    {showColorPicker && (
+                        <div className="absolute left-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded p-3 shadow-lg z-50 min-w-[200px]">
+                            <div className="mb-2">
+                                <label className="block text-xs text-zinc-400 mb-1">
+                                    Быстрые цвета
+                                </label>
+                                <div className="grid grid-cols-4 gap-1">
+                                    {colors.map((color) => (
+                                        <button
+                                            key={color.value}
+                                            type="button"
+                                            onClick={() => handleColorChange(color.value)}
+                                            className="w-6 h-6 rounded border border-zinc-600 hover:scale-110 transition-transform"
+                                            style={{ backgroundColor: color.value }}
+                                            title={color.name}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="pt-2 border-t border-zinc-700">
+                                <label className="block text-xs text-zinc-400 mb-1">
+                                    Выбрать цвет
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="color"
+                                        value={customColor}
+                                        onChange={handleCustomColorChange}
+                                        className="w-10 h-8 rounded border border-zinc-600 cursor-pointer"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={customColor}
+                                        onChange={(e) => {
+                                            const color = e.target.value;
+                                            setCustomColor(color);
+                                            if (/^#[0-9A-F]{6}$/i.test(color)) {
+                                                formatText('foreColor', color);
+                                            }
+                                        }}
+                                        className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200"
+                                        placeholder="#ffffff"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+            {/* Редактор */}
+            <div
+                ref={editorRef}
+                contentEditable
+                onInput={handleInput}
+                className="w-full bg-zinc-800 border border-zinc-700 border-t-0 rounded-b px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                style={{ whiteSpace: 'pre-wrap', minHeight }}
+                data-placeholder={placeholder}
+                suppressContentEditableWarning
+            />
         </div>
     );
 }
@@ -511,9 +776,9 @@ export default function EditReportPage() {
 
     // Установить текущую дату, если она не задана
     useEffect(() => {
-        if (report && !(report as any).date) {
+        if (report && !report.date) {
             const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-            setReport({ ...report, date: today } as any);
+            setReport({ ...report, date: today });
         }
     }, [report]);
 
@@ -561,8 +826,11 @@ export default function EditReportPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     title: report.title,
-                    description: report.description,
-                    date: (report as any).date,
+                    subtitle: report.subtitle,
+                    date: report.date || undefined,
+                    titleFontSize: report.titleFontSize,
+                    descriptionFontSize: report.descriptionFontSize,
+                    captionFontSize: report.captionFontSize,
                 }),
             });
             if (!isAutoSave) {
@@ -651,7 +919,7 @@ export default function EditReportPage() {
         }
     }
 
-    async function handleUpdateBlock(id: string, data: any) {
+    async function handleUpdateBlock(id: string, data: TextBlockData | ScreenshotBlockData | DividerBlockData) {
         try {
             const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
                 method: 'PATCH',
@@ -831,15 +1099,14 @@ export default function EditReportPage() {
                                     <label className="block text-sm font-medium text-zinc-300 mb-1.5">
                                         Описание (опционально)
                                     </label>
-                                    <textarea
-                                        value={report.description || ''}
-                                        onChange={(e) =>
+                                    <FormattedTextEditor
+                                        value={report.subtitle || ''}
+                                        onChange={(value) =>
                                             setReport({
                                                 ...report,
-                                                description: e.target.value,
+                                                subtitle: value,
                                             })
                                         }
-                                        className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[200px]"
                                         placeholder="Анализ производительности и SEO"
                                     />
                                 </div>
@@ -850,7 +1117,7 @@ export default function EditReportPage() {
                                     <input
                                         type="date"
                                         value={
-                                            (report as any).date ||
+                                            report.date ||
                                             new Date()
                                                 .toISOString()
                                                 .split('T')[0]
@@ -859,10 +1126,85 @@ export default function EditReportPage() {
                                             setReport({
                                                 ...report,
                                                 date: e.target.value,
-                                            } as any)
+                                            })
                                         }
                                         className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent [color-scheme:dark]"
                                     />
+                                </div>
+
+                                {/* Настройки размера шрифта */}
+                                <div className="mt-6 pt-6 border-t border-zinc-700">
+                                    <h3 className="text-sm font-semibold text-zinc-300 mb-4">
+                                        Размеры шрифта
+                                    </h3>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                                                Заголовок
+                                            </label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    value={report.titleFontSize || '40'}
+                                                    onChange={(e) =>
+                                                        setReport({
+                                                            ...report,
+                                                            titleFontSize: e.target.value || null,
+                                                        })
+                                                    }
+                                                    className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    placeholder="40"
+                                                    min="8"
+                                                    max="200"
+                                                />
+                                                <span className="text-sm text-zinc-400">px</span>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                                                Описание
+                                            </label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    value={report.descriptionFontSize || '20'}
+                                                    onChange={(e) =>
+                                                        setReport({
+                                                            ...report,
+                                                            descriptionFontSize: e.target.value || null,
+                                                        })
+                                                    }
+                                                    className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    placeholder="20"
+                                                    min="8"
+                                                    max="200"
+                                                />
+                                                <span className="text-sm text-zinc-400">px</span>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                                                Текст под изображением
+                                            </label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    value={report.captionFontSize || '16'}
+                                                    onChange={(e) =>
+                                                        setReport({
+                                                            ...report,
+                                                            captionFontSize: e.target.value || null,
+                                                        })
+                                                    }
+                                                    className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    placeholder="16"
+                                                    min="8"
+                                                    max="200"
+                                                />
+                                                <span className="text-sm text-zinc-400">px</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -889,6 +1231,7 @@ export default function EditReportPage() {
                                     <BlockEditor
                                         block={block}
                                         onUpdate={handleUpdateBlock}
+                                        reportId={reportId}
                                     />
                                 </div>
                             ))
