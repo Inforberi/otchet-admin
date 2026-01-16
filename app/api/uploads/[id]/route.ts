@@ -4,6 +4,16 @@ import { unlink } from "fs/promises"
 import path from "path"
 import { existsSync } from "fs"
 
+const UPLOAD_DIR = process.env.UPLOAD_DIR || "./uploads"
+
+// Получаем абсолютный путь к директории загрузок
+function getUploadDir(): string {
+  if (path.isAbsolute(UPLOAD_DIR)) {
+    return UPLOAD_DIR
+  }
+  return path.join(process.cwd(), UPLOAD_DIR)
+}
+
 // DELETE /api/uploads/[id] - удалить загруженный файл
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -18,7 +28,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     }
 
     // Удаляем файл с диска
-    const filePath = path.join(process.cwd(), upload.path)
+    // upload.path может быть либо просто filename (старые файлы), либо reportId/filename (новые файлы)
+    const uploadDir = getUploadDir()
+    const filePath = path.join(uploadDir, upload.path)
+    
     if (existsSync(filePath)) {
       await unlink(filePath)
     }
