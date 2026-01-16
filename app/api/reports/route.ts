@@ -1,28 +1,48 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import type { CreateReportInput } from "@/lib/db-types"
+import type { Prisma } from "@prisma/client"
 
 // GET /api/reports - список всех отчетов
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const search = searchParams.get("search")
+    const dateSearch = searchParams.get("date")
+
+    const where: Prisma.ReportWhereInput = {}
+    
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { client: { contains: search, mode: "insensitive" } },
+      ]
+    }
+
+    if (dateSearch) {
+      where.date = { contains: dateSearch, mode: "insensitive" }
+    }
 
     const reports = await prisma.report.findMany({
-      where: search
-        ? {
-            OR: [
-              { title: { contains: search, mode: "insensitive" } },
-              { client: { contains: search, mode: "insensitive" } },
-            ],
-          }
-        : undefined,
-      orderBy: { updatedAt: "desc" },
+      where: Object.keys(where).length > 0 ? where : undefined,
+      orderBy: [
+        { date: "desc" },
+        { createdAt: "desc" },
+      ],
       include: {
         blocks: {
           orderBy: { position: "asc" },
         },
       },
+    })
+    
+    // Сортируем: сначала по date (null в конец), затем по createdAt
+    reports.sort((a, b) => {
+      if (!a.date && !b.date) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      if (!a.date) return 1
+      if (!b.date) return -1
+      if (a.date !== b.date) return b.date.localeCompare(a.date)
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     })
 
     return NextResponse.json({ reports }, { status: 200 })
