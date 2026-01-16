@@ -20,10 +20,40 @@ export default function ReportViewPage() {
     const [report, setReport] = useState<ReportFromDB | null>(null);
     const [loading, setLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
+    const [showFloatingEdit, setShowFloatingEdit] = useState(false);
+
+    // Форматирование даты в формате "16 января 2026"
+    const formatReportDate = (
+        dateString: string | null | undefined
+    ): string => {
+        if (!dateString) return '';
+        try {
+            const date = new Date(dateString + 'T00:00:00'); // Добавляем время для корректного парсинга
+            return date.toLocaleDateString('ru-RU', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+        } catch (error) {
+            return dateString; // Возвращаем исходную строку при ошибке
+        }
+    };
 
     useEffect(() => {
         loadReport();
     }, [reportId]);
+
+    // Отслеживание скролла для показа плавающей кнопки редактирования
+    useEffect(() => {
+        const handleScroll = () => {
+            // Показываем кнопку после прокрутки на 200px вниз
+            const scrollY = window.scrollY || window.pageYOffset;
+            setShowFloatingEdit(scrollY > 200);
+        };
+
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
 
     const loadReport = async () => {
         try {
@@ -90,6 +120,8 @@ export default function ReportViewPage() {
                         <button
                             onClick={() => router.push('/reports')}
                             className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] print:hidden"
+                            title="Назад к списку отчетов"
+                            aria-label="Назад к списку отчетов"
                         >
                             <ArrowLeft className="h-4 w-4" />
                         </button>
@@ -104,14 +136,19 @@ export default function ReportViewPage() {
                                 {report.title}
                             </h1>
                             {report.subtitle && (
-                                <p className="text-lg text-zinc-300 whitespace-pre-wrap">
-                                    {report.subtitle}
-                                </p>
+                                <div
+                                    className="text-lg text-zinc-300 whitespace-pre-wrap"
+                                    dangerouslySetInnerHTML={{
+                                        __html: report.subtitle,
+                                    }}
+                                />
                             )}
                         </div>
                         <div className="flex flex-shrink-0 flex-col items-end gap-2 text-sm text-zinc-400">
                             {report.client && <span>{report.client}</span>}
-                            {report.date && <span>{report.date}</span>}
+                            {report.date && (
+                                <span>{formatReportDate(report.date)}</span>
+                            )}
                             <div className="mt-2 flex gap-2">
                                 <button
                                     onClick={() =>
@@ -152,6 +189,15 @@ export default function ReportViewPage() {
                                     <ScreenshotBlockView
                                         key={block.id}
                                         data={block.data as ScreenshotBlockData}
+                                        titleFontSize={
+                                            report.titleFontSize || '40'
+                                        }
+                                        descriptionFontSize={
+                                            report.descriptionFontSize || '20'
+                                        }
+                                        captionFontSize={
+                                            report.captionFontSize || '16'
+                                        }
                                     />
                                 );
                             } else if (block.type === 'divider') {
@@ -161,6 +207,12 @@ export default function ReportViewPage() {
                                     <TextBlockView
                                         key={block.id}
                                         data={block.data as TextBlockData}
+                                        titleFontSize={
+                                            report.titleFontSize || '40'
+                                        }
+                                        contentFontSize={
+                                            report.descriptionFontSize || '20'
+                                        }
                                     />
                                 );
                             }
@@ -172,9 +224,27 @@ export default function ReportViewPage() {
             {/* Footer */}
             <footer className="border-t border-[var(--color-alpha-3)] py-6 print:hidden">
                 <div className="mx-auto max-w-7xl px-4 text-center text-sm text-[var(--color-grayscale-7)] sm:px-6 lg:px-8">
-                    Сгенерировано с помощью конструктора отчётов
+                    Отчёты, которые работают
                 </div>
             </footer>
+
+            {/* Floating Edit Button */}
+            {showFloatingEdit && (
+                <button
+                    onClick={() => router.push(`/reports/${reportId}/edit`)}
+                    className="fixed right-8 top-1/2 -translate-y-1/2 z-50 print:hidden
+                        bg-[var(--color-grayscale-14)] hover:bg-[var(--color-grayscale-13)] 
+                        text-[var(--color-grayscale-4)] rounded-full p-4
+                        shadow-lg hover:shadow-xl transition-all duration-300
+                        border border-[var(--color-alpha-3)]
+                        opacity-70 hover:opacity-100
+                        group"
+                    title="Редактировать отчет"
+                    aria-label="Редактировать отчет"
+                >
+                    <Edit className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                </button>
+            )}
         </div>
     );
 }
