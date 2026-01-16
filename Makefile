@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart migrate migrate-create migrate-reset seed reset build clean dev
+.PHONY: help up down logs restart migrate migrate-create migrate-reset seed reset build clean dev dev-start backup backup-install backup-uninstall
 
 help: ## Показать эту справку
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -51,6 +51,18 @@ clean: ## Очистить Docker (образы, volumes, etc)
 dev: ## Запустить приложение в dev режиме (локально, нужна запущенная БД)
 	pnpm dev
 
+dev-start: ## Запустить БД и dev-сервер (полный старт для разработки)
+	@echo "🚀 Запуск dev окружения..."
+	@mkdir -p uploads
+	@echo "📦 Поднимаю БД..."
+	@docker compose up -d postgres
+	@echo "⏳ Жду готовности БД..."
+	@sleep 2
+	@echo "🔧 Генерирую Prisma Client..."
+	@pnpm prisma:generate
+	@echo "🎨 Запускаю dev-сервер на http://localhost:3000"
+	@pnpm dev
+
 install: ## Установить зависимости
 	pnpm install
 
@@ -65,3 +77,20 @@ db-up: ## Поднять только БД
 
 db-down: ## Остановить только БД
 	docker compose stop postgres
+
+backup: ## Создать ручной бэкап базы данных
+	@chmod +x scripts/backup.sh
+	@bash scripts/backup.sh
+
+backup-install: ## Установить автоматический бэкап (раз в сутки в 3:00)
+	@echo "Установка автоматического бэкапа..."
+	@mkdir -p ~/Library/LaunchAgents
+	@PROJECT_DIR="$$(pwd)" envsubst < scripts/com.otchet-admin.backup.plist.template > ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || \
+		sed "s|PROJECT_DIR|$$(pwd)|g" scripts/com.otchet-admin.backup.plist.template > ~/Library/LaunchAgents/com.otchet-admin.backup.plist
+	@launchctl load ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || launchctl bootstrap gui/$$(id -u) ~/Library/LaunchAgents/com.otchet-admin.backup.plist
+	@echo "✓ Автоматический бэкап установлен (запуск каждый день в 3:00)"
+
+backup-uninstall: ## Удалить автоматический бэкап
+	@launchctl unload ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || launchctl bootout gui/$$(id -u) ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || true
+	@rm -f ~/Library/LaunchAgents/com.otchet-admin.backup.plist
+	@echo "✓ Автоматический бэкап удален"
