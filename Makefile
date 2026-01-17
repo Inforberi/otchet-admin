@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart migrate migrate-create migrate-reset seed reset build clean dev dev-start backup backup-install backup-uninstall
+.PHONY: help up down logs restart migrate migrate-create migrate-reset seed reset build build-up clean dev dev-start backup backup-install backup-uninstall
 
 help: ## Показать эту справку
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -43,6 +43,14 @@ reset: down ## Полный сброс: остановить, удалить vol
 
 build: ## Собрать Docker образы заново
 	docker compose build --no-cache
+
+build-up: ## Собрать образы и поднять все сервисы
+	@echo "🔨 Сборка Docker образов..."
+	@docker compose build --no-cache
+	@echo "🚀 Подъем сервисов..."
+	@mkdir -p uploads
+	@docker compose up -d
+	@echo "✅ Готово! Сервисы запущены."
 
 clean: ## Очистить Docker (образы, volumes, etc)
 	docker compose down -v

@@ -4,33 +4,34 @@ Production-ready система для создания и управления 
 
 ## 🚀 Возможности
 
-- ✅ **PostgreSQL** - основная база данных
-- ✅ **Prisma ORM** - типобезопасная работа с БД
-- ✅ **Список отчетов** - создание, редактирование, удаление, поиск
-- ✅ **Редактор блоков** - удобный интерфейс с drag & drop
-- ✅ **Markdown** - поддержка разметки в текстовых блоках
-- ✅ **Загрузка изображений** - хранение на сервере (не в БД)
-- ✅ **Расширенные фото-блоки** - 2 фото рядом, подписи, настройки layout
-- ✅ **PDF экспорт** - серверная генерация через Playwright
-- ✅ **Docker** - простой запуск одной командой
+-   ✅ **PostgreSQL** - основная база данных
+-   ✅ **Prisma ORM** - типобезопасная работа с БД
+-   ✅ **Авторизация** - защита доступа с сессиями
+-   ✅ **Список отчетов** - создание, редактирование, удаление, поиск
+-   ✅ **Редактор блоков** - удобный интерфейс с drag & drop
+-   ✅ **Markdown** - поддержка разметки в текстовых блоках
+-   ✅ **Загрузка изображений** - хранение на сервере (не в БД)
+-   ✅ **Расширенные фото-блоки** - 2 фото рядом, подписи, настройки layout
+-   ✅ **PDF экспорт** - серверная генерация через Playwright
+-   ✅ **Docker** - простой запуск одной командой
 
 ## 📋 Стек технологий
 
-- **Frontend**: Next.js 16, React 19, TypeScript
-- **Styling**: Tailwind CSS 4
-- **UI**: Radix UI, lucide-react
-- **Database**: PostgreSQL 16, Prisma 7
-- **PDF**: Playwright (headless Chromium)
-- **DnD**: @dnd-kit
-- **Markdown**: react-markdown, remark-gfm
+-   **Frontend**: Next.js 16, React 19, TypeScript
+-   **Styling**: Tailwind CSS 4
+-   **UI**: Radix UI, lucide-react
+-   **Database**: PostgreSQL 16, Prisma 7
+-   **PDF**: Playwright (headless Chromium)
+-   **DnD**: @dnd-kit
+-   **Markdown**: react-markdown, remark-gfm
 
 ## 🛠️ Установка и запуск
 
 ### Предварительные требования
 
-- Node.js 20+
-- pnpm 10+
-- Docker & Docker Compose
+-   Node.js 20+
+-   pnpm 10+
+-   Docker & Docker Compose
 
 ### Быстрый старт
 
@@ -57,6 +58,8 @@ pnpm dev
 ```
 
 Приложение будет доступно по адресу: http://localhost:3000
+
+При первом запуске вы будете перенаправлены на страницу входа. Используйте логин и пароль из переменных окружения `ADMIN_USERNAME` и `ADMIN_PASSWORD` (по умолчанию: `admin` / `admin123`).
 
 ### Docker (production)
 
@@ -118,49 +121,54 @@ admin-panel/
 
 ### Редактор блоков
 
-- **Левая панель** - предпросмотр отчета
-- **Правая панель** - список блоков с drag & drop
-- Добавление блоков: текст или фото
-- Drag & drop для изменения порядка
-- Клик на блок для редактирования
+-   **Левая панель** - предпросмотр отчета
+-   **Правая панель** - список блоков с drag & drop
+-   Добавление блоков: текст или фото
+-   Drag & drop для изменения порядка
+-   Клик на блок для редактирования
 
 ### Типы блоков
 
 #### Текстовый блок
-- Поддержка Markdown (заголовки, списки, ссылки, код, цитаты)
-- Настройка размера шрифта
-- Форматирование (жирный, курсив)
+
+-   Поддержка Markdown (заголовки, списки, ссылки, код, цитаты)
+-   Настройка размера шрифта
+-   Форматирование (жирный, курсив)
 
 #### Фото-блок
-- Загрузка нескольких изображений
-- Layout: full-width, sidebar, two-column
-- Подписи для каждого изображения (caption)
-- Alt текст для доступности
-- Настройка размеров и отступов
+
+-   Загрузка нескольких изображений
+-   Layout: full-width, sidebar, two-column
+-   Подписи для каждого изображения (caption)
+-   Alt текст для доступности
+-   Настройка размеров и отступов
 
 ### Экспорт в PDF
 
-- Серверная генерация через Playwright
-- Корректная верстка на всех страницах
-- Поддержка Markdown в PDF
-- Изображения встраиваются корректно
-- A4 формат с полями
+-   Серверная генерация через Playwright
+-   Корректная верстка на всех страницах
+-   Поддержка Markdown в PDF
+-   Изображения встраиваются корректно
+-   A4 формат с полями
 
 ## 🗃️ База данных
 
 ### Модели
 
 **reports** - отчеты
-- id, title, subtitle, client, date, status
-- created_at, updated_at
+
+-   id, title, subtitle, client, date, status
+-   created_at, updated_at
 
 **report_blocks** - блоки отчетов
-- id, report_id, type, position, data (jsonb)
-- created_at, updated_at
+
+-   id, report_id, type, position, data (jsonb)
+-   created_at, updated_at
 
 **uploads** - метаданные файлов
-- id, report_id, filename, path, mime_type, size
-- created_at
+
+-   id, report_id, filename, path, mime_type, size
+-   created_at
 
 ### Миграции
 
@@ -207,39 +215,89 @@ make help             # Показать все команды
 ## 🌐 API Endpoints
 
 ### Отчеты
-- `GET /api/reports` - список отчетов (с поиском)
-- `POST /api/reports` - создать отчет
-- `GET /api/reports/[id]` - получить отчет
-- `PATCH /api/reports/[id]` - обновить отчет
-- `DELETE /api/reports/[id]` - удалить отчет
-- `GET /api/reports/[id]/pdf` - скачать PDF
+
+-   `GET /api/reports` - список отчетов (с поиском)
+-   `POST /api/reports` - создать отчет
+-   `GET /api/reports/[id]` - получить отчет
+-   `PATCH /api/reports/[id]` - обновить отчет
+-   `DELETE /api/reports/[id]` - удалить отчет
+-   `GET /api/reports/[id]/pdf` - скачать PDF
 
 ### Блоки
-- `GET /api/reports/[id]/blocks` - список блоков
-- `POST /api/reports/[id]/blocks` - создать блок
-- `PATCH /api/reports/[id]/blocks/[blockId]` - обновить блок
-- `DELETE /api/reports/[id]/blocks/[blockId]` - удалить блок
-- `POST /api/reports/[id]/blocks/reorder` - изменить порядок
+
+-   `GET /api/reports/[id]/blocks` - список блоков
+-   `POST /api/reports/[id]/blocks` - создать блок
+-   `PATCH /api/reports/[id]/blocks/[blockId]` - обновить блок
+-   `DELETE /api/reports/[id]/blocks/[blockId]` - удалить блок
+-   `POST /api/reports/[id]/blocks/reorder` - изменить порядок
 
 ### Загрузка файлов
-- `POST /api/uploads` - загрузить файл
-- `GET /api/uploads?reportId=[id]` - список загрузок
-- `DELETE /api/uploads/[id]` - удалить файл
+
+-   `POST /api/uploads` - загрузить файл
+-   `GET /api/uploads?reportId=[id]` - список загрузок
+-   `DELETE /api/uploads/[id]` - удалить файл
+
+### Авторизация
+
+-   `POST /api/auth/login` - войти в систему
+-   `POST /api/auth/logout` - выйти из системы
+
+**Все API endpoints (кроме `/api/auth/login`) требуют авторизации.**
 
 ## 🔐 Переменные окружения
 
-Создайте `.env` файл (см. `.env.template`):
+Создайте `.env` файл:
 
 ```env
 DATABASE_URL="postgresql://admin:password@localhost:5432/admin_panel?schema=public"
 PORT=3000
 UPLOAD_DIR="./uploads"
 MAX_UPLOAD_SIZE=10485760
+
+# Авторизация
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="your-secure-password-here"
+VIEWER_USERNAME="viewer"
+VIEWER_PASSWORD="your-viewer-password-here"
+SESSION_SECRET="your-random-secret-key-here"
 ```
+
+### Настройка авторизации
+
+**Роли пользователей:**
+
+1. **Администратор** (`admin`) - полный доступ:
+
+    - Просмотр всех отчетов
+    - Создание, редактирование и удаление отчетов
+    - Управление блоками и загрузка файлов
+
+2. **Просмотр** (`viewer`) - только чтение:
+    - Просмотр всех отчетов
+    - Без возможности редактирования
+
+**Переменные окружения:**
+
+-   `ADMIN_USERNAME` - логин администратора (по умолчанию: `admin`)
+-   `ADMIN_PASSWORD` - пароль администратора (обязательно измените в production!)
+-   `VIEWER_USERNAME` - логин для просмотра (по умолчанию: `viewer`)
+-   `VIEWER_PASSWORD` - пароль для просмотра (обязательно измените в production!)
+-   `SESSION_SECRET` - секретный ключ для подписи сессий (обязательно измените в production!)
+
+**По умолчанию (если не указано):**
+
+-   `ADMIN_USERNAME` = `admin`
+-   `ADMIN_PASSWORD` = `admin123`
+-   `VIEWER_USERNAME` = `viewer`
+-   `VIEWER_PASSWORD` = `viewer123`
+-   `SESSION_SECRET` = `change-me-in-production`
+
+**⚠️ ВАЖНО**: Обязательно измените эти значения перед деплоем в production!
 
 ## 🐛 Troubleshooting
 
 ### Проблема: Docker не запускается
+
 ```bash
 # Проверить статус Docker
 docker ps
@@ -249,6 +307,7 @@ open -a Docker
 ```
 
 ### Проблема: Ошибка подключения к БД
+
 ```bash
 # Проверить что БД запущена
 make logs-db
@@ -258,12 +317,14 @@ make reset
 ```
 
 ### Проблема: Ошибка миграций
+
 ```bash
 # Сбросить БД и применить миграции заново
 make migrate-reset
 ```
 
 ### Проблема: Playwright не работает
+
 ```bash
 # Установить браузеры Playwright
 pnpm exec playwright install chromium
@@ -287,11 +348,12 @@ pnpm exec playwright install chromium
 4. Проверьте логи: `make logs`
 
 ### Чеклист перед деплоем
-- ✅ БД настроена и доступна
-- ✅ Миграции применены
-- ✅ Переменные окружения корректны
-- ✅ UPLOAD_DIR существует и доступен
-- ✅ Playwright установлен в Docker образе
+
+-   ✅ БД настроена и доступна
+-   ✅ Миграции применены
+-   ✅ Переменные окружения корректны
+-   ✅ UPLOAD_DIR существует и доступен
+-   ✅ Playwright установлен в Docker образе
 
 ## 📄 Лицензия
 
@@ -300,4 +362,5 @@ MIT
 ## 👨‍💻 Автор
 
 Разработано как production-ready админ-панель для сборки отчетов.
+
 # otchet-admin
