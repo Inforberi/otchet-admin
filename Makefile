@@ -56,8 +56,15 @@ clean: ## Очистить Docker (образы, volumes, etc)
 	docker compose down -v
 	docker system prune -af --volumes
 
-dev: ## Запустить приложение в dev режиме (локально, нужна запущенная БД)
-	pnpm dev
+dev: ## Запустить приложение в dev режиме (автоматически запускает БД)
+	@echo "🚀 Запуск dev окружения..."
+	@mkdir -p uploads
+	@echo "📦 Проверяю и поднимаю БД..."
+	@docker compose up -d postgres || true
+	@echo "⏳ Жду готовности БД..."
+	@sleep 3
+	@echo "🎨 Запускаю dev-сервер на http://localhost:3000"
+	@pnpm dev
 
 dev-start: ## Запустить БД и dev-сервер (полный старт для разработки)
 	@echo "🚀 Запуск dev окружения..."

@@ -18,9 +18,8 @@ export function TextBlockView({ data, titleFontSize = '40', contentFontSize = '2
                 <h2
                     className="font-semibold text-zinc-100 mb-8 tracking-tight"
                     style={{ fontSize: `${titleFontSize}px` }}
-                >
-                    {data.title}
-                </h2>
+                    dangerouslySetInnerHTML={{ __html: data.title }}
+                />
             )}
 
             {data.content && (

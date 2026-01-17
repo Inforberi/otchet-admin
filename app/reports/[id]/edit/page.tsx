@@ -375,19 +375,18 @@ function BlockEditor({
                                 <label className="block text-sm font-medium text-zinc-300 mb-2">
                                     Заголовок (опционально)
                                 </label>
-                                <input
-                                    type="text"
+                                <FormattedTextEditor
                                     value={
                                         (localData as TextBlockData).title || ''
                                     }
-                                    onChange={(e) =>
+                                    onChange={(value) =>
                                         setLocalData({
                                             ...(localData as TextBlockData),
-                                            title: e.target.value,
+                                            title: value,
                                         } as TextBlockData)
                                     }
-                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Заголовок раздела..."
+                                    minHeight="60px"
                                 />
                             </div>
                             <div>
@@ -416,20 +415,19 @@ function BlockEditor({
                                 <label className="block text-sm font-medium text-zinc-300 mb-2">
                                     Заголовок (опционально)
                                 </label>
-                                <input
-                                    type="text"
+                                <FormattedTextEditor
                                     value={
                                         (localData as ScreenshotBlockData)
                                             .title || ''
                                     }
-                                    onChange={(e) =>
+                                    onChange={(value) =>
                                         setLocalData({
-                                            ...(localData as TextBlockData),
-                                            title: e.target.value,
-                                        } as TextBlockData)
+                                            ...(localData as ScreenshotBlockData),
+                                            title: value,
+                                        } as ScreenshotBlockData)
                                     }
-                                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Заголовок блока..."
+                                    minHeight="60px"
                                 />
                             </div>
                             <div>
@@ -600,6 +598,10 @@ function FormattedTextEditor({
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [customColor, setCustomColor] = useState('#ffffff');
     const colorPickerRef = useRef<HTMLDivElement>(null);
+    const [isBold, setIsBold] = useState(false);
+    const [isItalic, setIsItalic] = useState(false);
+    const [currentColor, setCurrentColor] = useState('#ffffff');
+    const [hasCustomColor, setHasCustomColor] = useState(false);
 
     const colors = [
         { name: 'Белый', value: '#ffffff' },
@@ -617,6 +619,162 @@ function FormattedTextEditor({
             editorRef.current.innerHTML = value || '';
         }
     }, [value]);
+
+    // Функция для проверки активных стилей выделенного текста
+    const checkActiveStyles = () => {
+        if (!editorRef.current) return;
+
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+            setIsBold(false);
+            setIsItalic(false);
+            setCurrentColor('#ffffff');
+            setHasCustomColor(false);
+            return;
+        }
+
+        const range = selection.getRangeAt(0);
+        if (!editorRef.current.contains(range.commonAncestorContainer)) {
+            setIsBold(false);
+            setIsItalic(false);
+            setCurrentColor('#ffffff');
+            setHasCustomColor(false);
+            return;
+        }
+
+        // Проверяем bold
+        const isBoldActive = document.queryCommandState('bold');
+        setIsBold(isBoldActive);
+
+        // Проверяем italic
+        const isItalicActive = document.queryCommandState('italic');
+        setIsItalic(isItalicActive);
+
+        // Проверяем цвет через computed style выделенного элемента
+        try {
+            let colorFound = false;
+            if (range && !range.collapsed) {
+                const container = range.commonAncestorContainer;
+                const element =
+                    container.nodeType === Node.TEXT_NODE
+                        ? container.parentElement
+                        : (container as Element);
+
+                if (element) {
+                    const computedStyle = window.getComputedStyle(element);
+                    const color = computedStyle.color;
+
+                    if (
+                        color &&
+                        color !== 'rgb(0, 0, 0)' &&
+                        color !== 'rgb(255, 255, 255)' &&
+                        color !== 'rgb(228, 228, 231)' // дефолтный цвет текста в редакторе (zinc-200)
+                    ) {
+                        // Конвертируем rgb в hex
+                        let hexColor = color;
+                        if (color.startsWith('rgb')) {
+                            const rgb = color.match(/\d+/g);
+                            if (rgb && rgb.length >= 3) {
+                                hexColor =
+                                    '#' +
+                                    rgb
+                                        .slice(0, 3)
+                                        .map((x) => {
+                                            const hex =
+                                                parseInt(x).toString(16);
+                                            return hex.length === 1
+                                                ? '0' + hex
+                                                : hex;
+                                        })
+                                        .join('');
+                            }
+                        }
+                        setCurrentColor(hexColor);
+                        setCustomColor(hexColor);
+                        setHasCustomColor(true);
+                        colorFound = true;
+                    } else {
+                        setHasCustomColor(false);
+                    }
+                }
+            }
+
+            // Fallback на queryCommandValue если не нашли через computed style
+            if (!colorFound) {
+                const color = document.queryCommandValue('foreColor');
+                if (
+                    color &&
+                    color !== 'rgb(0, 0, 0)' &&
+                    color !== '#000000' &&
+                    color !== 'rgb(255, 255, 255)' &&
+                    color !== '#ffffff'
+                ) {
+                    let hexColor = color;
+                    if (color.startsWith('rgb')) {
+                        const rgb = color.match(/\d+/g);
+                        if (rgb && rgb.length >= 3) {
+                            hexColor =
+                                '#' +
+                                rgb
+                                    .slice(0, 3)
+                                    .map((x) => {
+                                        const hex = parseInt(x).toString(16);
+                                        return hex.length === 1
+                                            ? '0' + hex
+                                            : hex;
+                                    })
+                                    .join('');
+                        }
+                    }
+                    // Проверяем что это не дефолтный цвет редактора
+                    if (hexColor !== '#e4e4e7') {
+                        setCurrentColor(hexColor);
+                        setCustomColor(hexColor);
+                        setHasCustomColor(true);
+                    } else {
+                        setHasCustomColor(false);
+                    }
+                } else {
+                    setCurrentColor('#ffffff');
+                    setHasCustomColor(false);
+                }
+            }
+        } catch {
+            setCurrentColor('#ffffff');
+            setHasCustomColor(false);
+        }
+    };
+
+    // Отслеживание изменений выделения
+    useEffect(() => {
+        const editor = editorRef.current;
+        if (!editor) return;
+
+        const handleSelectionChange = () => {
+            checkActiveStyles();
+        };
+
+        const handleMouseUp = () => {
+            setTimeout(checkActiveStyles, 10);
+        };
+
+        const handleKeyUp = () => {
+            setTimeout(checkActiveStyles, 10);
+        };
+
+        document.addEventListener('selectionchange', handleSelectionChange);
+        editor.addEventListener('mouseup', handleMouseUp);
+        editor.addEventListener('keyup', handleKeyUp);
+
+        return () => {
+            document.removeEventListener(
+                'selectionchange',
+                handleSelectionChange
+            );
+            editor.removeEventListener('mouseup', handleMouseUp);
+            editor.removeEventListener('keyup', handleKeyUp);
+        };
+    }, []);
 
     // Закрытие color picker при клике вне его
     useEffect(() => {
@@ -662,15 +820,20 @@ function FormattedTextEditor({
 
             // Если выделение есть и оно внутри редактора, применяем форматирование
             // document.execCommand автоматически применяет форматирование только к выделенному тексту
-            if (isInEditor && !selection.isCollapsed) {
+            if (isInEditor) {
                 document.execCommand(command, false, value);
                 handleInput();
+                // Обновляем активные стили после применения форматирования
+                setTimeout(checkActiveStyles, 10);
             }
         }
     };
 
     const handleColorChange = (color: string) => {
         formatText('foreColor', color);
+        setCurrentColor(color);
+        setCustomColor(color);
+        setHasCustomColor(true);
         setShowColorPicker(false);
     };
 
@@ -679,7 +842,11 @@ function FormattedTextEditor({
     ) => {
         const color = e.target.value;
         setCustomColor(color);
-        formatText('foreColor', color);
+        if (/^#[0-9A-F]{6}$/i.test(color)) {
+            formatText('foreColor', color);
+            setCurrentColor(color);
+            setHasCustomColor(true);
+        }
     };
 
     return (
@@ -689,7 +856,11 @@ function FormattedTextEditor({
                 <button
                     type="button"
                     onClick={() => formatText('bold')}
-                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors cursor-pointer"
+                    className={`p-1.5 rounded transition-colors cursor-pointer ${
+                        isBold
+                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                            : 'hover:bg-zinc-700 text-zinc-300'
+                    }`}
                     title="Жирный (Ctrl+B)"
                 >
                     <Bold className="w-4 h-4" />
@@ -697,7 +868,11 @@ function FormattedTextEditor({
                 <button
                     type="button"
                     onClick={() => formatText('italic')}
-                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors cursor-pointer"
+                    className={`p-1.5 rounded transition-colors cursor-pointer ${
+                        isItalic
+                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                            : 'hover:bg-zinc-700 text-zinc-300'
+                    }`}
                     title="Курсив (Ctrl+I)"
                 >
                     <Italic className="w-4 h-4" />
@@ -706,12 +881,20 @@ function FormattedTextEditor({
                     <button
                         type="button"
                         onClick={() => setShowColorPicker(!showColorPicker)}
-                        className={`p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors flex items-center gap-1 cursor-pointer ${
-                            showColorPicker ? 'bg-zinc-700' : ''
+                        className={`p-1.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${
+                            showColorPicker
+                                ? 'bg-zinc-700'
+                                : 'hover:bg-zinc-700 text-zinc-300'
                         }`}
                         title="Цвет текста"
                     >
                         <Palette className="w-4 h-4" />
+                        {hasCustomColor && (
+                            <div
+                                className="w-3 h-3 rounded border border-zinc-500"
+                                style={{ backgroundColor: currentColor }}
+                            />
+                        )}
                     </button>
                     {showColorPicker && (
                         <div className="absolute left-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded p-3 shadow-lg z-50 min-w-[200px]">
@@ -755,6 +938,8 @@ function FormattedTextEditor({
                                             setCustomColor(color);
                                             if (/^#[0-9A-F]{6}$/i.test(color)) {
                                                 formatText('foreColor', color);
+                                                setCurrentColor(color);
+                                                setHasCustomColor(true);
                                             }
                                         }}
                                         className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200"
@@ -1305,17 +1490,16 @@ export default function EditReportPage() {
                                     <label className="block text-sm font-medium text-zinc-300 mb-1.5">
                                         Название отчёта *
                                     </label>
-                                    <input
-                                        type="text"
+                                    <FormattedTextEditor
                                         value={report.title}
-                                        onChange={(e) =>
+                                        onChange={(value) =>
                                             setReport({
                                                 ...report,
-                                                title: e.target.value,
+                                                title: value,
                                             })
                                         }
-                                        className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         placeholder="Отчёт по аудиту сайта"
+                                        minHeight="60px"
                                     />
                                 </div>
                                 <div>

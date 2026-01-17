@@ -136,9 +136,12 @@ export default function ReportViewPage() {
 
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-2">
-                            <h1 className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl">
-                                {report.title}
-                            </h1>
+                            <h1
+                                className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
+                                dangerouslySetInnerHTML={{
+                                    __html: report.title,
+                                }}
+                            />
                             {report.subtitle && (
                                 <div
                                     className="text-lg text-zinc-300 whitespace-pre-wrap"

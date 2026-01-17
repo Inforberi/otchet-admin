@@ -73,9 +73,8 @@ export function ScreenshotBlockView({
                         <h2
                             className="font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
-                        >
-                            {data.title}
-                        </h2>
+                            dangerouslySetInnerHTML={{ __html: data.title }}
+                        />
                     )}
 
                     {data.description && (
@@ -142,9 +141,8 @@ export function ScreenshotBlockView({
                         <h2
                             className="font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
-                        >
-                            {data.title}
-                        </h2>
+                            dangerouslySetInnerHTML={{ __html: data.title }}
+                        />
                     )}
 
                     {data.description && (
@@ -212,9 +210,10 @@ export function ScreenshotBlockView({
             <>
                 <section className="space-y-6">
                     {data.title && (
-                        <h2 className="text-[20px] font-semibold text-white mb-8 tracking-tight">
-                            {data.title}
-                        </h2>
+                        <h2
+                            className="text-[20px] font-semibold text-white mb-8 tracking-tight"
+                            dangerouslySetInnerHTML={{ __html: data.title }}
+                        />
                     )}
 
                     <div className="flex flex-col md:flex-row gap-8">
@@ -281,9 +280,10 @@ export function ScreenshotBlockView({
             <>
                 <section className="space-y-6">
                     {data.title && (
-                        <h2 className="text-[20px] font-semibold text-white mb-8 tracking-tight">
-                            {data.title}
-                        </h2>
+                        <h2
+                            className="text-[20px] font-semibold text-white mb-8 tracking-tight"
+                            dangerouslySetInnerHTML={{ __html: data.title }}
+                        />
                     )}
 
                     <div className="flex flex-col md:flex-row gap-8">
@@ -357,12 +357,11 @@ export function ScreenshotBlockView({
             )}
 
             {data.description && (
-                <p
+                <div
                     className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                     style={{ fontSize: `${descriptionFontSize}px` }}
-                >
-                    {data.description}
-                </p>
+                    dangerouslySetInnerHTML={{ __html: data.description }}
+                />
             )}
 
             {data.images.length > 0 ? (
