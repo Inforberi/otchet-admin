@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useUserRole } from '@/hooks/use-user-role';
 import type {
     ReportFromDB,
     ReportBlockFromDB,
@@ -26,6 +27,8 @@ import {
     Bold,
     Italic,
     Palette,
+    LogOut,
+    Settings,
 } from 'lucide-react';
 import {
     DndContext,
@@ -137,7 +140,7 @@ function SortableBlockCard({
                             e.stopPropagation();
                             onDuplicate(block.id);
                         }}
-                        className="p-1 hover:bg-zinc-700 rounded text-zinc-400"
+                        className="p-1 hover:bg-zinc-700 rounded text-zinc-400 cursor-pointer"
                         title="Дублировать"
                     >
                         <Copy className="w-3.5 h-3.5" />
@@ -147,7 +150,7 @@ function SortableBlockCard({
                             e.stopPropagation();
                             onDelete(block.id);
                         }}
-                        className="p-1 hover:bg-red-900 rounded text-red-400"
+                        className="p-1 hover:bg-red-900 rounded text-red-400 cursor-pointer"
                         title="Удалить"
                     >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -165,7 +168,10 @@ function BlockEditor({
     reportId,
 }: {
     block: ReportBlockFromDB;
-    onUpdate: (id: string, data: TextBlockData | ScreenshotBlockData | DividerBlockData) => void;
+    onUpdate: (
+        id: string,
+        data: TextBlockData | ScreenshotBlockData | DividerBlockData
+    ) => void;
     reportId: string;
 }) {
     const [localData, setLocalData] = useState(block.data);
@@ -270,16 +276,25 @@ function BlockEditor({
 
         // Удаляем изображение из локального состояния
         const updatedImages = images.filter((_, i) => i !== index);
-        setLocalData({ ...(localData as ScreenshotBlockData), images: updatedImages } as ScreenshotBlockData);
+        setLocalData({
+            ...(localData as ScreenshotBlockData),
+            images: updatedImages,
+        } as ScreenshotBlockData);
 
         // Удаляем файл с сервера
         try {
             // Извлекаем path из URL: /api/static/uploads/{path}
-            const urlPath = imageToRemove.url.replace('/api/static/uploads/', '');
-            
-            const res = await fetch(`/api/uploads/by-path?path=${encodeURIComponent(urlPath)}`, {
-                method: 'DELETE',
-            });
+            const urlPath = imageToRemove.url.replace(
+                '/api/static/uploads/',
+                ''
+            );
+
+            const res = await fetch(
+                `/api/uploads/by-path?path=${encodeURIComponent(urlPath)}`,
+                {
+                    method: 'DELETE',
+                }
+            );
 
             if (!res.ok) {
                 console.error('Failed to delete file from server');
@@ -294,13 +309,19 @@ function BlockEditor({
     function handleUpdateImageCaption(index: number, caption: string) {
         const images = [...(localData as ScreenshotBlockData).images];
         images[index] = { ...images[index], caption };
-        setLocalData({ ...(localData as ScreenshotBlockData), images } as ScreenshotBlockData);
+        setLocalData({
+            ...(localData as ScreenshotBlockData),
+            images,
+        } as ScreenshotBlockData);
     }
 
     function handleUpdateImageAlt(index: number, alt: string) {
         const images = [...(localData as ScreenshotBlockData).images];
         images[index] = { ...images[index], alt };
-        setLocalData({ ...(localData as ScreenshotBlockData), images } as ScreenshotBlockData);
+        setLocalData({
+            ...(localData as ScreenshotBlockData),
+            images,
+        } as ScreenshotBlockData);
     }
 
     if (block.type === 'divider') {
@@ -335,7 +356,7 @@ function BlockEditor({
                 </div>
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400"
+                    className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400 cursor-pointer"
                 >
                     {isExpanded ? (
                         <ChevronUp className="w-5 h-5" />
@@ -374,7 +395,10 @@ function BlockEditor({
                                     Описание (опционально)
                                 </label>
                                 <FormattedTextEditor
-                                    value={(localData as TextBlockData).content || ''}
+                                    value={
+                                        (localData as TextBlockData).content ||
+                                        ''
+                                    }
                                     onChange={(value) =>
                                         setLocalData({
                                             ...(localData as TextBlockData),
@@ -479,7 +503,7 @@ function BlockEditor({
                                                     onClick={() =>
                                                         handleRemoveImage(idx)
                                                     }
-                                                    className="self-start p-1 hover:bg-red-900 rounded text-red-400"
+                                                    className="self-start p-1 hover:bg-red-900 rounded text-red-400 cursor-pointer"
                                                     title="Удалить изображение"
                                                 >
                                                     <X className="w-4 h-4" />
@@ -504,8 +528,8 @@ function BlockEditor({
                                                 {uploading
                                                     ? 'Загрузка...'
                                                     : isDragOver
-                                                      ? 'Отпустите для загрузки'
-                                                      : 'Перетащите изображения или нажмите для выбора'}
+                                                    ? 'Отпустите для загрузки'
+                                                    : 'Перетащите изображения или нажмите для выбора'}
                                             </span>
                                             <input
                                                 type="file"
@@ -532,7 +556,8 @@ function BlockEditor({
                                     onChange={(e) =>
                                         setLocalData({
                                             ...(localData as ScreenshotBlockData),
-                                            layout: e.target.value as ScreenshotBlockData['layout'],
+                                            layout: e.target
+                                                .value as ScreenshotBlockData['layout'],
                                         } as ScreenshotBlockData)
                                     }
                                     className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -606,7 +631,8 @@ function FormattedTextEditor({
 
         if (showColorPicker) {
             document.addEventListener('mousedown', handleClickOutside);
-            return () => document.removeEventListener('mousedown', handleClickOutside);
+            return () =>
+                document.removeEventListener('mousedown', handleClickOutside);
         }
     }, [showColorPicker]);
 
@@ -625,13 +651,15 @@ function FormattedTextEditor({
     const formatText = (command: string, value?: string) => {
         // Фокусируемся на редакторе перед применением форматирования
         editorRef.current?.focus();
-        
+
         // Проверяем наличие выделения внутри редактора
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
-            const isInEditor = editorRef.current?.contains(range.commonAncestorContainer);
-            
+            const isInEditor = editorRef.current?.contains(
+                range.commonAncestorContainer
+            );
+
             // Если выделение есть и оно внутри редактора, применяем форматирование
             // document.execCommand автоматически применяет форматирование только к выделенному тексту
             if (isInEditor && !selection.isCollapsed) {
@@ -646,7 +674,9 @@ function FormattedTextEditor({
         setShowColorPicker(false);
     };
 
-    const handleCustomColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleCustomColorChange = (
+        e: React.ChangeEvent<HTMLInputElement>
+    ) => {
         const color = e.target.value;
         setCustomColor(color);
         formatText('foreColor', color);
@@ -659,7 +689,7 @@ function FormattedTextEditor({
                 <button
                     type="button"
                     onClick={() => formatText('bold')}
-                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
+                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors cursor-pointer"
                     title="Жирный (Ctrl+B)"
                 >
                     <Bold className="w-4 h-4" />
@@ -667,7 +697,7 @@ function FormattedTextEditor({
                 <button
                     type="button"
                     onClick={() => formatText('italic')}
-                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors"
+                    className="p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors cursor-pointer"
                     title="Курсив (Ctrl+I)"
                 >
                     <Italic className="w-4 h-4" />
@@ -676,7 +706,7 @@ function FormattedTextEditor({
                     <button
                         type="button"
                         onClick={() => setShowColorPicker(!showColorPicker)}
-                        className={`p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors flex items-center gap-1 ${
+                        className={`p-1.5 hover:bg-zinc-700 rounded text-zinc-300 transition-colors flex items-center gap-1 cursor-pointer ${
                             showColorPicker ? 'bg-zinc-700' : ''
                         }`}
                         title="Цвет текста"
@@ -694,9 +724,13 @@ function FormattedTextEditor({
                                         <button
                                             key={color.value}
                                             type="button"
-                                            onClick={() => handleColorChange(color.value)}
-                                            className="w-6 h-6 rounded border border-zinc-600 hover:scale-110 transition-transform"
-                                            style={{ backgroundColor: color.value }}
+                                            onClick={() =>
+                                                handleColorChange(color.value)
+                                            }
+                                            className="w-6 h-6 rounded border border-zinc-600 hover:scale-110 transition-transform cursor-pointer"
+                                            style={{
+                                                backgroundColor: color.value,
+                                            }}
                                             title={color.name}
                                         />
                                     ))}
@@ -750,6 +784,7 @@ export default function EditReportPage() {
     const router = useRouter();
     const params = useParams();
     const reportId = params.id as string;
+    const { isAdmin, loading: roleLoading } = useUserRole();
 
     const [report, setReport] = useState<ReportFromDB | null>(null);
     const [blocks, setBlocks] = useState<ReportBlockFromDB[]>([]);
@@ -757,6 +792,25 @@ export default function EditReportPage() {
     const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [timeUntilSave, setTimeUntilSave] = useState(120); // 2 минуты в секундах
+    const [showAutoSaveSettings, setShowAutoSaveSettings] = useState(false);
+
+    // Настройки автосохранения
+    const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('autoSaveEnabled');
+            return saved !== null ? saved === 'true' : true; // По умолчанию включено
+        }
+        return true;
+    });
+    const [autoSaveIntervalMinutes, setAutoSaveIntervalMinutes] = useState(
+        () => {
+            if (typeof window !== 'undefined') {
+                const saved = localStorage.getItem('autoSaveIntervalMinutes');
+                return saved ? parseInt(saved, 10) : 2; // По умолчанию 2 минуты
+            }
+            return 2;
+        }
+    );
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -771,8 +825,15 @@ export default function EditReportPage() {
     }, [blocks]);
 
     useEffect(() => {
-        fetchReport();
-    }, [reportId]);
+        if (!roleLoading && !isAdmin) {
+            router.push(`/reports/${reportId}`);
+            return;
+        }
+        if (isAdmin && reportId) {
+            fetchReport();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reportId, isAdmin, roleLoading]);
 
     // Установить текущую дату, если она не задана
     useEffect(() => {
@@ -792,30 +853,88 @@ export default function EditReportPage() {
         }
     }, [selectedBlockId]);
 
-    // Таймер обратного отсчета
+    // Сохранение настроек автосохранения в localStorage
     useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('autoSaveEnabled', String(autoSaveEnabled));
+        }
+    }, [autoSaveEnabled]);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(
+                'autoSaveIntervalMinutes',
+                String(autoSaveIntervalMinutes)
+            );
+        }
+    }, [autoSaveIntervalMinutes]);
+
+    // Таймер обратного отсчета (только если автосохранение включено)
+    useEffect(() => {
+        if (!autoSaveEnabled) {
+            setTimeUntilSave(0);
+            return;
+        }
+
+        const intervalSeconds = autoSaveIntervalMinutes * 60;
+        setTimeUntilSave(intervalSeconds);
+
         const timer = setInterval(() => {
             setTimeUntilSave((prev) => {
                 if (prev <= 1) {
-                    return 120; // Сброс таймера
+                    return intervalSeconds; // Сброс таймера
                 }
                 return prev - 1;
             });
         }, 1000);
 
         return () => clearInterval(timer);
-    }, []);
+    }, [autoSaveEnabled, autoSaveIntervalMinutes]);
 
-    // Автосохранение каждые 2 минуты
+    // Автосохранение (только если включено)
     useEffect(() => {
+        if (!autoSaveEnabled || !report) {
+            return;
+        }
+
+        const intervalMs = autoSaveIntervalMinutes * 60 * 1000;
         const autoSave = setInterval(() => {
-            if (report) {
-                handleSaveMetadata(true);
-            }
-        }, 120000); // 120000ms = 2 минуты
+            handleSaveMetadata(true);
+        }, intervalMs);
 
         return () => clearInterval(autoSave);
-    }, [report]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [report, autoSaveEnabled, autoSaveIntervalMinutes]);
+
+    // Закрытие меню настроек при клике вне его
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (
+                showAutoSaveSettings &&
+                !target.closest('.auto-save-settings-menu') &&
+                !target.closest('.auto-save-settings-button')
+            ) {
+                setShowAutoSaveSettings(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () =>
+            document.removeEventListener('mousedown', handleClickOutside);
+    }, [showAutoSaveSettings]);
+
+    if (roleLoading) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-zinc-950">
+                <div className="text-zinc-400">Загрузка...</div>
+            </div>
+        );
+    }
+
+    if (!isAdmin) {
+        return null; // Редирект уже произошел
+    }
 
     async function handleSaveMetadata(isAutoSave = false) {
         if (!report) return;
@@ -844,6 +963,16 @@ export default function EditReportPage() {
             }
         } finally {
             setSaving(false);
+        }
+    }
+
+    async function handleLogout() {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            router.push('/login');
+            router.refresh();
+        } catch (error) {
+            console.error('Error logging out:', error);
         }
     }
 
@@ -919,7 +1048,10 @@ export default function EditReportPage() {
         }
     }
 
-    async function handleUpdateBlock(id: string, data: TextBlockData | ScreenshotBlockData | DividerBlockData) {
+    async function handleUpdateBlock(
+        id: string,
+        data: TextBlockData | ScreenshotBlockData | DividerBlockData
+    ) {
         try {
             const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
                 method: 'PATCH',
@@ -1033,7 +1165,7 @@ export default function EditReportPage() {
                 <div className="flex items-center gap-4">
                     <button
                         onClick={() => router.push('/reports')}
-                        className="p-2 hover:bg-zinc-800 rounded text-zinc-400"
+                        className="p-2 hover:bg-zinc-800 rounded text-zinc-400 cursor-pointer"
                         title="К списку отчетов"
                     >
                         <Home className="w-5 h-5" />
@@ -1046,21 +1178,112 @@ export default function EditReportPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 text-zinc-400 text-sm">
-                        <Clock className="w-4 h-4" />
-                        <span>Автосохранение: {formatTime(timeUntilSave)}</span>
+                    <div className="relative">
+                        <button
+                            onClick={() =>
+                                setShowAutoSaveSettings(!showAutoSaveSettings)
+                            }
+                            className="auto-save-settings-button flex items-center gap-2 text-zinc-400 text-sm px-3 py-2 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
+                            title="Настройки автосохранения"
+                        >
+                            <Clock className="w-4 h-4" />
+                            <span>
+                                {autoSaveEnabled
+                                    ? `Автосохранение: ${formatTime(
+                                          timeUntilSave
+                                      )}`
+                                    : 'Автосохранение: выключено'}
+                            </span>
+                            <Settings className="w-3.5 h-3.5" />
+                        </button>
+                        {showAutoSaveSettings && (
+                            <div className="auto-save-settings-menu absolute right-0 top-full mt-2 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg p-4 z-50 min-w-[280px]">
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-medium text-zinc-300">
+                                            Включить автосохранение
+                                        </label>
+                                        <button
+                                            onClick={() => {
+                                                setAutoSaveEnabled(
+                                                    !autoSaveEnabled
+                                                );
+                                            }}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                                                autoSaveEnabled
+                                                    ? 'bg-blue-600'
+                                                    : 'bg-zinc-700'
+                                            }`}
+                                        >
+                                            <span
+                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                                    autoSaveEnabled
+                                                        ? 'translate-x-6'
+                                                        : 'translate-x-1'
+                                                }`}
+                                            />
+                                        </button>
+                                    </div>
+                                    {autoSaveEnabled && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-zinc-300 mb-2">
+                                                Интервал (минуты)
+                                            </label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max="60"
+                                                    value={
+                                                        autoSaveIntervalMinutes
+                                                    }
+                                                    onChange={(e) => {
+                                                        const value = parseInt(
+                                                            e.target.value,
+                                                            10
+                                                        );
+                                                        if (
+                                                            value >= 1 &&
+                                                            value <= 60
+                                                        ) {
+                                                            setAutoSaveIntervalMinutes(
+                                                                value
+                                                            );
+                                                        }
+                                                    }}
+                                                    className="w-20 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                />
+                                                <span className="text-sm text-zinc-400">
+                                                    мин
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-zinc-500 mt-1">
+                                                От 1 до 60 минут
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
+                    <button
+                        onClick={handleLogout}
+                        className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded hover:bg-red-500/20 hover:border-red-500/30 flex items-center gap-2 text-red-400 hover:text-red-300 transition-all cursor-pointer"
+                        title="Выйти из системы"
+                    >
+                        <LogOut className="w-4 h-4" />
+                    </button>
                     <button
                         onClick={() => handleSaveMetadata(false)}
                         disabled={saving}
-                        className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 flex items-center gap-2 text-white disabled:opacity-50"
+                        className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 flex items-center gap-2 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     >
                         <Save className="w-4 h-4" />
                         {saving ? 'Сохранение...' : 'Сохранить'}
                     </button>
                     <button
                         onClick={() => router.push(`/reports/${reportId}`)}
-                        className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200"
+                        className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 cursor-pointer"
                     >
                         <Eye className="w-4 h-4" />
                         Открыть отчёт
@@ -1145,11 +1368,17 @@ export default function EditReportPage() {
                                             <div className="flex items-center gap-2">
                                                 <input
                                                     type="number"
-                                                    value={report.titleFontSize || '40'}
+                                                    value={
+                                                        report.titleFontSize ||
+                                                        '40'
+                                                    }
                                                     onChange={(e) =>
                                                         setReport({
                                                             ...report,
-                                                            titleFontSize: e.target.value || null,
+                                                            titleFontSize:
+                                                                e.target
+                                                                    .value ||
+                                                                null,
                                                         })
                                                     }
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1157,7 +1386,9 @@ export default function EditReportPage() {
                                                     min="8"
                                                     max="200"
                                                 />
-                                                <span className="text-sm text-zinc-400">px</span>
+                                                <span className="text-sm text-zinc-400">
+                                                    px
+                                                </span>
                                             </div>
                                         </div>
                                         <div>
@@ -1167,11 +1398,17 @@ export default function EditReportPage() {
                                             <div className="flex items-center gap-2">
                                                 <input
                                                     type="number"
-                                                    value={report.descriptionFontSize || '20'}
+                                                    value={
+                                                        report.descriptionFontSize ||
+                                                        '20'
+                                                    }
                                                     onChange={(e) =>
                                                         setReport({
                                                             ...report,
-                                                            descriptionFontSize: e.target.value || null,
+                                                            descriptionFontSize:
+                                                                e.target
+                                                                    .value ||
+                                                                null,
                                                         })
                                                     }
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1179,7 +1416,9 @@ export default function EditReportPage() {
                                                     min="8"
                                                     max="200"
                                                 />
-                                                <span className="text-sm text-zinc-400">px</span>
+                                                <span className="text-sm text-zinc-400">
+                                                    px
+                                                </span>
                                             </div>
                                         </div>
                                         <div>
@@ -1189,11 +1428,17 @@ export default function EditReportPage() {
                                             <div className="flex items-center gap-2">
                                                 <input
                                                     type="number"
-                                                    value={report.captionFontSize || '16'}
+                                                    value={
+                                                        report.captionFontSize ||
+                                                        '16'
+                                                    }
                                                     onChange={(e) =>
                                                         setReport({
                                                             ...report,
-                                                            captionFontSize: e.target.value || null,
+                                                            captionFontSize:
+                                                                e.target
+                                                                    .value ||
+                                                                null,
                                                         })
                                                     }
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1201,7 +1446,9 @@ export default function EditReportPage() {
                                                     min="8"
                                                     max="200"
                                                 />
-                                                <span className="text-sm text-zinc-400">px</span>
+                                                <span className="text-sm text-zinc-400">
+                                                    px
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -1248,19 +1495,19 @@ export default function EditReportPage() {
                         <div className="grid grid-cols-3 gap-2">
                             <button
                                 onClick={() => handleAddBlock('text')}
-                                className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-medium"
+                                className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-medium cursor-pointer"
                             >
                                 + Текст
                             </button>
                             <button
                                 onClick={() => handleAddBlock('screenshot')}
-                                className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium"
+                                className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium cursor-pointer"
                             >
                                 + Фото
                             </button>
                             <button
                                 onClick={() => handleAddBlock('divider')}
-                                className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 text-xs font-medium"
+                                className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 text-xs font-medium cursor-pointer"
                             >
                                 + HR
                             </button>

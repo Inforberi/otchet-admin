@@ -1,11 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Save } from "lucide-react"
+import { useUserRole } from "@/hooks/use-user-role"
 
 export default function NewReportPage() {
   const router = useRouter()
+  const { isAdmin, loading: roleLoading } = useUserRole()
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     title: "",
@@ -14,8 +16,16 @@ export default function NewReportPage() {
     date: new Date().toISOString().split("T")[0],
   })
 
+  useEffect(() => {
+    if (!roleLoading && !isAdmin) {
+      router.push('/reports');
+    }
+  }, [isAdmin, roleLoading, router]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAdmin) return;
+    
     setLoading(true)
 
     try {
@@ -36,6 +46,14 @@ export default function NewReportPage() {
     }
   }
 
+  if (roleLoading || !isAdmin) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#181818]">
+        <div className="text-[var(--color-grayscale-6)]">Загрузка...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--color-grayscale-16)]">
       {/* Header */}
@@ -44,7 +62,7 @@ export default function NewReportPage() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => router.push("/reports")}
-              className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)]"
+              className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
@@ -119,7 +137,7 @@ export default function NewReportPage() {
             <button
               type="submit"
               disabled={loading || !formData.title}
-              className="flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
               <Save className="h-5 w-5" />
               {loading ? "Создание..." : "Создать и перейти к редактору"}
@@ -127,7 +145,7 @@ export default function NewReportPage() {
             <button
               type="button"
               onClick={() => router.push("/reports")}
-              className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-3 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)]"
+              className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-3 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
             >
               Отмена
             </button>

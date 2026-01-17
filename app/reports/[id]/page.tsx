@@ -11,11 +11,13 @@ import { ScreenshotBlockView } from '@/components/report/screenshot-block-view';
 import { TextBlockView } from '@/components/report/text-block-view';
 import { DividerBlockView } from '@/components/report/divider-block-view';
 import { FileQuestion, ArrowLeft, Download, Edit } from 'lucide-react';
+import { useUserRole } from '@/hooks/use-user-role';
 
 export default function ReportViewPage() {
     const router = useRouter();
     const params = useParams();
     const reportId = params.id as string;
+    const { isAdmin } = useUserRole();
 
     const [report, setReport] = useState<ReportFromDB | null>(null);
     const [loading, setLoading] = useState(true);
@@ -43,8 +45,10 @@ export default function ReportViewPage() {
         loadReport();
     }, [reportId]);
 
-    // Отслеживание скролла для показа плавающей кнопки редактирования
+    // Отслеживание скролла для показа плавающей кнопки редактирования (только для админа)
     useEffect(() => {
+        if (!isAdmin) return;
+
         const handleScroll = () => {
             // Показываем кнопку после прокрутки на 200px вниз
             const scrollY = window.scrollY || window.pageYOffset;
@@ -53,7 +57,7 @@ export default function ReportViewPage() {
 
         window.addEventListener('scroll', handleScroll, { passive: true });
         return () => window.removeEventListener('scroll', handleScroll);
-    }, []);
+    }, [isAdmin]);
 
     const loadReport = async () => {
         try {
@@ -102,7 +106,7 @@ export default function ReportViewPage() {
                     </p>
                     <button
                         onClick={() => router.push('/reports')}
-                        className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90"
+                        className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
                     >
                         <ArrowLeft className="h-4 w-4" />К списку отчетов
                     </button>
@@ -119,7 +123,7 @@ export default function ReportViewPage() {
                     <div className="mb-4 flex items-center gap-2">
                         <button
                             onClick={() => router.push('/reports')}
-                            className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] print:hidden"
+                            className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] print:hidden cursor-pointer"
                             title="Назад к списку отчетов"
                             aria-label="Назад к списку отчетов"
                         >
@@ -149,25 +153,29 @@ export default function ReportViewPage() {
                             {report.date && (
                                 <span>{formatReportDate(report.date)}</span>
                             )}
-                            <div className="mt-2 flex gap-2">
-                                <button
-                                    onClick={() =>
-                                        router.push(`/reports/${reportId}/edit`)
-                                    }
-                                    className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] px-3 py-1.5 text-[var(--color-grayscale-5)] transition-colors hover:bg-[var(--color-grayscale-14)] print:hidden"
-                                >
-                                    <Edit className="h-4 w-4" />
-                                    Редактор
-                                </button>
-                                <button
-                                    onClick={handleExportPDF}
-                                    className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 print:hidden"
-                                    title="PDF экспорт временно отключен"
-                                >
-                                    <Download className="h-4 w-4" />
-                                    PDF (скоро)
-                                </button>
-                            </div>
+                            {isAdmin && (
+                                <div className="mt-2 flex gap-2">
+                                    <button
+                                        onClick={() =>
+                                            router.push(
+                                                `/reports/${reportId}/edit`
+                                            )
+                                        }
+                                        className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] px-3 py-1.5 text-[var(--color-grayscale-5)] transition-colors hover:bg-[var(--color-grayscale-14)] print:hidden cursor-pointer"
+                                    >
+                                        <Edit className="h-4 w-4" />
+                                        Редактор
+                                    </button>
+                                    <button
+                                        onClick={handleExportPDF}
+                                        className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 print:hidden cursor-pointer"
+                                        title="PDF экспорт временно отключен"
+                                    >
+                                        <Download className="h-4 w-4" />
+                                        PDF (скоро)
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -229,7 +237,7 @@ export default function ReportViewPage() {
             </footer>
 
             {/* Floating Edit Button */}
-            {showFloatingEdit && (
+            {isAdmin && showFloatingEdit && (
                 <button
                     onClick={() => router.push(`/reports/${reportId}/edit`)}
                     className="fixed right-8 top-1/2 -translate-y-1/2 z-50 print:hidden
