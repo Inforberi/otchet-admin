@@ -4,6 +4,7 @@ import type { UpdateReportInput } from '@/lib/db-types';
 import { unlink, rm } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { requireAdminMiddleware } from '@/lib/auth-helpers';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
@@ -54,6 +55,10 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    // Проверка прав администратора
+    const adminCheck = requireAdminMiddleware(request);
+    if (adminCheck) return adminCheck;
+
     try {
         const { id } = await params;
         const body: Partial<UpdateReportInput> = await request.json();
@@ -93,6 +98,10 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    // Проверка прав администратора
+    const adminCheck = requireAdminMiddleware(request);
+    if (adminCheck) return adminCheck;
+
     try {
         const { id } = await params;
 

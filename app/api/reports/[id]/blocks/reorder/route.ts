@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAdminMiddleware } from '@/lib/auth-helpers';
 
 interface ReorderBlockInput {
     blockId: string;
@@ -15,6 +16,10 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    // Проверка прав администратора
+    const adminCheck = requireAdminMiddleware(request);
+    if (adminCheck) return adminCheck;
+
     try {
         const { id: reportId } = await params;
         const body: ReorderBlockIdsInput = await request.json();
@@ -51,6 +56,10 @@ export async function POST(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    // Проверка прав администратора
+    const adminCheck = requireAdminMiddleware(request);
+    if (adminCheck) return adminCheck;
+
     try {
         const { id: reportId } = await params;
         const body: ReorderBlockInput[] = await request.json();

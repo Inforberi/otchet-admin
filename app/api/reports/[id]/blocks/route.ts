@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import type { CreateBlockInput } from "@/lib/db-types"
 import type { Prisma } from "@prisma/client"
+import { requireAdminMiddleware } from "@/lib/auth-helpers"
 
 // GET /api/reports/[id]/blocks - получить все блоки отчета
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -22,6 +23,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 // POST /api/reports/[id]/blocks - создать новый блок
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  // Проверка прав администратора
+  const adminCheck = requireAdminMiddleware(request);
+  if (adminCheck) return adminCheck;
+
   try {
     const { id: reportId } = await params
     const body: Omit<CreateBlockInput, "reportId"> = await request.json()

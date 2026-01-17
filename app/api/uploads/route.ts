@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { requireAdminMiddleware } from '@/lib/auth-helpers';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 const MAX_FILE_SIZE = Number.parseInt(
@@ -193,6 +194,10 @@ async function getProjectUploadPath(
 
 // POST /api/uploads - загрузка файла
 export async function POST(request: NextRequest) {
+    // Проверка прав администратора
+    const adminCheck = requireAdminMiddleware(request);
+    if (adminCheck) return adminCheck;
+
     try {
         const formData = await request.formData();
         const file = formData.get('file') as File | null;
