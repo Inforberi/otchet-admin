@@ -27,6 +27,7 @@ import {
     Bold,
     Italic,
     Palette,
+    AlignCenter,
     LogOut,
     Settings,
 } from 'lucide-react';
@@ -387,6 +388,7 @@ function BlockEditor({
                                     }
                                     placeholder="Заголовок раздела..."
                                     minHeight="60px"
+                                    defaultFontSize="40"
                                 />
                             </div>
                             <div>
@@ -406,6 +408,7 @@ function BlockEditor({
                                     }
                                     placeholder="Основной текст..."
                                     minHeight="200px"
+                                    defaultFontSize="20"
                                 />
                             </div>
                         </>
@@ -428,6 +431,7 @@ function BlockEditor({
                                     }
                                     placeholder="Заголовок блока..."
                                     minHeight="60px"
+                                    defaultFontSize="40"
                                 />
                             </div>
                             <div>
@@ -447,6 +451,7 @@ function BlockEditor({
                                     }
                                     placeholder="Описание..."
                                     minHeight="200px"
+                                    defaultFontSize="20"
                                 />
                             </div>
 
@@ -547,6 +552,7 @@ function BlockEditor({
                                     Расположение фото
                                 </label>
                                 <select
+                                    aria-label="Расположение фото"
                                     value={
                                         (localData as ScreenshotBlockData)
                                             .layout || 'full-width'
@@ -588,11 +594,13 @@ function FormattedTextEditor({
     onChange,
     placeholder,
     minHeight = '200px',
+    defaultFontSize = '20',
 }: {
     value: string;
     onChange: (value: string) => void;
     placeholder?: string;
     minHeight?: string;
+    defaultFontSize?: string;
 }) {
     const editorRef = useRef<HTMLDivElement>(null);
     const [showColorPicker, setShowColorPicker] = useState(false);
@@ -600,23 +608,197 @@ function FormattedTextEditor({
     const colorPickerRef = useRef<HTMLDivElement>(null);
     const [isBold, setIsBold] = useState(false);
     const [isItalic, setIsItalic] = useState(false);
+    const [isCentered, setIsCentered] = useState(false);
     const [currentColor, setCurrentColor] = useState('#ffffff');
     const [hasCustomColor, setHasCustomColor] = useState(false);
+    const savedSelectionRef = useRef<Range | null>(null);
 
-    const colors = [
+    // Цвета сайта
+    const siteColors = [
+        { name: 'Primary', value: '#3b82f6' },
+        { name: 'Grayscale-2', value: '#f5f5f5' },
+        { name: 'Grayscale-3', value: '#e8e8e8' },
+        { name: 'Grayscale-4', value: '#d4d4d4' },
+        { name: 'Grayscale-5', value: '#a3a3a3' },
+        { name: 'Grayscale-6', value: '#737373' },
         { name: 'Белый', value: '#ffffff' },
-        { name: 'Красный', value: '#ef4444' },
-        { name: 'Оранжевый', value: '#f97316' },
-        { name: 'Желтый', value: '#eab308' },
-        { name: 'Зеленый', value: '#22c55e' },
-        { name: 'Синий', value: '#3b82f6' },
-        { name: 'Фиолетовый', value: '#a855f7' },
-        { name: 'Розовый', value: '#ec4899' },
     ];
 
+    // Получаем последние выбранные цвета из localStorage
+    const getRecentColors = (): string[] => {
+        if (typeof window === 'undefined') return [];
+        try {
+            const stored = localStorage.getItem('formattedTextEditor_recentColors');
+            return stored ? JSON.parse(stored) : [];
+        } catch {
+            return [];
+        }
+    };
+
+    // Сохраняем цвет в последние
+    const saveRecentColor = (color: string) => {
+        if (typeof window === 'undefined') return;
+        try {
+            const recent = getRecentColors();
+            // Удаляем если уже есть
+            const filtered = recent.filter((c) => c !== color);
+            // Добавляем в начало
+            const updated = [color, ...filtered].slice(0, 8); // Максимум 8 последних
+            localStorage.setItem('formattedTextEditor_recentColors', JSON.stringify(updated));
+        } catch {
+            // Игнорируем ошибки
+        }
+    };
+
+    const [recentColors, setRecentColors] = useState<string[]>(getRecentColors());
+
+    // Функция для конвертации текста с переносами строк в HTML
+    const convertTextToHtml = (text: string): string => {
+        if (!text || text.trim() === '') return '';
+        // Если текст уже содержит HTML теги, возвращаем как есть
+        if (text.includes('<') && text.includes('>')) {
+            return text;
+        }
+        // Иначе конвертируем переносы строк в <br>
+        const lines = text.split('\n');
+        if (lines.length === 1) {
+            return lines[0] || '';
+        }
+        return lines
+            .map((line, index) => {
+                if (index === lines.length - 1 && line === '') {
+                    // Последняя пустая строка - не добавляем br
+                    return '';
+                }
+                return line || '<br>';
+            })
+            .join('<br>');
+    };
+
+    // Эффект для очистки стилей при монтировании и изменениях
     useEffect(() => {
-        if (editorRef.current && editorRef.current.innerHTML !== value) {
-            editorRef.current.innerHTML = value || '';
+        if (editorRef.current) {
+            const cleanupStyles = () => {
+                if (!editorRef.current) return;
+                
+                // Убираем отступы у самого редактора
+                editorRef.current.style.margin = '0';
+                editorRef.current.style.textIndent = '0';
+                editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
+                
+                // Убираем отступы у всех дочерних элементов, но сохраняем fontSize в style (для HTML)
+                const allElements = editorRef.current.querySelectorAll('*');
+                allElements.forEach((el) => {
+                    const htmlEl = el as HTMLElement;
+                    const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
+                    htmlEl.style.margin = '0';
+                    htmlEl.style.marginLeft = '0';
+                    htmlEl.style.marginRight = '0';
+                    htmlEl.style.marginTop = '0';
+                    htmlEl.style.marginBottom = '0';
+                    htmlEl.style.paddingLeft = '0';
+                    htmlEl.style.paddingRight = '0';
+                    htmlEl.style.textIndent = '0';
+                    // fontSize сохраняем в style для HTML, но визуально он будет переопределен через CSS
+                    if (fontSize) {
+                        htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
+                    }
+                });
+            };
+            
+            cleanupStyles();
+            
+            // Наблюдаем за изменениями DOM
+            const observer = new MutationObserver(() => {
+                cleanupStyles();
+            });
+            observer.observe(editorRef.current, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style']
+            });
+            
+            return () => {
+                observer.disconnect();
+            };
+        }
+    }, []);
+
+    useEffect(() => {
+        if (editorRef.current) {
+            const htmlValue = convertTextToHtml(value || '');
+            // Не обновляем если редактор в фокусе и пользователь активно редактирует
+            // Это предотвращает сброс курсора во время ввода
+            const isFocused = document.activeElement === editorRef.current;
+            if (isFocused && editorRef.current.innerHTML === htmlValue) {
+                return;
+            }
+            
+            // Сохраняем позицию курсора перед обновлением
+            const selection = window.getSelection();
+            let savedRange: Range | null = null;
+            
+            if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
+                savedRange = selection.getRangeAt(0).cloneRange();
+            }
+            
+            // Обновляем содержимое
+            editorRef.current.innerHTML = htmlValue;
+            
+            // Убираем лишние отступы после обновления, но сохраняем fontSize в HTML
+            const allElements = editorRef.current.querySelectorAll('*');
+            allElements.forEach((el) => {
+                const htmlEl = el as HTMLElement;
+                const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
+                htmlEl.style.margin = '0';
+                htmlEl.style.marginLeft = '0';
+                htmlEl.style.marginRight = '0';
+                htmlEl.style.marginTop = '0';
+                htmlEl.style.marginBottom = '0';
+                htmlEl.style.paddingLeft = '0';
+                htmlEl.style.paddingRight = '0';
+                htmlEl.style.textIndent = '0';
+                // fontSize сохраняем в style для HTML, визуально переопределяется через CSS
+                if (fontSize) {
+                    htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
+                }
+            });
+            editorRef.current.style.margin = '0';
+            editorRef.current.style.textIndent = '0';
+            editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
+            
+            // Восстанавливаем позицию курсора после обновления
+            if (savedRange && editorRef.current) {
+                try {
+                    // Пытаемся восстановить позицию
+                    const newSelection = window.getSelection();
+                    if (newSelection) {
+                        // Если сохраненный range все еще валиден, используем его
+                        if (editorRef.current.contains(savedRange.startContainer)) {
+                            newSelection.removeAllRanges();
+                            newSelection.addRange(savedRange);
+                        } else {
+                            // Иначе ставим курсор в конец
+                            const range = document.createRange();
+                            range.selectNodeContents(editorRef.current);
+                            range.collapse(false);
+                            newSelection.removeAllRanges();
+                            newSelection.addRange(range);
+                        }
+                    }
+                } catch (e) {
+                    // Если не удалось восстановить, ставим курсор в конец
+                    const newSelection = window.getSelection();
+                    if (newSelection && editorRef.current) {
+                        const range = document.createRange();
+                        range.selectNodeContents(editorRef.current);
+                        range.collapse(false);
+                        newSelection.removeAllRanges();
+                        newSelection.addRange(range);
+                    }
+                }
+            }
         }
     }, [value]);
 
@@ -628,6 +810,7 @@ function FormattedTextEditor({
         if (!selection || selection.rangeCount === 0) {
             setIsBold(false);
             setIsItalic(false);
+            setIsCentered(false);
             setCurrentColor('#ffffff');
             setHasCustomColor(false);
             return;
@@ -637,6 +820,7 @@ function FormattedTextEditor({
         if (!editorRef.current.contains(range.commonAncestorContainer)) {
             setIsBold(false);
             setIsItalic(false);
+            setIsCentered(false);
             setCurrentColor('#ffffff');
             setHasCustomColor(false);
             return;
@@ -649,6 +833,10 @@ function FormattedTextEditor({
         // Проверяем italic
         const isItalicActive = document.queryCommandState('italic');
         setIsItalic(isItalicActive);
+
+        // Проверяем выравнивание по центру
+        const isCenteredActive = document.queryCommandState('justifyCenter');
+        setIsCentered(isCenteredActive);
 
         // Проверяем цвет через computed style выделенного элемента
         try {
@@ -776,6 +964,26 @@ function FormattedTextEditor({
         };
     }, []);
 
+    // Инициализация последних цветов при монтировании
+    useEffect(() => {
+        setRecentColors(getRecentColors());
+    }, []);
+
+    // Сохранение выделения при открытии color picker
+    const handleColorPickerToggle = () => {
+        if (!showColorPicker) {
+            // Сохраняем выделение перед открытием
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0 && editorRef.current) {
+                const range = selection.getRangeAt(0);
+                if (editorRef.current.contains(range.commonAncestorContainer)) {
+                    savedSelectionRef.current = range.cloneRange();
+                }
+            }
+        }
+        setShowColorPicker(!showColorPicker);
+    };
+
     // Закрытие color picker при клике вне его
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -796,9 +1004,35 @@ function FormattedTextEditor({
 
     const handleInput = () => {
         if (editorRef.current) {
+            // Убираем лишние отступы при каждом изменении, но сохраняем fontSize в HTML
+            const allElements = editorRef.current.querySelectorAll('*');
+            allElements.forEach((el) => {
+                const htmlEl = el as HTMLElement;
+                const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
+                htmlEl.style.margin = '0';
+                htmlEl.style.marginLeft = '0';
+                htmlEl.style.marginRight = '0';
+                htmlEl.style.marginTop = '0';
+                htmlEl.style.marginBottom = '0';
+                htmlEl.style.paddingLeft = '0';
+                htmlEl.style.paddingRight = '0';
+                htmlEl.style.textIndent = '0';
+                // fontSize сохраняем в style для HTML, визуально переопределяется через CSS
+                if (fontSize) {
+                    htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
+                }
+            });
+            editorRef.current.style.margin = '0';
+            editorRef.current.style.textIndent = '0';
+            editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
+            
             const html = editorRef.current.innerHTML.trim();
-            // Если содержимое пустое или только пробелы, сохраняем пустую строку
-            if (!html || html === '<br>' || html === '<div><br></div>') {
+            // Если содержимое пустое или только пробелы/br, сохраняем пустую строку
+            if (!html || 
+                html === '<br>' || 
+                html === '<div><br></div>' ||
+                html === '<br><br>' ||
+                html.replace(/<br\s*\/?>/gi, '').trim() === '') {
                 onChange('');
             } else {
                 onChange(html);
@@ -806,26 +1040,102 @@ function FormattedTextEditor({
         }
     };
 
-    const formatText = (command: string, value?: string) => {
-        // Фокусируемся на редакторе перед применением форматирования
-        editorRef.current?.focus();
-
-        // Проверяем наличие выделения внутри редактора
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        
+        // Получаем только текст из буфера обмена, без форматирования
+        const text = e.clipboardData.getData('text/plain');
+        
+        if (!editorRef.current || !text) return;
+        
         const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            const isInEditor = editorRef.current?.contains(
-                range.commonAncestorContainer
-            );
-
-            // Если выделение есть и оно внутри редактора, применяем форматирование
-            // document.execCommand автоматически применяет форматирование только к выделенному тексту
-            if (isInEditor) {
-                document.execCommand(command, false, value);
-                handleInput();
-                // Обновляем активные стили после применения форматирования
-                setTimeout(checkActiveStyles, 10);
+        if (!selection || selection.rangeCount === 0) return;
+        
+        const range = selection.getRangeAt(0);
+        
+        // Удаляем выделенный текст, если есть
+        range.deleteContents();
+        
+        // Разбиваем текст на строки и вставляем с сохранением переносов
+        const lines = text.split('\n');
+        
+        lines.forEach((line, index) => {
+            if (line.trim() || line === '') {
+                // Вставляем текстовый узел для каждой строки (включая пустые)
+                const textNode = document.createTextNode(line);
+                range.insertNode(textNode);
+                // Перемещаем курсор после вставленного текста
+                range.setStartAfter(textNode);
             }
+            
+            // Добавляем <br> для переноса строки (кроме последней строки)
+            if (index < lines.length - 1) {
+                const br = document.createElement('br');
+                range.insertNode(br);
+                range.setStartAfter(br);
+            }
+        });
+        
+        // Перемещаем курсор в конец вставленного текста
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        // Обновляем состояние
+        handleInput();
+    };
+
+    const formatText = (command: string, value?: string) => {
+        if (!editorRef.current) return;
+
+        // Используем сохраненное выделение или текущее
+        let savedRange: Range | null = savedSelectionRef.current;
+        const selection = window.getSelection();
+
+        // Если есть сохраненное выделение, используем его, иначе текущее
+        if (!savedRange && selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            if (editorRef.current.contains(range.commonAncestorContainer)) {
+                savedRange = range.cloneRange();
+                savedSelectionRef.current = savedRange;
+            }
+        }
+
+        if (savedRange && editorRef.current.contains(savedRange.startContainer)) {
+            // Фокусируемся на редакторе
+            editorRef.current.focus();
+
+            // Восстанавливаем выделение перед применением команды
+            if (selection) {
+                selection.removeAllRanges();
+                selection.addRange(savedRange);
+            }
+
+            // Применяем форматирование
+            document.execCommand(command, false, value);
+
+            // Восстанавливаем выделение после применения
+            setTimeout(() => {
+                const newSelection = window.getSelection();
+                if (newSelection && savedRange && editorRef.current) {
+                    try {
+                        // Пытаемся восстановить выделение
+                        if (editorRef.current.contains(savedRange.startContainer)) {
+                            newSelection.removeAllRanges();
+                            newSelection.addRange(savedRange);
+                        } else {
+                            // Если не удалось, просто фокусируемся
+                            editorRef.current.focus();
+                        }
+                    } catch (e) {
+                        // Если не удалось, просто фокусируемся
+                        editorRef.current.focus();
+                    }
+                }
+                checkActiveStyles();
+            }, 0);
+
+            handleInput();
         }
     };
 
@@ -834,6 +1144,11 @@ function FormattedTextEditor({
         setCurrentColor(color);
         setCustomColor(color);
         setHasCustomColor(true);
+        
+        // Сохраняем цвет в последние
+        saveRecentColor(color);
+        setRecentColors(getRecentColors());
+        
         setShowColorPicker(false);
     };
 
@@ -846,7 +1161,92 @@ function FormattedTextEditor({
             formatText('foreColor', color);
             setCurrentColor(color);
             setHasCustomColor(true);
+            
+            // Сохраняем цвет в последние
+            saveRecentColor(color);
+            setRecentColors(getRecentColors());
         }
+    };
+
+    const applyFontSize = (size: string) => {
+        if (!editorRef.current) return;
+
+        const selection = window.getSelection();
+        if (!selection) return;
+        
+        if (selection.rangeCount === 0 || selection.isCollapsed) {
+            // Если нет выделения или курсор без выделения, применяем ко всему содержимому
+            editorRef.current.focus();
+            
+            // Выделяем весь текст
+            const range = document.createRange();
+            range.selectNodeContents(editorRef.current);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            
+            // Применяем размер через execCommand
+            document.execCommand('fontSize', false, '7');
+            
+            // Находим все созданные font элементы и заменяем их на span с нужным размером
+            const fontElements = editorRef.current.querySelectorAll('font[size="7"]');
+            fontElements.forEach((fontEl) => {
+                const span = document.createElement('span');
+                span.style.fontSize = `${size}px`; // Сохраняем в HTML
+                span.style.display = 'inline';
+                
+                // Переносим все дочерние элементы
+                while (fontEl.firstChild) {
+                    span.appendChild(fontEl.firstChild);
+                }
+                
+                // Заменяем font на span
+                fontEl.parentNode?.replaceChild(span, fontEl);
+            });
+            
+            // Убираем выделение
+            selection.removeAllRanges();
+            handleInput();
+            return;
+        }
+
+        const range = selection.getRangeAt(0);
+        if (!editorRef.current.contains(range.commonAncestorContainer)) return;
+
+        // Сохраняем выделение
+        const savedRange = range.cloneRange();
+
+        // Применяем размер через execCommand
+        editorRef.current.focus();
+        if (selection) {
+            selection.removeAllRanges();
+            selection.addRange(savedRange);
+            
+            document.execCommand('fontSize', false, '7');
+            
+            // Находим все созданные font элементы в выделенной области и заменяем их
+            const fontElements = editorRef.current.querySelectorAll('font[size="7"]');
+            fontElements.forEach((fontEl) => {
+                const span = document.createElement('span');
+                span.style.fontSize = `${size}px`; // Сохраняем в HTML
+                span.style.display = 'inline';
+                
+                while (fontEl.firstChild) {
+                    span.appendChild(fontEl.firstChild);
+                }
+                
+                fontEl.parentNode?.replaceChild(span, fontEl);
+            });
+
+            // Восстанавливаем выделение
+            try {
+                selection.removeAllRanges();
+                selection.addRange(savedRange);
+            } catch (e) {
+                // Игнорируем ошибки восстановления
+            }
+        }
+
+        handleInput();
     };
 
     return (
@@ -877,10 +1277,22 @@ function FormattedTextEditor({
                 >
                     <Italic className="w-4 h-4" />
                 </button>
+                <button
+                    type="button"
+                    onClick={() => formatText('justifyCenter')}
+                    className={`p-1.5 rounded transition-colors cursor-pointer ${
+                        isCentered
+                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                            : 'hover:bg-zinc-700 text-zinc-300'
+                    }`}
+                    title="Выровнять по центру"
+                >
+                    <AlignCenter className="w-4 h-4" />
+                </button>
                 <div className="relative" ref={colorPickerRef}>
                     <button
                         type="button"
-                        onClick={() => setShowColorPicker(!showColorPicker)}
+                        onClick={handleColorPickerToggle}
                         className={`p-1.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${
                             showColorPicker
                                 ? 'bg-zinc-700'
@@ -898,12 +1310,38 @@ function FormattedTextEditor({
                     </button>
                     {showColorPicker && (
                         <div className="absolute left-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded p-3 shadow-lg z-50 min-w-[200px]">
-                            <div className="mb-2">
+                            {/* Последние выбранные цвета */}
+                            {recentColors.length > 0 && (
+                                <div className="mb-3">
+                                    <label className="block text-xs text-zinc-400 mb-1">
+                                        Последние
+                                    </label>
+                                    <div className="grid grid-cols-4 gap-1">
+                                        {recentColors.map((color) => (
+                                            <button
+                                                key={color}
+                                                type="button"
+                                                onClick={() =>
+                                                    handleColorChange(color)
+                                                }
+                                                className="w-6 h-6 rounded border border-zinc-600 hover:scale-110 transition-transform cursor-pointer"
+                                                style={{
+                                                    backgroundColor: color,
+                                                }}
+                                                title={color}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Цвета сайта */}
+                            <div className={recentColors.length > 0 ? "mb-3" : "mb-2"}>
                                 <label className="block text-xs text-zinc-400 mb-1">
-                                    Быстрые цвета
+                                    {recentColors.length > 0 ? "Цвета сайта" : "Быстрые цвета"}
                                 </label>
                                 <div className="grid grid-cols-4 gap-1">
-                                    {colors.map((color) => (
+                                    {siteColors.map((color) => (
                                         <button
                                             key={color.value}
                                             type="button"
@@ -928,11 +1366,13 @@ function FormattedTextEditor({
                                         type="color"
                                         value={customColor}
                                         onChange={handleCustomColorChange}
+                                        aria-label="Выбрать цвет"
                                         className="w-10 h-8 rounded border border-zinc-600 cursor-pointer"
                                     />
                                     <input
                                         type="text"
                                         value={customColor}
+                                        placeholder="#000000"
                                         onChange={(e) => {
                                             const color = e.target.value;
                                             setCustomColor(color);
@@ -943,12 +1383,40 @@ function FormattedTextEditor({
                                             }
                                         }}
                                         className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200"
-                                        placeholder="#ffffff"
                                     />
                                 </div>
                             </div>
                         </div>
                     )}
+                </div>
+                {/* Размер шрифта */}
+                <div className="flex items-center gap-1.5 pl-2 border-l border-zinc-700">
+                    <span className="text-xs text-zinc-400 whitespace-nowrap">Размер:</span>
+                    <input
+                        type="number"
+                        min="8"
+                        max="200"
+                        placeholder={defaultFontSize}
+                        className="w-14 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const input = e.currentTarget;
+                                const size = input.value;
+                                if (size && parseInt(size) >= 8 && parseInt(size) <= 200) {
+                                    applyFontSize(size);
+                                    input.blur();
+                                }
+                            }
+                        }}
+                        onBlur={(e) => {
+                            const size = e.target.value;
+                            if (size && parseInt(size) >= 8 && parseInt(size) <= 200) {
+                                applyFontSize(size);
+                            }
+                        }}
+                    />
+                    <span className="text-xs text-zinc-400">px</span>
                 </div>
             </div>
             {/* Редактор */}
@@ -956,8 +1424,32 @@ function FormattedTextEditor({
                 ref={editorRef}
                 contentEditable
                 onInput={handleInput}
-                className="w-full bg-zinc-800 border border-zinc-700 border-t-0 rounded-b px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                style={{ whiteSpace: 'pre-wrap', minHeight }}
+                onPaste={handlePaste}
+                onFocus={(e) => {
+                    // Убираем placeholder при фокусе
+                    const el = e.currentTarget;
+                    if (el.textContent?.trim() === '' && el.innerHTML === '<br>') {
+                        el.innerHTML = '';
+                    }
+                }}
+                onBlur={(e) => {
+                    // Добавляем <br> если редактор пустой, чтобы placeholder работал
+                    const el = e.currentTarget;
+                    if (!el.textContent?.trim()) {
+                        el.innerHTML = '<br>';
+                    }
+                }}
+                className="w-full bg-zinc-800 border border-zinc-700 border-t-0 rounded-b px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none relative"
+                style={{ 
+                    whiteSpace: 'pre-wrap', 
+                    wordBreak: 'break-word',
+                    minHeight,
+                    color: 'rgb(228, 228, 231)', // zinc-200 - убеждаемся что текст виден
+                    margin: 0,
+                    textIndent: 0,
+                    textAlign: 'left',
+                    fontSize: 'inherit' // Используем стандартный размер шрифта в редакторе
+                }}
                 data-placeholder={placeholder}
                 suppressContentEditableWarning
             />
@@ -1394,6 +1886,7 @@ export default function EditReportPage() {
                                                     !autoSaveEnabled
                                                 );
                                             }}
+                                            aria-label={autoSaveEnabled ? "Отключить автосохранение" : "Включить автосохранение"}
                                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
                                                 autoSaveEnabled
                                                     ? 'bg-blue-600'
@@ -1419,6 +1912,7 @@ export default function EditReportPage() {
                                                     type="number"
                                                     min="1"
                                                     max="60"
+                                                    placeholder="5"
                                                     value={
                                                         autoSaveIntervalMinutes
                                                     }
@@ -1523,6 +2017,7 @@ export default function EditReportPage() {
                                     </label>
                                     <input
                                         type="date"
+                                        aria-label="Дата отчета"
                                         value={
                                             report.date ||
                                             new Date()

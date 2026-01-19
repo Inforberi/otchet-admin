@@ -150,6 +150,68 @@ h2 {
     content: attr(data-placeholder);
     color: #737373;
     pointer-events: none;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: inline !important;
+    position: absolute !important;
+    left: 0.75rem !important;
+}
+
+/* Placeholder когда редактор содержит только <br> */
+[contenteditable][data-placeholder]:not(:focus):before {
+    content: attr(data-placeholder);
+    color: #737373;
+    pointer-events: none;
+    opacity: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: inline !important;
+    position: absolute !important;
+    left: 0.75rem !important;
+}
+
+[contenteditable][data-placeholder]:not(:focus):empty:before,
+[contenteditable][data-placeholder]:not(:focus):has(> br:only-child):before {
+    opacity: 1;
+}
+
+/* Убираем лишние отступы в contentEditable */
+[contenteditable="true"] {
+    margin: 0 !important;
+    text-indent: 0 !important;
+    font-size: inherit !important; /* Стандартный размер в редакторе */
+}
+
+[contenteditable="true"] > *,
+[contenteditable="true"] * {
+    margin: 0 !important;
+    padding: 0 !important;
+    text-indent: 0 !important;
+    font-size: inherit !important; /* Стандартный размер в редакторе */
+}
+
+[contenteditable="true"] > p,
+[contenteditable="true"] > div,
+[contenteditable="true"] p,
+[contenteditable="true"] div {
+    margin: 0 !important;
+    padding: 0 !important;
+    text-indent: 0 !important;
+    font-size: inherit !important; /* Стандартный размер в редакторе */
+}
+
+[contenteditable="true"] > br,
+[contenteditable="true"] br {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+[contenteditable="true"] > span,
+[contenteditable="true"] span {
+    margin: 0 !important;
+    padding: 0 !important;
+    text-indent: 0 !important;
+    font-size: inherit !important; /* Стандартный размер в редакторе, но сохраняем data-font-size */
 }
 
 /* Adding print styles for PDF export */

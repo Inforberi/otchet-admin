@@ -2,6 +2,7 @@
 
 import type { TextBlock } from "@/lib/types"
 import { ChevronUp, ChevronDown, Copy, Trash2 } from "lucide-react"
+import { useRef } from "react"
 
 interface TextBlockCardProps {
   block: TextBlock
@@ -24,8 +25,25 @@ export function TextBlockCard({
   onMoveUp,
   onMoveDown,
 }: TextBlockCardProps) {
+  const contentTextareaRef = useRef<HTMLTextAreaElement>(null)
+
   const handleFieldChange = (field: keyof TextBlock, value: string) => {
     onChange({ ...block, [field]: value })
+  }
+
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target
+    const cursorPosition = textarea.selectionStart
+    const newValue = e.target.value
+    
+    handleFieldChange("content", newValue)
+    
+    // Восстанавливаем позицию курсора после обновления
+    setTimeout(() => {
+      if (contentTextareaRef.current) {
+        contentTextareaRef.current.setSelectionRange(cursorPosition, cursorPosition)
+      }
+    }, 0)
   }
 
   return (
@@ -80,6 +98,7 @@ export function TextBlockCard({
         <div>
           <label className="mb-1.5 block text-sm text-[var(--color-grayscale-6)]">Размер текста</label>
           <select
+            aria-label="Размер текста"
             value={block.fontSize || "medium"}
             onChange={(e) => handleFieldChange("fontSize", e.target.value)}
             className="w-full rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-3 py-2 text-[var(--color-grayscale-3)] focus:border-[var(--color-primary)] focus:outline-none"
@@ -93,8 +112,9 @@ export function TextBlockCard({
         <div>
           <label className="mb-1.5 block text-sm text-[var(--color-grayscale-6)]">Контент</label>
           <textarea
+            ref={contentTextareaRef}
             value={block.content}
-            onChange={(e) => handleFieldChange("content", e.target.value)}
+            onChange={handleContentChange}
             placeholder="Введите текст... Поддерживается простое форматирование с переносами строк."
             rows={6}
             className="w-full resize-none rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-3 py-2 text-[var(--color-grayscale-3)] placeholder:text-[var(--color-grayscale-8)] focus:border-[var(--color-primary)] focus:outline-none"

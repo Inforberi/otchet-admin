@@ -23,6 +23,7 @@ export default function ReportViewPage() {
     const [loading, setLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
     const [showFloatingEdit, setShowFloatingEdit] = useState(false);
+    const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
     // Форматирование даты в формате "16 января 2026"
     const formatReportDate = (
@@ -57,6 +58,36 @@ export default function ReportViewPage() {
 
         window.addEventListener('scroll', handleScroll, { passive: true });
         return () => window.removeEventListener('scroll', handleScroll);
+    }, [isAdmin]);
+
+    // Отслеживание открытия/закрытия lightbox
+    useEffect(() => {
+        if (!isAdmin) return;
+
+        const checkLightbox = () => {
+            // Проверяем наличие lightbox в DOM (элемент с bg-black/90 и z-50)
+            const lightbox = document.querySelector('[class*="bg-black/90"][class*="z-50"]');
+            // Также проверяем overflow body как дополнительную проверку
+            const bodyOverflow = document.body.style.overflow;
+            setIsLightboxOpen(!!lightbox || bodyOverflow === 'hidden');
+        };
+
+        // Проверяем каждые 100ms
+        const interval = setInterval(checkLightbox, 100);
+        
+        // Также проверяем при изменении DOM
+        const observer = new MutationObserver(checkLightbox);
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class']
+        });
+
+        return () => {
+            clearInterval(interval);
+            observer.disconnect();
+        };
     }, [isAdmin]);
 
     const loadReport = async () => {
@@ -240,7 +271,7 @@ export default function ReportViewPage() {
             </footer>
 
             {/* Floating Edit Button */}
-            {isAdmin && showFloatingEdit && (
+            {isAdmin && showFloatingEdit && !isLightboxOpen && (
                 <button
                     onClick={() => router.push(`/reports/${reportId}/edit`)}
                     className="fixed right-8 top-1/2 -translate-y-1/2 z-50 print:hidden
@@ -249,7 +280,7 @@ export default function ReportViewPage() {
                         shadow-lg hover:shadow-xl transition-all duration-300
                         border border-[var(--color-alpha-3)]
                         opacity-70 hover:opacity-100
-                        group"
+                        group cursor-pointer"
                     title="Редактировать отчет"
                     aria-label="Редактировать отчет"
                 >
