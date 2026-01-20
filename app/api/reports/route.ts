@@ -10,8 +10,13 @@ export async function GET(request: NextRequest) {
         const searchParams = request.nextUrl.searchParams;
         const search = searchParams.get('search');
         const dateSearch = searchParams.get('date');
+        const groupId = searchParams.get('groupId');
 
         const where: Prisma.ReportWhereInput = {};
+
+        if (groupId) {
+            where.groupId = groupId;
+        }
 
         if (search) {
             where.OR = [
@@ -67,12 +72,31 @@ export async function POST(request: NextRequest) {
     if (adminCheck) return adminCheck;
 
     try {
-        const body: CreateReportInput = await request.json();
+        const body: CreateReportInput & { groupId?: string } = await request.json();
 
         if (!body.title) {
             return NextResponse.json(
                 { error: 'Title is required' },
                 { status: 400 }
+            );
+        }
+
+        if (!body.groupId) {
+            return NextResponse.json(
+                { error: 'Group ID is required' },
+                { status: 400 }
+            );
+        }
+
+        // Проверяем существование группы
+        const group = await prisma.reportGroup.findUnique({
+            where: { id: body.groupId },
+        });
+
+        if (!group) {
+            return NextResponse.json(
+                { error: 'Group not found' },
+                { status: 404 }
             );
         }
 
@@ -83,6 +107,7 @@ export async function POST(request: NextRequest) {
                 client: body.client,
                 date: body.date,
                 status: body.status || 'draft',
+                groupId: body.groupId,
             },
         });
 

@@ -140,45 +140,57 @@ function generateSafeFilename(originalName: string): string {
     return `${timestamp}_${random}_${baseName}${ext}`;
 }
 
-// Получение пути для сохранения файла (с учетом папки проекта)
+// Получение пути для сохранения файла (с учетом папки группы и проекта)
 async function getProjectUploadPath(
-    reportId: string | null
+    reportId: string | null,
+    groupId: string | null
 ): Promise<{ projectDir: string; relativePath: string }> {
     const uploadDir = getUploadDir();
 
-    if (!reportId) {
-        // Обратная совместимость: если reportId нет, сохраняем в корень
+    if (!reportId || !groupId) {
+        // Обратная совместимость: если reportId или groupId нет, сохраняем в корень
         return {
             projectDir: uploadDir,
             relativePath: '',
         };
     }
 
-    // Получаем отчет из БД, чтобы взять название
-    let folderName = reportId; // fallback на reportId
+    // Получаем группу и отчет из БД
+    let groupFolderName = groupId; // fallback на groupId
+    let reportFolderName = reportId; // fallback на reportId
 
     try {
-        const report = await prisma.report.findUnique({
-            where: { id: reportId },
-            select: { title: true },
-        });
+        const [group, report] = await Promise.all([
+            prisma.reportGroup.findUnique({
+                where: { id: groupId },
+                select: { name: true },
+            }),
+            reportId
+                ? prisma.report.findUnique({
+                      where: { id: reportId },
+                      select: { title: true },
+                  })
+                : null,
+        ]);
+
+        if (group && group.name) {
+            groupFolderName = createSafeFolderName(group.name);
+            const shortGroupId = groupId.substring(0, 8);
+            groupFolderName = `${groupFolderName}_${shortGroupId}`;
+        }
 
         if (report && report.title) {
-            // Создаем безопасное имя папки из названия отчета
             const safeTitle = createSafeFolderName(report.title);
-            // Добавляем reportId для уникальности: название_reportId
-            // Используем первые 8 символов reportId для краткости
             const shortId = reportId.substring(0, 8);
-            folderName = `${safeTitle}_${shortId}`;
+            reportFolderName = `${safeTitle}_${shortId}`;
         }
     } catch (error) {
-        console.error(`Error fetching report ${reportId}:`, error);
-        // В случае ошибки используем reportId как fallback
-        folderName = reportId;
+        console.error(`Error fetching group/report:`, error);
     }
 
-    // Создаем папку проекта по транслитерированному названию
-    const projectDir = path.join(uploadDir, folderName);
+    // Структура: uploads/{groupFolder}/{reportFolder}/
+    const fullPath = path.join(groupFolderName, reportFolderName);
+    const projectDir = path.join(uploadDir, fullPath);
 
     // Создаем директорию проекта если не существует
     if (!existsSync(projectDir)) {
@@ -188,7 +200,7 @@ async function getProjectUploadPath(
 
     return {
         projectDir,
-        relativePath: folderName,
+        relativePath: fullPath,
     };
 }
 
@@ -202,10 +214,18 @@ export async function POST(request: NextRequest) {
         const formData = await request.formData();
         const file = formData.get('file') as File | null;
         const reportId = formData.get('reportId') as string | null;
+        const groupId = formData.get('groupId') as string | null;
 
         if (!file) {
             return NextResponse.json(
                 { error: 'No file provided' },
+                { status: 400 }
+            );
+        }
+
+        if (!groupId) {
+            return NextResponse.json(
+                { error: 'Group ID is required' },
                 { status: 400 }
             );
         }
@@ -254,9 +274,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Получаем путь для сохранения файла (с учетом папки проекта)
+        // Получаем путь для сохранения файла (с учетом папки группы и проекта)
         const { projectDir, relativePath: projectPath } =
-            await getProjectUploadPath(reportId);
+            await getProjectUploadPath(reportId, groupId);
 
         // Генерируем безопасное имя файла
         const safeFilename = generateSafeFilename(file.name);
@@ -293,6 +313,7 @@ export async function POST(request: NextRequest) {
         const upload = await prisma.upload.create({
             data: {
                 reportId: reportId || null,
+                groupId: groupId,
                 filename: file.name,
                 path: relativePath,
                 mimeType: file.type,
