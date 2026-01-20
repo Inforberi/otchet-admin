@@ -13,6 +13,20 @@ import { DividerBlockView } from '@/components/report/divider-block-view';
 import { FileQuestion, ArrowLeft, Download, Edit } from 'lucide-react';
 import { useUserRole } from '@/hooks/use-user-role';
 
+// Функция для проверки, является ли HTML строка пустой
+function isEmptyHtml(html: string | null | undefined): boolean {
+    if (!html) return true;
+    // Удаляем HTML теги и проверяем, осталось ли что-то кроме пробелов
+    const textContent = html.replace(/<[^>]*>/g, '').trim();
+    return textContent.length === 0;
+}
+
+// Функция для проверки, является ли обычная строка пустой
+function isEmpty(str: string | null | undefined): boolean {
+    if (!str) return true;
+    return str.trim().length === 0;
+}
+
 export default function ReportViewPage() {
     const router = useRouter();
     const params = useParams();
@@ -199,13 +213,15 @@ export default function ReportViewPage() {
 
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-2">
-                            <h1
-                                className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
-                                dangerouslySetInnerHTML={{
-                                    __html: report.title,
-                                }}
-                            />
-                            {report.subtitle && (
+                            {!isEmptyHtml(report.title) && (
+                                <h1
+                                    className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
+                                    dangerouslySetInnerHTML={{
+                                        __html: report.title,
+                                    }}
+                                />
+                            )}
+                            {!isEmptyHtml(report.subtitle) && (
                                 <div
                                     className="text-lg text-zinc-300 whitespace-pre-wrap"
                                     dangerouslySetInnerHTML={{
@@ -215,8 +231,8 @@ export default function ReportViewPage() {
                             )}
                         </div>
                         <div className="flex flex-shrink-0 flex-col items-end gap-2 text-sm text-zinc-400">
-                            {report.client && <span>{report.client}</span>}
-                            {report.date && (
+                            {!isEmpty(report.client) && <span>{report.client}</span>}
+                            {report.date && !isEmpty(formatReportDate(report.date)) && (
                                 <span>{formatReportDate(report.date)}</span>
                             )}
                             {isAdmin && (

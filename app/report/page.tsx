@@ -8,6 +8,20 @@ import { ScreenshotBlockView } from "@/components/report/screenshot-block-view"
 import { TextBlockView } from "@/components/report/text-block-view"
 import { FileQuestion, ArrowRight, Printer, Download, Home, Settings } from "lucide-react"
 
+// Функция для проверки, является ли HTML строка пустой
+function isEmptyHtml(html: string | null | undefined): boolean {
+    if (!html) return true;
+    // Удаляем HTML теги и проверяем, осталось ли что-то кроме пробелов
+    const textContent = html.replace(/<[^>]*>/g, '').trim();
+    return textContent.length === 0;
+}
+
+// Функция для проверки, является ли обычная строка пустой
+function isEmpty(str: string | null | undefined): boolean {
+    if (!str) return true;
+    return str.trim().length === 0;
+}
+
 export default function ReportPage() {
   const router = useRouter()
   const [draft, setDraft] = useState<ReportDraft | null>(null)
@@ -69,14 +83,20 @@ export default function ReportPage() {
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2">
-              <h1 className="text-balance text-3xl font-bold text-[var(--color-grayscale-2)] sm:text-4xl">
-                {draft.meta.title || "Без названия"}
-              </h1>
-              {draft.meta.subtitle && <p className="text-lg text-[var(--color-grayscale-5)]">{draft.meta.subtitle}</p>}
+              {!isEmptyHtml(draft.meta.title) ? (
+                <h1 className="text-balance text-3xl font-bold text-[var(--color-grayscale-2)] sm:text-4xl">
+                  {draft.meta.title}
+                </h1>
+              ) : (
+                <h1 className="text-balance text-3xl font-bold text-[var(--color-grayscale-2)] sm:text-4xl">
+                  Без названия
+                </h1>
+              )}
+              {!isEmpty(draft.meta.subtitle) && <p className="text-lg text-[var(--color-grayscale-5)]">{draft.meta.subtitle}</p>}
             </div>
             <div className="flex flex-shrink-0 flex-col items-end gap-2 text-sm text-[var(--color-grayscale-6)]">
-              {draft.meta.client && <span>{draft.meta.client}</span>}
-              {draft.meta.date && <span>{draft.meta.date}</span>}
+              {!isEmpty(draft.meta.client) && <span>{draft.meta.client}</span>}
+              {draft.meta.date && !isEmpty(draft.meta.date) && <span>{draft.meta.date}</span>}
               <div className="mt-2 flex gap-2">
                 <button
                   onClick={() => router.push("/")}
