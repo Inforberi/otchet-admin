@@ -78,6 +78,8 @@ export async function GET(
                 left: '15mm',
             },
             printBackground: true,
+            preferCSSPageSize: false,
+            displayHeaderFooter: false,
         });
 
         await browser.close();
@@ -151,20 +153,26 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
     const titleFontSize = report.titleFontSize || '40';
     const descriptionFontSize = report.descriptionFontSize || '20';
     const captionFontSize = report.captionFontSize || '16';
+    
+    // Вычисляем максимальную высоту изображения: высота A4 (297mm) - отступы (30mm) - подпись (примерно 20mm если есть)
+    // Для изображения с подписью: 297 - 30 - 20 = 247mm
+    // Для изображения без подписи: 297 - 30 = 267mm
+    const maxImageHeightWithCaption = '247mm';
+    const maxImageHeightWithoutCaption = '267mm';
 
     // Рендерим блоки
     const blocksHTML = report.blocks
         ?.map((block) => {
             if (block.type === 'divider') {
-                return '<div style="margin: 40px 0; border-top: 1px solid #e5e7eb;"></div>';
+                return '<div style="margin: 30px 0; border-top: 1px solid #e5e7eb; page-break-inside: avoid;"></div>';
             }
 
             if (block.type === 'text') {
                 const data = block.data as TextBlockData;
                 return `
-                    <section style="margin-bottom: 60px; page-break-inside: avoid;">
-                        ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 20px; margin-top: 0;">${data.title}</h2>` : ''}
-                        ${data.content ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap;">${data.content}</div>` : ''}
+                    <section style="margin-bottom: 40px; orphans: 3; widows: 3;">
+                        ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 16px; margin-top: 0; page-break-after: avoid;">${data.title}</h2>` : ''}
+                        ${data.content ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap; orphans: 3; widows: 3;">${data.content}</div>` : ''}
                     </section>
                 `;
             }
@@ -182,12 +190,15 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: ${spacingValue}; margin-bottom: 20px;">
                                 ${data.images
                                     .map(
-                                        (img) => `
-                                    <div>
-                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${img.alt || ''}" style="width: 100%; height: auto; display: block; border-radius: 8px;" />
-                                        ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center;">${img.caption}</p>` : ''}
+                                        (img) => {
+                                            const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                            return `
+                                    <div style="page-break-inside: avoid;">
+                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${img.alt || ''}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
+                                        ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${img.caption}</p>` : ''}
                                     </div>
-                                `
+                                `;
+                                        }
                                     )
                                     .join('')}
                             </div>
@@ -196,18 +207,21 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                         const isReverse = layout === 'sidebar-reverse';
                         imagesHTML = `
                             <div style="display: flex; gap: ${spacingValue}; margin-bottom: 20px; flex-direction: ${isReverse ? 'row-reverse' : 'row'};">
-                                <div style="flex: 0 0 40%;">
+                                <div style="flex: 0 0 40%; orphans: 3; widows: 3;">
                                     ${data.description ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap;">${data.description}</div>` : ''}
                                 </div>
                                 <div style="flex: 1;">
                                     ${data.images
                                         .map(
-                                            (img) => `
-                                        <div style="margin-bottom: ${spacingValue};">
-                                            <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px;" />
-                                            ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px;">${escapeHTML(img.caption)}</p>` : ''}
+                                            (img) => {
+                                                const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                                return `
+                                        <div style="margin-bottom: ${spacingValue}; page-break-inside: avoid;">
+                                            <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
+                                            ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                         </div>
-                                    `
+                                    `;
+                                            }
                                         )
                                         .join('')}
                                 </div>
@@ -219,12 +233,15 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                             <div style="display: flex; flex-direction: column; gap: ${spacingValue}; margin-bottom: 20px;">
                                 ${data.images
                                     .map(
-                                        (img) => `
-                                    <div>
-                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%;" />
-                                        ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center;">${escapeHTML(img.caption)}</p>` : ''}
+                                        (img) => {
+                                            const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                            return `
+                                    <div style="page-break-inside: avoid;">
+                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
+                                        ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                     </div>
-                                `
+                                `;
+                                        }
                                     )
                                     .join('')}
                             </div>
@@ -233,9 +250,9 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                 }
 
                 return `
-                    <section style="margin-bottom: 60px; page-break-inside: avoid;">
-                        ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 20px; margin-top: 0;">${data.title}</h2>` : ''}
-                        ${data.description && layout !== 'sidebar' && layout !== 'sidebar-reverse' ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap; margin-bottom: 20px;">${data.description}</div>` : ''}
+                    <section style="margin-bottom: 40px;">
+                        ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 16px; margin-top: 0; page-break-after: avoid;">${data.title}</h2>` : ''}
+                        ${data.description && layout !== 'sidebar' && layout !== 'sidebar-reverse' ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap; margin-bottom: 20px; orphans: 3; widows: 3;">${data.description}</div>` : ''}
                         ${imagesHTML}
                     </section>
                 `;
@@ -264,7 +281,7 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
             padding: 0;
         }
         .header {
-            margin-bottom: 40px;
+            margin-bottom: 30px;
             padding-bottom: 20px;
             border-bottom: 1px solid #e5e7eb;
         }
@@ -273,27 +290,36 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
             font-weight: 700;
             color: #111827;
             margin: 0 0 10px 0;
+            page-break-after: avoid;
         }
         .header .subtitle {
             font-size: 18px;
             color: #6b7280;
             margin-bottom: 10px;
+            page-break-after: avoid;
         }
         .header .meta {
             font-size: 14px;
             color: #9ca3af;
             margin-top: 10px;
+            page-break-after: avoid;
+        }
+        .content {
+            orphans: 3;
+            widows: 3;
         }
         img {
             max-width: 100%;
             height: auto;
+            display: block;
         }
         @media print {
             .header {
                 page-break-after: avoid;
             }
             section {
-                page-break-inside: avoid;
+                orphans: 3;
+                widows: 3;
             }
         }
     </style>
