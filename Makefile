@@ -93,9 +93,17 @@ db-up: ## Поднять только БД
 db-down: ## Остановить только БД
 	docker compose stop postgres
 
-backup: ## Создать ручной бэкап базы данных
-	@chmod +x scripts/backup.sh
-	@bash scripts/backup.sh
+backup: ## Создать полный бэкап (БД + uploads)
+	@chmod +x scripts/backup-all.sh
+	@bash scripts/backup-all.sh
+
+backup-db: ## Создать бэкап только базы данных
+	@chmod +x scripts/backup-db.sh
+	@bash scripts/backup-db.sh
+
+backup-uploads: ## Создать бэкап только uploads
+	@chmod +x scripts/backup-uploads.sh
+	@bash scripts/backup-uploads.sh
 
 backup-install: ## Установить автоматический бэкап (раз в сутки в 3:00)
 	@echo "Установка автоматического бэкапа..."

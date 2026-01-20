@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Скрипт для создания бэкапа PostgreSQL базы данных и директории uploads
-# Сохраняет бэкапы на рабочий стол пользователя
+# Скрипт для создания бэкапа PostgreSQL базы данных
+# Сохраняет бэкап на рабочий стол пользователя
 
 set -e
 
@@ -15,25 +15,20 @@ NC='\033[0m' # No Color
 DB_CONTAINER="admin-panel-db"
 DB_USER="admin"
 DB_NAME="admin_panel"
-DB_HOST="localhost"
-DB_PORT="5433"
 
 # Путь для сохранения бэкапов (рабочий стол)
-BACKUP_DIR="$HOME/Desktop/otchet-admin-backups"
+BACKUP_BASE_DIR="$HOME/Desktop/otchet-admin-backups"
 PROJECT_NAME="otchet-admin"
 DATE_FULL=$(date +"%Y-%m-%d_%H%M%S")
-BACKUP_FILE="$BACKUP_DIR/${PROJECT_NAME}_${DATE_FULL}.sql"
-BACKUP_FILE_COMPRESSED="$BACKUP_DIR/${PROJECT_NAME}_${DATE_FULL}.sql.gz"
-
-# Пути для бэкапа uploads
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UPLOADS_DIR="${PROJECT_DIR}/uploads"
-UPLOADS_BACKUP_FILE="$BACKUP_DIR/${PROJECT_NAME}_uploads_${DATE_FULL}.tar.gz"
+BACKUP_DIR="$BACKUP_BASE_DIR/${PROJECT_NAME}_${DATE_FULL}"
+BACKUP_FILE="$BACKUP_DIR/db.sql"
+BACKUP_FILE_COMPRESSED="$BACKUP_DIR/db.sql.gz"
 
 # Создаем директорию для бэкапов, если её нет
+mkdir -p "$BACKUP_BASE_DIR"
 mkdir -p "$BACKUP_DIR"
 
-echo -e "${YELLOW}Создание бэкапа базы данных и uploads...${NC}"
+echo -e "${YELLOW}Создание бэкапа базы данных...${NC}"
 
 # Проверяем, запущен ли контейнер
 if ! docker ps | grep -q "$DB_CONTAINER"; then
@@ -61,30 +56,13 @@ if [ $? -eq 0 ] && [ -f "$BACKUP_FILE" ] && [ -s "$BACKUP_FILE" ]; then
     FILE_SIZE=$(du -h "$BACKUP_FILE_COMPRESSED" | cut -f1)
     
     echo -e "${GREEN}✓ Бэкап БД успешно создан и сжат${NC}"
-    echo -e "${GREEN}  Файл: $BACKUP_FILE_COMPRESSED${NC}"
+    echo -e "${GREEN}  Папка: $BACKUP_DIR${NC}"
+    echo -e "${GREEN}  Файл: db.sql.gz${NC}"
     echo -e "${GREEN}  Размер: $FILE_SIZE${NC}"
     
-    # Создаем бэкап uploads
-    if [ -d "$UPLOADS_DIR" ]; then
-        echo -e "${YELLOW}Создание бэкапа uploads...${NC}"
-        
-        # Создаем tar.gz архив uploads
-        if tar -czf "$UPLOADS_BACKUP_FILE" -C "$PROJECT_DIR" uploads 2>/dev/null; then
-            UPLOADS_SIZE=$(du -h "$UPLOADS_BACKUP_FILE" | cut -f1)
-            echo -e "${GREEN}✓ Бэкап uploads успешно создан${NC}"
-            echo -e "${GREEN}  Файл: $UPLOADS_BACKUP_FILE${NC}"
-            echo -e "${GREEN}  Размер: $UPLOADS_SIZE${NC}"
-        else
-            echo -e "${RED}Предупреждение: Не удалось создать бэкап uploads${NC}"
-        fi
-    else
-        echo -e "${YELLOW}Директория uploads не найдена, пропускаем${NC}"
-    fi
-    
     # Удаляем старые бэкапы (оставляем последние 30 дней)
-    echo -e "${YELLOW}Очистка старых бэкапов (старше 30 дней)...${NC}"
-    find "$BACKUP_DIR" -name "${PROJECT_NAME}_*.sql.gz" -type f -mtime +30 -delete
-    find "$BACKUP_DIR" -name "${PROJECT_NAME}_uploads_*.tar.gz" -type f -mtime +30 -delete
+    echo -e "${YELLOW}Очистка старых бэкапов БД (старше 30 дней)...${NC}"
+    find "$BACKUP_BASE_DIR" -type d -name "${PROJECT_NAME}_*" -mtime +30 -exec rm -rf {} + 2>/dev/null || true
     echo -e "${GREEN}Готово${NC}"
     
     exit 0
