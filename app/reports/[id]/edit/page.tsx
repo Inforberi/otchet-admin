@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useUserRole } from '@/hooks/use-user-role';
 import type {
@@ -50,7 +50,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 // Компактная карточка блока в sidebar
-function SortableBlockCard({
+const SortableBlockCard = memo(function SortableBlockCard({
     block,
     onDelete,
     onDuplicate,
@@ -72,13 +72,13 @@ function SortableBlockCard({
         isDragging,
     } = useSortable({ id: block.id });
 
-    const style = {
+    const style = useMemo(() => ({
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
-    };
+    }), [transform, transition, isDragging]);
 
-    const getBlockTitle = () => {
+    const blockTitle = useMemo(() => {
         if (block.type === 'text') {
             const data = block.data as TextBlockData;
             if (data.title) return data.title.substring(0, 30);
@@ -91,13 +91,31 @@ function SortableBlockCard({
         } else {
             return 'Разделитель';
         }
-    };
+    }, [block.type, block.data]);
+
+    const handleSelect = useCallback(() => {
+        onSelect(block.id);
+    }, [onSelect, block.id]);
+
+    const handleDuplicate = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        onDuplicate(block.id);
+    }, [onDuplicate, block.id]);
+
+    const handleDelete = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        onDelete(block.id);
+    }, [onDelete, block.id]);
+
+    const handleStopPropagation = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+    }, []);
 
     return (
         <div
             ref={setNodeRef}
             style={style}
-            onClick={() => onSelect(block.id)}
+            onClick={handleSelect}
             className={`rounded border mb-2 p-3 hover:border-zinc-600 transition-colors cursor-pointer ${
                 isSelected
                     ? 'bg-zinc-700 border-blue-500'
@@ -109,7 +127,7 @@ function SortableBlockCard({
                     {...attributes}
                     {...listeners}
                     className="cursor-grab active:cursor-grabbing p-1 hover:bg-zinc-700 rounded flex-shrink-0"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={handleStopPropagation}
                 >
                     <GripVertical className="w-4 h-4 text-zinc-400" />
                 </button>
@@ -131,26 +149,20 @@ function SortableBlockCard({
                             : 'Фото'}
                     </span>
                     <p className="text-xs text-zinc-300 truncate">
-                        {getBlockTitle()}
+                        {blockTitle}
                     </p>
                 </div>
 
                 <div className="flex items-center gap-1 flex-shrink-0">
                     <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDuplicate(block.id);
-                        }}
+                        onClick={handleDuplicate}
                         className="p-1 hover:bg-zinc-700 rounded text-zinc-400 cursor-pointer"
                         title="Дублировать"
                     >
                         <Copy className="w-3.5 h-3.5" />
                     </button>
                     <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDelete(block.id);
-                        }}
+                        onClick={handleDelete}
                         className="p-1 hover:bg-red-900 rounded text-red-400 cursor-pointer"
                         title="Удалить"
                     >
@@ -160,7 +172,7 @@ function SortableBlockCard({
             </div>
         </div>
     );
-}
+});
 
 // Полноценный редактор блока (инлайн)
 function BlockEditor({
@@ -191,9 +203,9 @@ function BlockEditor({
             }
         }, 500);
         return () => clearTimeout(debounce);
-    }, [localData]);
+    }, [localData, block.id, block.data, onUpdate]);
 
-    async function processFiles(files: FileList | File[]) {
+    const processFiles = useCallback(async (files: FileList | File[]) => {
         if (!files || files.length === 0) return;
 
         setUploading(true);
@@ -226,39 +238,41 @@ function BlockEditor({
                 }
             }
 
-            const currentImages =
-                (localData as ScreenshotBlockData).images || [];
-            setLocalData({
-                ...(localData as ScreenshotBlockData),
-                images: [...currentImages, ...newImages],
-            } as ScreenshotBlockData);
+            setLocalData((prevData) => {
+                const currentImages =
+                    (prevData as ScreenshotBlockData).images || [];
+                return {
+                    ...(prevData as ScreenshotBlockData),
+                    images: [...currentImages, ...newImages],
+                } as ScreenshotBlockData;
+            });
         } catch (error) {
             console.error('Upload error:', error);
             alert('Ошибка загрузки изображения');
         } finally {
             setUploading(false);
         }
-    }
+    }, [reportId]);
 
-    async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (!files) return;
         await processFiles(files);
-    }
+    }, [processFiles]);
 
-    function handleDragOver(e: React.DragEvent) {
+    const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(true);
-    }
+    }, []);
 
-    function handleDragLeave(e: React.DragEvent) {
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
-    }
+    }, []);
 
-    async function handleDrop(e: React.DragEvent) {
+    const handleDrop = useCallback(async (e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragOver(false);
@@ -267,63 +281,97 @@ function BlockEditor({
         if (files && files.length > 0) {
             await processFiles(files);
         }
-    }
+    }, [processFiles]);
 
-    async function handleRemoveImage(index: number) {
-        const images = (localData as ScreenshotBlockData).images || [];
-        const imageToRemove = images[index];
+    const handleRemoveImage = useCallback(async (index: number) => {
+        setLocalData((prevData) => {
+            const images = (prevData as ScreenshotBlockData).images || [];
+            const imageToRemove = images[index];
 
-        if (!imageToRemove) return;
+            if (!imageToRemove) return prevData;
 
-        // Удаляем изображение из локального состояния
-        const updatedImages = images.filter((_, i) => i !== index);
-        setLocalData({
-            ...(localData as ScreenshotBlockData),
-            images: updatedImages,
-        } as ScreenshotBlockData);
+            // Удаляем файл с сервера
+            (async () => {
+                try {
+                    // Извлекаем path из URL: /api/static/uploads/{path}
+                    const urlPath = imageToRemove.url.replace(
+                        '/api/static/uploads/',
+                        ''
+                    );
 
-        // Удаляем файл с сервера
-        try {
-            // Извлекаем path из URL: /api/static/uploads/{path}
-            const urlPath = imageToRemove.url.replace(
-                '/api/static/uploads/',
-                ''
-            );
+                    const res = await fetch(
+                        `/api/uploads/by-path?path=${encodeURIComponent(urlPath)}`,
+                        {
+                            method: 'DELETE',
+                        }
+                    );
 
-            const res = await fetch(
-                `/api/uploads/by-path?path=${encodeURIComponent(urlPath)}`,
-                {
-                    method: 'DELETE',
+                    if (!res.ok) {
+                        console.error('Failed to delete file from server');
+                        // Не показываем ошибку пользователю, файл уже удален из UI
+                    }
+                } catch (error) {
+                    console.error('Error deleting file:', error);
+                    // Не показываем ошибку пользователю, файл уже удален из UI
                 }
-            );
+            })();
 
-            if (!res.ok) {
-                console.error('Failed to delete file from server');
-                // Не показываем ошибку пользователю, файл уже удален из UI
-            }
-        } catch (error) {
-            console.error('Error deleting file:', error);
-            // Не показываем ошибку пользователю, файл уже удален из UI
+            // Удаляем изображение из локального состояния
+            const updatedImages = images.filter((_, i) => i !== index);
+            return {
+                ...(prevData as ScreenshotBlockData),
+                images: updatedImages,
+            } as ScreenshotBlockData;
+        });
+    }, []);
+
+    const handleUpdateImageCaption = useCallback((index: number, caption: string, inputRef?: HTMLInputElement) => {
+        // Сохраняем позицию курсора перед обновлением
+        let cursorPosition: number | null = null;
+        if (inputRef) {
+            cursorPosition = inputRef.selectionStart || 0;
         }
-    }
 
-    function handleUpdateImageCaption(index: number, caption: string) {
-        const images = [...(localData as ScreenshotBlockData).images];
-        images[index] = { ...images[index], caption };
-        setLocalData({
-            ...(localData as ScreenshotBlockData),
-            images,
-        } as ScreenshotBlockData);
-    }
+        setLocalData((prevData) => {
+            const images = [...(prevData as ScreenshotBlockData).images];
+            images[index] = { ...images[index], caption };
+            return {
+                ...(prevData as ScreenshotBlockData),
+                images,
+            } as ScreenshotBlockData;
+        });
 
-    function handleUpdateImageAlt(index: number, alt: string) {
-        const images = [...(localData as ScreenshotBlockData).images];
-        images[index] = { ...images[index], alt };
-        setLocalData({
-            ...(localData as ScreenshotBlockData),
-            images,
-        } as ScreenshotBlockData);
-    }
+        // Восстанавливаем позицию курсора после обновления
+        if (inputRef && cursorPosition !== null) {
+            setTimeout(() => {
+                inputRef.setSelectionRange(cursorPosition, cursorPosition);
+            }, 0);
+        }
+    }, []);
+
+    const handleUpdateImageAlt = useCallback((index: number, alt: string, inputRef?: HTMLInputElement) => {
+        // Сохраняем позицию курсора перед обновлением
+        let cursorPosition: number | null = null;
+        if (inputRef) {
+            cursorPosition = inputRef.selectionStart || 0;
+        }
+
+        setLocalData((prevData) => {
+            const images = [...(prevData as ScreenshotBlockData).images];
+            images[index] = { ...images[index], alt };
+            return {
+                ...(prevData as ScreenshotBlockData),
+                images,
+            } as ScreenshotBlockData;
+        });
+
+        // Восстанавливаем позицию курсора после обновления
+        if (inputRef && cursorPosition !== null) {
+            setTimeout(() => {
+                inputRef.setSelectionRange(cursorPosition, cursorPosition);
+            }, 0);
+        }
+    }, []);
 
     if (block.type === 'divider') {
         return (
@@ -465,7 +513,7 @@ function BlockEditor({
                                         localData as ScreenshotBlockData
                                     ).images?.map((img, idx) => (
                                         <div
-                                            key={idx}
+                                            key={img.uploadId || `img-${idx}-${img.url}`}
                                             className="border border-zinc-700 rounded p-3 bg-zinc-800"
                                         >
                                             <div className="flex gap-3">
@@ -483,7 +531,8 @@ function BlockEditor({
                                                         onChange={(e) =>
                                                             handleUpdateImageCaption(
                                                                 idx,
-                                                                e.target.value
+                                                                e.target.value,
+                                                                e.currentTarget
                                                             )
                                                         }
                                                         placeholder="Подпись к изображению..."
@@ -495,7 +544,8 @@ function BlockEditor({
                                                         onChange={(e) =>
                                                             handleUpdateImageAlt(
                                                                 idx,
-                                                                e.target.value
+                                                                e.target.value,
+                                                                e.currentTarget
                                                             )
                                                         }
                                                         placeholder="Alt текст..."
@@ -589,7 +639,7 @@ function BlockEditor({
 }
 
 // Компонент для форматированного текстового редактора
-function FormattedTextEditor({
+const FormattedTextEditor = memo(function FormattedTextEditor({
     value,
     onChange,
     placeholder,
@@ -614,7 +664,7 @@ function FormattedTextEditor({
     const savedSelectionRef = useRef<Range | null>(null);
 
     // Цвета сайта
-    const siteColors = [
+    const siteColors = useMemo(() => [
         { name: 'Primary', value: '#3b82f6' },
         { name: 'Grayscale-2', value: '#f5f5f5' },
         { name: 'Grayscale-3', value: '#e8e8e8' },
@@ -622,7 +672,7 @@ function FormattedTextEditor({
         { name: 'Grayscale-5', value: '#a3a3a3' },
         { name: 'Grayscale-6', value: '#737373' },
         { name: 'Белый', value: '#ffffff' },
-    ];
+    ], []);
 
     // Получаем последние выбранные цвета из localStorage
     const getRecentColors = (): string[] => {
@@ -1374,6 +1424,8 @@ function FormattedTextEditor({
                                         value={customColor}
                                         placeholder="#000000"
                                         onChange={(e) => {
+                                            const input = e.currentTarget;
+                                            const cursorPosition = input.selectionStart || 0;
                                             const color = e.target.value;
                                             setCustomColor(color);
                                             if (/^#[0-9A-F]{6}$/i.test(color)) {
@@ -1381,6 +1433,9 @@ function FormattedTextEditor({
                                                 setCurrentColor(color);
                                                 setHasCustomColor(true);
                                             }
+                                            setTimeout(() => {
+                                                input.setSelectionRange(cursorPosition, cursorPosition);
+                                            }, 0);
                                         }}
                                         className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200"
                                     />
@@ -1455,7 +1510,7 @@ function FormattedTextEditor({
             />
         </div>
     );
-}
+});
 
 export default function EditReportPage() {
     const router = useRouter();
@@ -1501,6 +1556,229 @@ export default function EditReportPage() {
         return [...blocks].sort((a, b) => a.position - b.position);
     }, [blocks]);
 
+    const handleSaveMetadata = useCallback(async (isAutoSave = false) => {
+        if (!report) return;
+        setSaving(true);
+        try {
+            await fetch(`/api/reports/${reportId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: report.title,
+                    subtitle: report.subtitle,
+                    date: report.date || undefined,
+                    titleFontSize: report.titleFontSize,
+                    descriptionFontSize: report.descriptionFontSize,
+                    captionFontSize: report.captionFontSize,
+                }),
+            });
+            if (!isAutoSave) {
+                alert('Метаданные сохранены!');
+            }
+            setTimeUntilSave(120); // Сброс таймера после сохранения
+        } catch (error) {
+            console.error(error);
+            if (!isAutoSave) {
+                alert('Ошибка сохранения');
+            }
+        } finally {
+            setSaving(false);
+        }
+    }, [report, reportId]);
+
+    const handleLogout = useCallback(async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            router.push('/login');
+            router.refresh();
+        } catch (error) {
+            console.error('Error logging out:', error);
+        }
+    }, [router]);
+
+    const formatTime = useCallback((seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }, []);
+
+    const fetchReport = useCallback(async () => {
+        try {
+            const [reportRes, blocksRes] = await Promise.all([
+                fetch(`/api/reports/${reportId}`),
+                fetch(`/api/reports/${reportId}/blocks`),
+            ]);
+            if (!reportRes.ok || !blocksRes.ok)
+                throw new Error('Failed to fetch');
+            const { report: reportData } = await reportRes.json();
+            const { blocks: blocksData } = await blocksRes.json();
+            setReport(reportData);
+            setBlocks(
+                blocksData.sort(
+                    (a: ReportBlockFromDB, b: ReportBlockFromDB) =>
+                        a.position - b.position
+                )
+            );
+            if (blocksData.length > 0) {
+                setSelectedBlockId(blocksData[0].id);
+            }
+        } catch (error) {
+            console.error(error);
+            alert('Ошибка загрузки отчета');
+        } finally {
+            setLoading(false);
+        }
+    }, [reportId]);
+
+    const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over || active.id === over.id) return;
+
+        setBlocks((currentBlocks) => {
+            // Сохраняем текущий порядок для возможного отката
+            const previousBlocks = [...currentBlocks];
+
+            const currentSorted = [...currentBlocks].sort((a, b) => a.position - b.position);
+            const oldIndex = currentSorted.findIndex((b) => b.id === active.id);
+            const newIndex = currentSorted.findIndex((b) => b.id === over.id);
+
+            if (oldIndex === -1 || newIndex === -1) return currentBlocks;
+
+            const reorderedBlocks = arrayMove(currentSorted, oldIndex, newIndex);
+            const newBlocks = reorderedBlocks.map((b, i) => ({
+                ...b,
+                position: i,
+            }));
+
+            // Асинхронное сохранение
+            (async () => {
+                try {
+                    const res = await fetch(`/api/reports/${reportId}/blocks/reorder`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ blockIds: newBlocks.map((b) => b.id) }),
+                    });
+                    if (!res.ok) {
+                        throw new Error('Failed to save order');
+                    }
+                } catch (error) {
+                    console.error(error);
+                    // В случае ошибки возвращаем старый порядок
+                    setBlocks(() => previousBlocks);
+                    alert('Ошибка сохранения порядка блоков');
+                }
+            })();
+
+            return newBlocks;
+        });
+    }, [reportId]);
+
+    const handleUpdateBlock = useCallback(async (
+        id: string,
+        data: TextBlockData | ScreenshotBlockData | DividerBlockData
+    ) => {
+        try {
+            const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data }),
+            });
+            if (!res.ok) throw new Error('Failed to update');
+            const { block: saved } = await res.json();
+            setBlocks((prev) =>
+                prev.map((b) => (b.id === saved.id ? saved : b))
+            );
+        } catch (error) {
+            console.error(error);
+        }
+    }, [reportId]);
+
+    const handleDeleteBlock = useCallback(async (id: string) => {
+        if (!confirm('Удалить блок?')) return;
+        try {
+            const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
+                method: 'DELETE',
+            });
+            if (!res.ok) throw new Error('Failed to delete');
+            setBlocks((prev) => {
+                const filtered = prev.filter((b) => b.id !== id);
+                if (selectedBlockId === id && filtered.length > 0) {
+                    const sorted = [...filtered].sort((a, b) => a.position - b.position);
+                    setSelectedBlockId(sorted[0]?.id || null);
+                }
+                return filtered;
+            });
+        } catch (error) {
+            console.error(error);
+            alert('Ошибка удаления блока');
+        }
+    }, [reportId, selectedBlockId]);
+
+    const handleDuplicateBlock = useCallback(async (id: string) => {
+        const blockToDup = blocks.find((b) => b.id === id);
+        if (!blockToDup) return;
+
+        try {
+            const sorted = [...blocks].sort((a, b) => a.position - b.position);
+            const res = await fetch(`/api/reports/${reportId}/blocks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: blockToDup.type,
+                    position: sorted.length,
+                    data: blockToDup.data,
+                }),
+            });
+            if (!res.ok) throw new Error('Failed to duplicate');
+            const { block: newBlock } = await res.json();
+            setBlocks((prev) => [...prev, newBlock]);
+            setSelectedBlockId(newBlock.id);
+        } catch (error) {
+            console.error(error);
+            alert('Ошибка дублирования блока');
+        }
+    }, [reportId, blocks]);
+
+    const handleAddBlock = useCallback(async (type: 'text' | 'screenshot' | 'divider') => {
+        if (!reportId) return;
+        try {
+            const sorted = [...blocks].sort((a, b) => a.position - b.position);
+            const res = await fetch(`/api/reports/${reportId}/blocks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type,
+                    position: sorted.length,
+                    data:
+                        type === 'text'
+                            ? {
+                                  title: '',
+                                  content: '',
+                              }
+                            : type === 'divider'
+                            ? {}
+                            : {
+                                  title: '',
+                                  description: '',
+                                  images: [],
+                                  layout: 'full-width',
+                              },
+                }),
+            });
+            if (!res.ok) throw new Error('Failed to create block');
+            const { block: newBlock } = await res.json();
+            setBlocks((prev) => [...prev, newBlock]);
+            setSelectedBlockId(newBlock.id);
+        } catch (error) {
+            console.error(error);
+            alert('Ошибка создания блока');
+        }
+    }, [reportId, blocks]);
+
+    const handleSelectBlock = useCallback((id: string) => {
+        setSelectedBlockId(id);
+    }, []);
+
     useEffect(() => {
         if (!roleLoading && !isAdmin) {
             router.push(`/reports/${reportId}`);
@@ -1509,8 +1787,7 @@ export default function EditReportPage() {
         if (isAdmin && reportId) {
             fetchReport();
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reportId, isAdmin, roleLoading]);
+    }, [reportId, isAdmin, roleLoading, router, fetchReport]);
 
     // Установить текущую дату, если она не задана
     useEffect(() => {
@@ -1580,8 +1857,7 @@ export default function EditReportPage() {
         }, intervalMs);
 
         return () => clearInterval(autoSave);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [report, autoSaveEnabled, autoSaveIntervalMinutes]);
+    }, [report, autoSaveEnabled, autoSaveIntervalMinutes, handleSaveMetadata]);
 
     // Закрытие меню настроек при клике вне его
     useEffect(() => {
@@ -1611,216 +1887,6 @@ export default function EditReportPage() {
 
     if (!isAdmin) {
         return null; // Редирект уже произошел
-    }
-
-    async function handleSaveMetadata(isAutoSave = false) {
-        if (!report) return;
-        setSaving(true);
-        try {
-            await fetch(`/api/reports/${reportId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: report.title,
-                    subtitle: report.subtitle,
-                    date: report.date || undefined,
-                    titleFontSize: report.titleFontSize,
-                    descriptionFontSize: report.descriptionFontSize,
-                    captionFontSize: report.captionFontSize,
-                }),
-            });
-            if (!isAutoSave) {
-                alert('Метаданные сохранены!');
-            }
-            setTimeUntilSave(120); // Сброс таймера после сохранения
-        } catch (error) {
-            console.error(error);
-            if (!isAutoSave) {
-                alert('Ошибка сохранения');
-            }
-        } finally {
-            setSaving(false);
-        }
-    }
-
-    async function handleLogout() {
-        try {
-            await fetch('/api/auth/logout', { method: 'POST' });
-            router.push('/login');
-            router.refresh();
-        } catch (error) {
-            console.error('Error logging out:', error);
-        }
-    }
-
-    function formatTime(seconds: number) {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    }
-
-    async function fetchReport() {
-        try {
-            const [reportRes, blocksRes] = await Promise.all([
-                fetch(`/api/reports/${reportId}`),
-                fetch(`/api/reports/${reportId}/blocks`),
-            ]);
-            if (!reportRes.ok || !blocksRes.ok)
-                throw new Error('Failed to fetch');
-            const { report: reportData } = await reportRes.json();
-            const { blocks: blocksData } = await blocksRes.json();
-            setReport(reportData);
-            setBlocks(
-                blocksData.sort(
-                    (a: ReportBlockFromDB, b: ReportBlockFromDB) =>
-                        a.position - b.position
-                )
-            );
-            if (blocksData.length > 0) {
-                setSelectedBlockId(blocksData[0].id);
-            }
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка загрузки отчета');
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    async function handleDragEnd(event: DragEndEvent) {
-        const { active, over } = event;
-        if (!over || active.id === over.id) return;
-
-        // Сохраняем текущий порядок для возможного отката
-        const previousBlocks = [...blocks];
-
-        const currentSorted = [...sortedBlocks];
-        const oldIndex = currentSorted.findIndex((b) => b.id === active.id);
-        const newIndex = currentSorted.findIndex((b) => b.id === over.id);
-
-        if (oldIndex === -1 || newIndex === -1) return;
-
-        const reorderedBlocks = arrayMove(currentSorted, oldIndex, newIndex);
-        const newBlocks = reorderedBlocks.map((b, i) => ({
-            ...b,
-            position: i,
-        }));
-
-        setBlocks(newBlocks);
-
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks/reorder`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ blockIds: newBlocks.map((b) => b.id) }),
-            });
-            if (!res.ok) {
-                throw new Error('Failed to save order');
-            }
-        } catch (error) {
-            console.error(error);
-            // В случае ошибки возвращаем старый порядок
-            setBlocks(previousBlocks);
-            alert('Ошибка сохранения порядка блоков');
-        }
-    }
-
-    async function handleUpdateBlock(
-        id: string,
-        data: TextBlockData | ScreenshotBlockData | DividerBlockData
-    ) {
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data }),
-            });
-            if (!res.ok) throw new Error('Failed to update');
-            const { block: saved } = await res.json();
-            setBlocks((prev) =>
-                prev.map((b) => (b.id === saved.id ? saved : b))
-            );
-        } catch (error) {
-            console.error(error);
-        }
-    }
-
-    async function handleDeleteBlock(id: string) {
-        if (!confirm('Удалить блок?')) return;
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
-                method: 'DELETE',
-            });
-            if (!res.ok) throw new Error('Failed to delete');
-            setBlocks((prev) => prev.filter((b) => b.id !== id));
-            if (selectedBlockId === id && sortedBlocks.length > 1) {
-                setSelectedBlockId(
-                    sortedBlocks.find((b) => b.id !== id)?.id || null
-                );
-            }
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка удаления блока');
-        }
-    }
-
-    async function handleDuplicateBlock(id: string) {
-        const blockToDup = blocks.find((b) => b.id === id);
-        if (!blockToDup) return;
-
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: blockToDup.type,
-                    position: sortedBlocks.length,
-                    data: blockToDup.data,
-                }),
-            });
-            if (!res.ok) throw new Error('Failed to duplicate');
-            const { block: newBlock } = await res.json();
-            setBlocks((prev) => [...prev, newBlock]);
-            setSelectedBlockId(newBlock.id);
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка дублирования блока');
-        }
-    }
-
-    async function handleAddBlock(type: 'text' | 'screenshot' | 'divider') {
-        if (!reportId) return;
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type,
-                    position: sortedBlocks.length,
-                    data:
-                        type === 'text'
-                            ? {
-                                  title: '',
-                                  content: '',
-                              }
-                            : type === 'divider'
-                            ? {}
-                            : {
-                                  title: '',
-                                  description: '',
-                                  images: [],
-                                  layout: 'full-width',
-                              },
-                }),
-            });
-            if (!res.ok) throw new Error('Failed to create block');
-            const { block: newBlock } = await res.json();
-            setBlocks((prev) => [...prev, newBlock]);
-            setSelectedBlockId(newBlock.id);
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка создания блока');
-        }
     }
 
     if (loading)
@@ -1917,6 +1983,8 @@ export default function EditReportPage() {
                                                         autoSaveIntervalMinutes
                                                     }
                                                     onChange={(e) => {
+                                                        const input = e.currentTarget;
+                                                        const cursorPosition = input.selectionStart || 0;
                                                         const value = parseInt(
                                                             e.target.value,
                                                             10
@@ -1929,6 +1997,9 @@ export default function EditReportPage() {
                                                                 value
                                                             );
                                                         }
+                                                        setTimeout(() => {
+                                                            input.setSelectionRange(cursorPosition, cursorPosition);
+                                                        }, 0);
                                                     }}
                                                     className="w-20 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                 />
@@ -2051,15 +2122,20 @@ export default function EditReportPage() {
                                                         report.titleFontSize ||
                                                         '40'
                                                     }
-                                                    onChange={(e) =>
+                                                    onChange={(e) => {
+                                                        const input = e.currentTarget;
+                                                        const cursorPosition = input.selectionStart || 0;
                                                         setReport({
                                                             ...report,
                                                             titleFontSize:
                                                                 e.target
                                                                     .value ||
                                                                 null,
-                                                        })
-                                                    }
+                                                        });
+                                                        setTimeout(() => {
+                                                            input.setSelectionRange(cursorPosition, cursorPosition);
+                                                        }, 0);
+                                                    }}
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     placeholder="40"
                                                     min="8"
@@ -2081,15 +2157,20 @@ export default function EditReportPage() {
                                                         report.descriptionFontSize ||
                                                         '20'
                                                     }
-                                                    onChange={(e) =>
+                                                    onChange={(e) => {
+                                                        const input = e.currentTarget;
+                                                        const cursorPosition = input.selectionStart || 0;
                                                         setReport({
                                                             ...report,
                                                             descriptionFontSize:
                                                                 e.target
                                                                     .value ||
                                                                 null,
-                                                        })
-                                                    }
+                                                        });
+                                                        setTimeout(() => {
+                                                            input.setSelectionRange(cursorPosition, cursorPosition);
+                                                        }, 0);
+                                                    }}
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     placeholder="20"
                                                     min="8"
@@ -2111,15 +2192,20 @@ export default function EditReportPage() {
                                                         report.captionFontSize ||
                                                         '16'
                                                     }
-                                                    onChange={(e) =>
+                                                    onChange={(e) => {
+                                                        const input = e.currentTarget;
+                                                        const cursorPosition = input.selectionStart || 0;
                                                         setReport({
                                                             ...report,
                                                             captionFontSize:
                                                                 e.target
                                                                     .value ||
                                                                 null,
-                                                        })
-                                                    }
+                                                        });
+                                                        setTimeout(() => {
+                                                            input.setSelectionRange(cursorPosition, cursorPosition);
+                                                        }, 0);
+                                                    }}
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     placeholder="16"
                                                     min="8"
@@ -2210,7 +2296,7 @@ export default function EditReportPage() {
                                         isSelected={
                                             selectedBlockId === block.id
                                         }
-                                        onSelect={setSelectedBlockId}
+                                        onSelect={handleSelectBlock}
                                         onDelete={handleDeleteBlock}
                                         onDuplicate={handleDuplicateBlock}
                                     />
