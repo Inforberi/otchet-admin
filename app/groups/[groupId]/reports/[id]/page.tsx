@@ -98,9 +98,40 @@ export default function GroupReportViewPage() {
     };
 
     const handleExportPDF = async () => {
-        alert(
-            'PDF экспорт временно недоступен. Используйте печать браузера (Ctrl/Cmd+P)'
-        );
+        try {
+            setIsExporting(true);
+            const response = await fetch(`/api/reports/${reportId}/pdf`);
+            
+            if (!response.ok) {
+                throw new Error('Ошибка при генерации PDF');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // Получаем имя файла из заголовка Content-Disposition
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = `report_${reportId}.pdf`;
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch) {
+                    filename = filenameMatch[1];
+                }
+            }
+            
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error('Error exporting PDF:', error);
+            alert('Ошибка при генерации PDF. Попробуйте позже.');
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     if (loading) {
@@ -193,11 +224,11 @@ export default function GroupReportViewPage() {
                                     </button>
                                     <button
                                         onClick={handleExportPDF}
-                                        className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 print:hidden cursor-pointer"
-                                        title="PDF экспорт временно отключен"
+                                        disabled={isExporting}
+                                        className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 disabled:opacity-50 print:hidden cursor-pointer"
                                     >
                                         <Download className="h-4 w-4" />
-                                        PDF (скоро)
+                                        {isExporting ? 'Генерация...' : 'PDF'}
                                     </button>
                                 </div>
                             )}
