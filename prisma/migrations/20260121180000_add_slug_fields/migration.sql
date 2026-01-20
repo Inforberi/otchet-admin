@@ -7,7 +7,7 @@ CREATE INDEX IF NOT EXISTS "report_groups_slug_idx" ON "report_groups"("slug");
 ALTER TABLE "reports" ADD COLUMN IF NOT EXISTS "slug" TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS "reports_groupId_slug_key" ON "reports"("group_id", "slug");
 
--- Generate slugs for existing groups
+-- Generate slugs for existing groups if they don't have one
 DO $$
 DECLARE
     group_record RECORD;
@@ -15,7 +15,7 @@ DECLARE
     final_slug TEXT;
     counter INTEGER;
 BEGIN
-    FOR group_record IN SELECT id, name FROM "report_groups" WHERE slug IS NULL LOOP
+    FOR group_record IN SELECT id, name FROM "report_groups" WHERE slug IS NULL OR slug = '' LOOP
         -- Simple transliteration and slug generation
         base_slug := lower(regexp_replace(
             regexp_replace(
@@ -36,7 +36,7 @@ BEGIN
         counter := 1;
         
         -- Ensure uniqueness
-        WHILE EXISTS (SELECT 1 FROM "report_groups" WHERE slug = final_slug) LOOP
+        WHILE EXISTS (SELECT 1 FROM "report_groups" WHERE slug = final_slug AND id != group_record.id) LOOP
             final_slug := base_slug || '-' || counter;
             counter := counter + 1;
         END LOOP;
@@ -45,7 +45,7 @@ BEGIN
     END LOOP;
 END $$;
 
--- Generate slugs for existing reports
+-- Generate slugs for existing reports if they don't have one
 DO $$
 DECLARE
     report_record RECORD;
@@ -53,7 +53,7 @@ DECLARE
     final_slug TEXT;
     counter INTEGER;
 BEGIN
-    FOR report_record IN SELECT id, title, group_id FROM "reports" WHERE slug IS NULL LOOP
+    FOR report_record IN SELECT id, title, group_id FROM "reports" WHERE slug IS NULL OR slug = '' LOOP
         -- Simple transliteration and slug generation
         base_slug := lower(regexp_replace(
             regexp_replace(
@@ -83,6 +83,24 @@ BEGIN
     END LOOP;
 END $$;
 
--- Make slug NOT NULL after populating
-ALTER TABLE "report_groups" ALTER COLUMN "slug" SET NOT NULL;
-ALTER TABLE "reports" ALTER COLUMN "slug" SET NOT NULL;
+-- Make slug NOT NULL after populating (only if not already NOT NULL)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'report_groups' 
+        AND column_name = 'slug' 
+        AND is_nullable = 'NO'
+    ) THEN
+        ALTER TABLE "report_groups" ALTER COLUMN "slug" SET NOT NULL;
+    END IF;
+    
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'reports' 
+        AND column_name = 'slug' 
+        AND is_nullable = 'NO'
+    ) THEN
+        ALTER TABLE "reports" ALTER COLUMN "slug" SET NOT NULL;
+    END IF;
+END $$;
