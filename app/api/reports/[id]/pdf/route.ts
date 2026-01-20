@@ -37,7 +37,19 @@ export async function GET(
         const html = generatePDFHTML(report, baseUrl);
 
         // Генерируем PDF через Playwright
-        const browser = await chromium.launch();
+        // В production используем браузеры, установленные через Playwright
+        const browser = await chromium.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu',
+            ],
+        });
         const page = await browser.newPage();
         
         await page.setContent(html, { waitUntil: 'networkidle' });
@@ -111,8 +123,11 @@ export async function GET(
         });
     } catch (error) {
         console.error('Error generating PDF:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        console.error('Error details:', { message: errorMessage, stack: errorStack });
         return NextResponse.json(
-            { error: 'Failed to generate PDF' },
+            { error: 'Failed to generate PDF', details: process.env.NODE_ENV === 'development' ? errorMessage : undefined },
             { status: 500 }
         );
     }
