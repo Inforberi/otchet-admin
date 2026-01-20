@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { UpdateReportInput } from '@/lib/db-types';
-import { unlink, rm } from 'fs/promises';
+import { unlink, rm, readdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
@@ -105,10 +105,10 @@ export async function DELETE(
     try {
         const { id } = await params;
 
-        // Получаем отчет перед удалением, чтобы узнать название папки
+        // Получаем отчет перед удалением, чтобы узнать название папки и группу
         const report = await prisma.report.findUnique({
             where: { id },
-            select: { title: true },
+            select: { title: true, groupId: true },
         });
 
         if (!report) {
@@ -146,52 +146,28 @@ export async function DELETE(
             });
         }
 
-        // Определяем путь к папке проекта
+        // Определяем путь к папке отчета с учетом группы
         // Используем ту же логику, что и при создании папки
-        let projectFolderName = id; // fallback на reportId
+        let groupFolderName = report.groupId;
+        let reportFolderName = id; // fallback на reportId
 
         try {
-            // Транслитерация (копируем логику из uploads/route.ts)
+            // Получаем информацию о группе
+            const group = await prisma.reportGroup.findUnique({
+                where: { id: report.groupId },
+                select: { name: true },
+            });
+
+            // Транслитерация
             const transliterate = (text: string): string => {
                 const translitMap: Record<string, string> = {
-                    а: 'a',
-                    б: 'b',
-                    в: 'v',
-                    г: 'g',
-                    д: 'd',
-                    е: 'e',
-                    ё: 'yo',
-                    ж: 'zh',
-                    з: 'z',
-                    и: 'i',
-                    й: 'y',
-                    к: 'k',
-                    л: 'l',
-                    м: 'm',
-                    н: 'n',
-                    о: 'o',
-                    п: 'p',
-                    р: 'r',
-                    с: 's',
-                    т: 't',
-                    у: 'u',
-                    ф: 'f',
-                    х: 'h',
-                    ц: 'ts',
-                    ч: 'ch',
-                    ш: 'sh',
-                    щ: 'sch',
-                    ъ: '',
-                    ы: 'y',
-                    ь: '',
-                    э: 'e',
-                    ю: 'yu',
-                    я: 'ya',
+                    а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo',
+                    ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
+                    н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u',
+                    ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch',
+                    ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
                 };
-                return text
-                    .split('')
-                    .map((char) => translitMap[char] || char)
-                    .join('');
+                return text.split('').map((char) => translitMap[char] || char).join('');
             };
 
             const createSafeFolderName = (title: string): string => {
@@ -208,31 +184,44 @@ export async function DELETE(
                 return safeName.toLowerCase();
             };
 
+            if (group && group.name) {
+                const safeGroupName = createSafeFolderName(group.name);
+                const shortGroupId = report.groupId.substring(0, 8);
+                groupFolderName = `${safeGroupName}_${shortGroupId}`;
+            }
+
             if (report.title) {
                 const safeTitle = createSafeFolderName(report.title);
                 const shortId = id.substring(0, 8);
-                projectFolderName = `${safeTitle}_${shortId}`;
+                reportFolderName = `${safeTitle}_${shortId}`;
             }
         } catch (error) {
-            console.error(`Error creating folder name:`, error);
-            // Используем id как fallback
-            projectFolderName = id;
+            console.error(`Error creating folder names:`, error);
         }
 
-        // Удаляем папку проекта (если она существует и пуста или содержит только файлы этого отчета)
-        const projectDir = path.join(uploadDir, projectFolderName);
-        if (existsSync(projectDir)) {
+        // Удаляем папку отчета: uploads/{groupFolder}/{reportFolder}/
+        const reportDir = path.join(uploadDir, groupFolderName, reportFolderName);
+        if (existsSync(reportDir)) {
             try {
-                // Проверяем, есть ли другие файлы в папке (на случай если там что-то осталось)
-                // Просто удаляем папку рекурсивно - все файлы этого отчета уже удалены
-                await rm(projectDir, { recursive: true, force: true });
-                console.log(`Deleted project directory: ${projectDir}`);
+                await rm(reportDir, { recursive: true, force: true });
+                console.log(`Deleted report directory: ${reportDir}`);
             } catch (error) {
-                console.error(
-                    `Error deleting project directory ${projectDir}:`,
-                    error
-                );
-                // Продолжаем удаление отчета даже если папка не удалилась
+                console.error(`Error deleting report directory ${reportDir}:`, error);
+            }
+        }
+
+        // Проверяем, пуста ли папка группы после удаления отчета
+        const groupDir = path.join(uploadDir, groupFolderName);
+        if (existsSync(groupDir)) {
+            try {
+                const entries = await readdir(groupDir);
+                // Если папка группы пуста, удаляем её
+                if (entries.length === 0) {
+                    await rm(groupDir, { recursive: true, force: true });
+                    console.log(`Deleted empty group directory: ${groupDir}`);
+                }
+            } catch (error) {
+                console.error(`Error checking/cleaning group directory:`, error);
             }
         }
 
