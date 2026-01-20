@@ -8,9 +8,10 @@ import { useUserRole } from '@/hooks/use-user-role';
 export default function NewReportPage() {
     const router = useRouter();
     const params = useParams();
-    const groupId = params.groupId as string;
+    const groupSlug = params.groupSlug as string;
     const { isAdmin, loading: roleLoading } = useUserRole();
     const [loading, setLoading] = useState(false);
+    const [groupId, setGroupId] = useState<string | null>(null);
     const [formData, setFormData] = useState({
         title: '',
         subtitle: '',
@@ -19,14 +20,36 @@ export default function NewReportPage() {
     });
 
     useEffect(() => {
+        // Загружаем группу по slug
+        const loadGroup = async () => {
+            try {
+                const response = await fetch(`/api/groups/by-slug/${groupSlug}`);
+                if (!response.ok) {
+                    const fallbackResponse = await fetch(`/api/groups/${groupSlug}`);
+                    if (fallbackResponse.ok) {
+                        const data = await fallbackResponse.json();
+                        setGroupId(data.group.id);
+                    }
+                } else {
+                    const data = await response.json();
+                    setGroupId(data.group.id);
+                }
+            } catch (error) {
+                console.error('Error loading group:', error);
+            }
+        };
+        loadGroup();
+    }, [groupSlug]);
+
+    useEffect(() => {
         if (!roleLoading && !isAdmin) {
-            router.push(`/groups/${groupId}`);
+            router.push(`/${groupSlug}`);
         }
-    }, [isAdmin, roleLoading, router, groupId]);
+    }, [isAdmin, roleLoading, router, groupSlug]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!isAdmin) return;
+        if (!isAdmin || !groupId) return;
 
         setLoading(true);
 
@@ -42,7 +65,7 @@ export default function NewReportPage() {
 
             if (response.ok) {
                 const { report } = await response.json();
-                router.push(`/groups/${groupId}/reports/${report.id}/edit`);
+                router.push(`/${groupSlug}/${report.slug || report.id}/edit`);
             } else {
                 const data = await response.json();
                 alert(data.error || 'Ошибка создания отчета');
@@ -70,7 +93,7 @@ export default function NewReportPage() {
                 <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push(`/groups/${groupId}`)}
+                            onClick={() => router.push(`/${groupSlug}`)}
                             className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
                         >
                             <ArrowLeft className="h-5 w-5" />
@@ -176,7 +199,7 @@ export default function NewReportPage() {
                     <div className="flex items-center gap-3">
                         <button
                             type="submit"
-                            disabled={loading || !formData.title}
+                            disabled={loading || !formData.title || !groupId}
                             className="flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                         >
                             <Save className="h-5 w-5" />
@@ -186,7 +209,7 @@ export default function NewReportPage() {
                         </button>
                         <button
                             type="button"
-                            onClick={() => router.push(`/groups/${groupId}`)}
+                            onClick={() => router.push(`/${groupSlug}`)}
                             className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-3 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
                         >
                             Отмена

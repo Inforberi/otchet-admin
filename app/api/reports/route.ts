@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import type { CreateReportInput } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import { createSlug, generateUniqueSlug } from '@/lib/slug';
 
 // GET /api/reports - список всех отчетов
 export async function GET(request: NextRequest) {
@@ -100,9 +101,27 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Генерируем уникальный slug в рамках группы
+        const baseSlug = createSlug(body.title);
+        const slug = await generateUniqueSlug(
+            baseSlug,
+            async (s) => {
+                const exists = await prisma.report.findUnique({
+                    where: {
+                        groupId_slug: {
+                            groupId: body.groupId,
+                            slug: s,
+                        },
+                    },
+                });
+                return !exists;
+            }
+        );
+
         const report = await prisma.report.create({
             data: {
                 title: body.title,
+                slug,
                 subtitle: body.subtitle,
                 client: body.client,
                 date: body.date,

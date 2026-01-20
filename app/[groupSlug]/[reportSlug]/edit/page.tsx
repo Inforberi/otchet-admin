@@ -1608,8 +1608,10 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
 export default function EditReportPage() {
     const router = useRouter();
     const params = useParams();
-    const groupId = params.groupId as string;
-    const reportId = params.id as string;
+    const groupSlug = params.groupSlug as string;
+    const reportSlug = params.reportSlug as string;
+    const [groupId, setGroupId] = useState<string | null>(null);
+    const [reportId, setReportId] = useState<string | null>(null);
     const { isAdmin, loading: roleLoading } = useUserRole();
 
     const [report, setReport] = useState<ReportFromDB | null>(null);
@@ -1645,13 +1647,44 @@ export default function EditReportPage() {
         })
     );
 
+    // Загружаем группу и отчет по slug
+    useEffect(() => {
+        const loadGroupAndReport = async () => {
+            try {
+                // Сначала получаем группу по slug
+                let groupResponse = await fetch(`/api/groups/by-slug/${groupSlug}`);
+                if (!groupResponse.ok) {
+                    groupResponse = await fetch(`/api/groups/${groupSlug}`);
+                }
+                if (!groupResponse.ok) return;
+                
+                const groupData = await groupResponse.json();
+                const currentGroupId = groupData.group.id;
+                setGroupId(currentGroupId);
+                
+                // Теперь получаем отчет по slug в группе
+                let reportResponse = await fetch(`/api/groups/${currentGroupId}/reports/by-slug/${reportSlug}`);
+                if (!reportResponse.ok) {
+                    reportResponse = await fetch(`/api/reports/${reportSlug}`);
+                }
+                if (!reportResponse.ok) return;
+                
+                const reportData = await reportResponse.json();
+                setReportId(reportData.report.id);
+            } catch (error) {
+                console.error('Error loading group/report:', error);
+            }
+        };
+        loadGroupAndReport();
+    }, [groupSlug, reportSlug]);
+
     // Всегда сортируем блоки по позиции перед рендерингом
     const sortedBlocks = useMemo(() => {
         return [...blocks].sort((a, b) => a.position - b.position);
     }, [blocks]);
 
     const handleSaveMetadata = useCallback(async (isAutoSave = false) => {
-        if (!report) return;
+        if (!report || !reportId) return;
         setSaving(true);
         try {
             await fetch(`/api/reports/${reportId}`, {
@@ -1680,24 +1713,10 @@ export default function EditReportPage() {
         }
     }, [report, reportId]);
 
-    const handleLogout = useCallback(async () => {
-        try {
-            await fetch('/api/auth/logout', { method: 'POST' });
-            router.push('/login');
-            router.refresh();
-        } catch (error) {
-            console.error('Error logging out:', error);
-        }
-    }, [router]);
-
-    const formatTime = useCallback((seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    }, []);
-
     const fetchReport = useCallback(async () => {
+        if (!reportId) return;
         try {
+            setLoading(true);
             const [reportRes, blocksRes] = await Promise.all([
                 fetch(`/api/reports/${reportId}`),
                 fetch(`/api/reports/${reportId}/blocks`),
@@ -1723,6 +1742,29 @@ export default function EditReportPage() {
             setLoading(false);
         }
     }, [reportId]);
+    
+    // Обновляем reportId когда он загрузится
+    useEffect(() => {
+        if (reportId) {
+            fetchReport();
+        }
+    }, [reportId, fetchReport]);
+
+    const handleLogout = useCallback(async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            router.push('/login');
+            router.refresh();
+        } catch (error) {
+            console.error('Error logging out:', error);
+        }
+    }, [router]);
+
+    const formatTime = useCallback((seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }, []);
 
     const handleDragEnd = useCallback(async (event: DragEndEvent) => {
         const { active, over } = event;
@@ -1875,13 +1917,13 @@ export default function EditReportPage() {
 
     useEffect(() => {
         if (!roleLoading && !isAdmin) {
-            router.push(`/groups/${groupId}/reports/${reportId}`);
+            if (report) {
+                router.push(`/${groupSlug}/${report.slug || report.id}`);
+            }
             return;
         }
-        if (isAdmin && reportId) {
-            fetchReport();
-        }
-    }, [reportId, isAdmin, roleLoading, router, fetchReport]);
+        // fetchReport вызывается через useEffect когда reportId загрузится
+    }, [isAdmin, roleLoading, router]);
 
     // Установить текущую дату, если она не задана
     useEffect(() => {
@@ -2001,7 +2043,7 @@ export default function EditReportPage() {
             <header className="bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => router.push(`/groups/${groupId}`)}
+                        onClick={() => router.push(`/${groupSlug}`)}
                         className="p-2 hover:bg-zinc-800 rounded text-zinc-400 cursor-pointer"
                         title="К списку отчетов"
                     >
@@ -2126,7 +2168,11 @@ export default function EditReportPage() {
                         {saving ? 'Сохранение...' : 'Сохранить'}
                     </button>
                     <button
-                        onClick={() => router.push(`/groups/${groupId}/reports/${reportId}`)}
+                        onClick={() => {
+                            if (report) {
+                                router.push(`/${groupSlug}/${report.slug || report.id}`);
+                            }
+                        }}
                         className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 cursor-pointer"
                     >
                         <Eye className="w-4 h-4" />
@@ -2334,12 +2380,14 @@ export default function EditReportPage() {
                                             : ''
                                     }`}
                                 >
-                                    <BlockEditor
-                                        block={block}
-                                        onUpdate={handleUpdateBlock}
-                                        reportId={reportId}
-                                        groupId={groupId}
-                                    />
+                                    {reportId && groupId && (
+                                        <BlockEditor
+                                            block={block}
+                                            onUpdate={handleUpdateBlock}
+                                            reportId={reportId}
+                                            groupId={groupId}
+                                        />
+                                    )}
                                 </div>
                             ))
                         )}

@@ -5,6 +5,7 @@ import { unlink, rm, readdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import { createSlug, generateUniqueSlug } from '@/lib/slug';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
@@ -63,24 +64,62 @@ export async function PATCH(
         const { id } = await params;
         const body: Partial<UpdateReportInput> = await request.json();
 
+        // Получаем текущий отчет для проверки groupId
+        const currentReport = await prisma.report.findUnique({
+            where: { id },
+            select: { groupId: true, title: true },
+        });
+
+        if (!currentReport) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
+        const updateData: any = {
+            ...(body.subtitle !== undefined && { subtitle: body.subtitle }),
+            ...(body.client !== undefined && { client: body.client }),
+            ...(body.date !== undefined && { date: body.date }),
+            ...(body.status !== undefined && { status: body.status }),
+            ...(body.titleFontSize !== undefined && {
+                titleFontSize: body.titleFontSize,
+            }),
+            ...(body.descriptionFontSize !== undefined && {
+                descriptionFontSize: body.descriptionFontSize,
+            }),
+            ...(body.captionFontSize !== undefined && {
+                captionFontSize: body.captionFontSize,
+            }),
+        };
+
+        // Если меняется title, обновляем slug
+        if (body.title !== undefined && body.title !== currentReport.title) {
+            updateData.title = body.title;
+            
+            // Генерируем новый slug (уникальный в рамках группы, даже если названия одинаковые)
+            const baseSlug = createSlug(body.title);
+            const slug = await generateUniqueSlug(
+                baseSlug,
+                async (s) => {
+                    const exists = await prisma.report.findUnique({
+                        where: {
+                            groupId_slug: {
+                                groupId: currentReport.groupId,
+                                slug: s,
+                            },
+                        },
+                    });
+                    // Разрешаем использовать slug только если это тот же отчет или slug свободен
+                    return !exists || exists.id === id;
+                }
+            );
+            updateData.slug = slug;
+        }
+
         const report = await prisma.report.update({
             where: { id },
-            data: {
-                ...(body.title !== undefined && { title: body.title }),
-                ...(body.subtitle !== undefined && { subtitle: body.subtitle }),
-                ...(body.client !== undefined && { client: body.client }),
-                ...(body.date !== undefined && { date: body.date }),
-                ...(body.status !== undefined && { status: body.status }),
-                ...(body.titleFontSize !== undefined && {
-                    titleFontSize: body.titleFontSize,
-                }),
-                ...(body.descriptionFontSize !== undefined && {
-                    descriptionFontSize: body.descriptionFontSize,
-                }),
-                ...(body.captionFontSize !== undefined && {
-                    captionFontSize: body.captionFontSize,
-                }),
-            },
+            data: updateData,
         });
 
         return NextResponse.json({ report }, { status: 200 });

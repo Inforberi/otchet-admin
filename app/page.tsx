@@ -8,6 +8,7 @@ import { useUserRole } from '@/hooks/use-user-role';
 interface ReportGroup {
     id: string;
     name: string;
+    slug: string;
     description: string | null;
     order: number;
     _count: {
@@ -75,10 +76,11 @@ export default function HomePage() {
         }
     };
 
-    const handleSelectGroup = (groupId: string) => {
-        setSelectedGroupId(groupId);
-        localStorage.setItem('selectedGroupId', groupId);
-        router.push(`/groups/${groupId}`);
+    const handleSelectGroup = (group: ReportGroup & { slug?: string }) => {
+        setSelectedGroupId(group.id);
+        localStorage.setItem('selectedGroupId', group.id);
+        const groupSlug = group.slug || group.id;
+        router.push(`/${groupSlug}`);
     };
 
     const handleLogout = async () => {
@@ -154,7 +156,7 @@ export default function HomePage() {
                         {groups.map((group) => (
                             <button
                                 key={group.id}
-                                onClick={() => handleSelectGroup(group.id)}
+                                onClick={() => handleSelectGroup(group)}
                                 className="group relative flex flex-col rounded-lg border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-6 text-left transition-all hover:border-[var(--color-primary)] hover:shadow-lg cursor-pointer"
                             >
                                 <div className="flex items-start justify-between mb-4">

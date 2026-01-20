@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import { createSlug, generateUniqueSlug } from '@/lib/slug';
 
 // GET /api/groups - список всех групп
 export async function GET(request: NextRequest) {
@@ -54,9 +55,22 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Генерируем уникальный slug
+        const baseSlug = createSlug(name.trim());
+        const slug = await generateUniqueSlug(
+            baseSlug,
+            async (s) => {
+                const exists = await prisma.reportGroup.findUnique({
+                    where: { slug: s },
+                });
+                return !exists;
+            }
+        );
+
         const group = await prisma.reportGroup.create({
             data: {
                 name: name.trim(),
+                slug,
                 description: description?.trim() || null,
                 order: order ?? 0,
             },

@@ -16,8 +16,8 @@ import { useUserRole } from '@/hooks/use-user-role';
 export default function GroupReportViewPage() {
     const router = useRouter();
     const params = useParams();
-    const groupId = params.groupId as string;
-    const reportId = params.id as string;
+    const groupSlug = params.groupSlug as string;
+    const reportSlug = params.reportSlug as string;
     const { isAdmin } = useUserRole();
 
     const [report, setReport] = useState<ReportFromDB | null>(null);
@@ -44,7 +44,7 @@ export default function GroupReportViewPage() {
 
     useEffect(() => {
         loadReport();
-    }, [reportId]);
+    }, [groupSlug, reportSlug]);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -85,10 +85,42 @@ export default function GroupReportViewPage() {
     const loadReport = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`/api/reports/${reportId}`);
-            if (response.ok) {
-                const { report } = await response.json();
-                setReport(report);
+            // Сначала получаем группу по slug чтобы узнать groupId
+            const groupResponse = await fetch(`/api/groups/by-slug/${groupSlug}`);
+            if (!groupResponse.ok) {
+                // Fallback на id если не найден по slug
+                const groupByIdResponse = await fetch(`/api/groups/${groupSlug}`);
+                if (!groupByIdResponse.ok) {
+                    setLoading(false);
+                    return;
+                }
+                const groupData = await groupByIdResponse.json();
+                const groupId = groupData.group.id;
+                
+                // Пробуем получить отчет по slug в группе
+                let response = await fetch(`/api/groups/${groupId}/reports/by-slug/${reportSlug}`);
+                if (!response.ok) {
+                    // Fallback на id
+                    response = await fetch(`/api/reports/${reportSlug}`);
+                }
+                if (response.ok) {
+                    const { report } = await response.json();
+                    setReport(report);
+                }
+            } else {
+                const groupData = await groupResponse.json();
+                const groupId = groupData.group.id;
+                
+                // Пробуем получить отчет по slug в группе
+                let response = await fetch(`/api/groups/${groupId}/reports/by-slug/${reportSlug}`);
+                if (!response.ok) {
+                    // Fallback на id
+                    response = await fetch(`/api/reports/${reportSlug}`);
+                }
+                if (response.ok) {
+                    const { report } = await response.json();
+                    setReport(report);
+                }
             }
         } catch (error) {
             console.error('Error loading report:', error);
@@ -98,9 +130,10 @@ export default function GroupReportViewPage() {
     };
 
     const handleExportPDF = async () => {
+        if (!report) return;
         try {
             setIsExporting(true);
-            const response = await fetch(`/api/reports/${reportId}/pdf`);
+            const response = await fetch(`/api/reports/${report.id}/pdf`);
             
             if (!response.ok) {
                 throw new Error('Ошибка при генерации PDF');
@@ -160,7 +193,7 @@ export default function GroupReportViewPage() {
                         Возможно, он был удален или не существует.
                     </p>
                     <button
-                        onClick={() => router.push(`/groups/${groupId}`)}
+                        onClick={() => router.push(`/${groupSlug}`)}
                         className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
                     >
                         <ArrowLeft className="h-4 w-4" />К списку отчетов
@@ -177,7 +210,7 @@ export default function GroupReportViewPage() {
                 <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
                     <div className="mb-4 flex items-center gap-2">
                         <button
-                            onClick={() => router.push(`/groups/${groupId}`)}
+                            onClick={() => router.push(`/${groupSlug}`)}
                             className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] print:hidden cursor-pointer"
                             title="Назад к списку отчетов"
                             aria-label="Назад к списку отчетов"
@@ -216,7 +249,7 @@ export default function GroupReportViewPage() {
                                     <button
                                         onClick={() =>
                                             router.push(
-                                                `/groups/${groupId}/reports/${reportId}/edit`
+                                                `/${groupSlug}/${reportSlug}/edit`
                                             )
                                         }
                                         className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] px-3 py-1.5 text-[var(--color-grayscale-5)] transition-colors hover:bg-[var(--color-grayscale-14)] print:hidden cursor-pointer"
@@ -297,7 +330,7 @@ export default function GroupReportViewPage() {
             {/* Floating Edit Button */}
             {isAdmin && showFloatingEdit && !isLightboxOpen && (
                 <button
-                    onClick={() => router.push(`/groups/${groupId}/reports/${reportId}/edit`)}
+                    onClick={() => router.push(`/${groupSlug}/${reportSlug}/edit`)}
                     className="fixed right-8 top-1/2 -translate-y-1/2 z-50 print:hidden
                         bg-[var(--color-grayscale-14)] hover:bg-[var(--color-grayscale-13)] 
                         text-[var(--color-grayscale-4)] rounded-full p-4

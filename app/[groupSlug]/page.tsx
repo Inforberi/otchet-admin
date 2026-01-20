@@ -28,7 +28,7 @@ interface ReportGroup {
 export default function GroupReportsPage() {
     const router = useRouter();
     const params = useParams();
-    const groupId = params.groupId as string;
+    const groupSlug = params.groupSlug as string;
     const { isAdmin } = useUserRole();
     const [group, setGroup] = useState<ReportGroup | null>(null);
     const [reports, setReports] = useState<ReportFromDB[]>([]);
@@ -42,7 +42,7 @@ export default function GroupReportsPage() {
 
     useEffect(() => {
         loadGroup();
-    }, [groupId]);
+    }, [groupSlug]);
 
     useEffect(() => {
         // Отменяем предыдущий запрос если он есть
@@ -68,8 +68,10 @@ export default function GroupReportsPage() {
             : 0;
 
         searchTimeoutRef.current = setTimeout(() => {
-            loadReports(abortController.signal);
-            hasLoadedRef.current = true;
+            if (group?.id) {
+                loadReports(abortController.signal);
+                hasLoadedRef.current = true;
+            }
         }, delay);
 
         return () => {
@@ -78,29 +80,33 @@ export default function GroupReportsPage() {
             }
             abortController.abort();
         };
-    }, [groupId, search, dateSearch]);
+    }, [group?.id, search, dateSearch]);
 
     const loadGroup = async () => {
         try {
-            const response = await fetch(`/api/groups/${groupId}`);
+            // Сначала пробуем получить по slug
+            let response = await fetch(`/api/groups/by-slug/${groupSlug}`);
+            if (!response.ok) {
+                // Если не найдено по slug, пробуем по id (для обратной совместимости)
+                response = await fetch(`/api/groups/${groupSlug}`);
+            }
             if (response.ok) {
                 const data = await response.json();
                 setGroup(data.group);
             } else {
-                // Не перенаправляем сразу, показываем ошибку
                 console.error('Group not found');
             }
         } catch (error) {
             console.error('Error loading group:', error);
-            // Не перенаправляем сразу, показываем ошибку
         }
     };
 
     const loadReports = async (signal?: AbortSignal) => {
+        if (!group?.id) return;
         try {
             setLoading(true);
             const params = new URLSearchParams();
-            params.append('groupId', groupId);
+            params.append('groupId', group.id);
             if (search) params.append('search', search);
             if (dateSearch) params.append('date', dateSearch);
             const queryString = params.toString();
@@ -258,10 +264,10 @@ export default function GroupReportsPage() {
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
-                            {isAdmin && (
+                            {isAdmin && group && (
                                 <button
                                     onClick={() =>
-                                        router.push(`/groups/${groupId}/reports/new`)
+                                        router.push(`/${groupSlug}/reports/new`)
                                     }
                                     className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
                                 >
@@ -318,10 +324,10 @@ export default function GroupReportsPage() {
                                 ? 'Отчеты не найдены'
                                 : 'Нет отчетов в этой группе'}
                         </p>
-                        {isAdmin && !search && !dateSearch && (
+                        {isAdmin && !search && !dateSearch && group && (
                             <button
                                 onClick={() =>
-                                    router.push(`/groups/${groupId}/reports/new`)
+                                    router.push(`/${groupSlug}/reports/new`)
                                 }
                                 className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
                             >
@@ -387,7 +393,7 @@ export default function GroupReportsPage() {
                                         <button
                                             onClick={() =>
                                                 router.push(
-                                                    `/groups/${groupId}/reports/${report.id}`
+                                                    `/${groupSlug}/${report.slug || report.id}`
                                                 )
                                             }
                                             className="flex flex-1 items-center justify-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-3 py-2 text-sm text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
@@ -399,7 +405,7 @@ export default function GroupReportsPage() {
                                             <button
                                                 onClick={() =>
                                                     router.push(
-                                                        `/groups/${groupId}/reports/${report.id}/edit`
+                                                        `/${groupSlug}/${report.slug || report.id}/edit`
                                                     )
                                                 }
                                                 className="flex flex-1 items-center justify-center gap-2 rounded-md bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"

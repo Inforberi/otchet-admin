@@ -102,7 +102,14 @@ export async function PATCH(
             );
         }
 
-        // Если меняется имя, проверяем уникальность
+        // Если меняется имя, проверяем уникальность и обновляем slug
+        let updateData: any = {
+            ...(description !== undefined && {
+                description: description?.trim() || null,
+            }),
+            ...(order !== undefined && { order }),
+        };
+
         if (name && name !== existing.name) {
             const nameExists = await prisma.reportGroup.findUnique({
                 where: { name: name.trim() },
@@ -114,17 +121,27 @@ export async function PATCH(
                     { status: 400 }
                 );
             }
+
+            updateData.name = name.trim();
+            
+            // Генерируем новый slug
+            const { createSlug, generateUniqueSlug } = await import('@/lib/slug');
+            const baseSlug = createSlug(name.trim());
+            const slug = await generateUniqueSlug(
+                baseSlug,
+                async (s) => {
+                    const exists = await prisma.reportGroup.findUnique({
+                        where: { slug: s },
+                    });
+                    return !exists;
+                }
+            );
+            updateData.slug = slug;
         }
 
         const group = await prisma.reportGroup.update({
             where: { id },
-            data: {
-                ...(name && { name: name.trim() }),
-                ...(description !== undefined && {
-                    description: description?.trim() || null,
-                }),
-                ...(order !== undefined && { order }),
-            },
+            data: updateData,
         });
 
         return NextResponse.json({ group }, { status: 200 });

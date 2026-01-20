@@ -13,6 +13,7 @@ datasource db {
 model ReportGroup {
   id          String   @id @default(uuid())
   name        String   @unique // название группы (например, "Отчеты по сайту", "Документация")
+  slug        String   @unique // URL-friendly название (например, "otchety-po-sajtu")
   description String?  // описание группы
   order       Int      @default(0) // порядок отображения
   createdAt   DateTime @default(now()) @map("created_at")
@@ -22,12 +23,14 @@ model ReportGroup {
   uploads     Upload[]
 
   @@map("report_groups")
+  @@index([slug])
 }
 
 // Отчеты
 model Report {
   id                String   @id @default(uuid())
   title             String
+  slug              String   // URL-friendly название (например, "otchet-studia-54")
   subtitle          String?
   client            String?
   date              String?
@@ -44,6 +47,7 @@ model Report {
 
   @@map("reports")
   @@index([groupId])
+  @@unique([groupId, slug]) // slug уникален в рамках группы
 }
 
 // Блоки внутри отчета
