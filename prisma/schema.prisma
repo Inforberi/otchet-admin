@@ -9,6 +9,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Группы отчетов
+model ReportGroup {
+  id          String   @id @default(uuid())
+  name        String   @unique // название группы (например, "Отчеты по сайту", "Документация")
+  description String?  // описание группы
+  order       Int      @default(0) // порядок отображения
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  reports     Report[]
+  uploads     Upload[]
+
+  @@map("report_groups")
+}
+
 // Отчеты
 model Report {
   id                String   @id @default(uuid())
@@ -20,12 +35,15 @@ model Report {
   titleFontSize     String?  @default("40") @map("title_font_size") // размер шрифта заголовка в px
   descriptionFontSize String? @default("20") @map("description_font_size") // размер шрифта описания в px
   captionFontSize   String?  @default("16") @map("caption_font_size") // размер шрифта подписи к изображениям в px
+  groupId           String   @map("group_id")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
+  group       ReportGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   blocks      ReportBlock[]
 
   @@map("reports")
+  @@index([groupId])
 }
 
 // Блоки внутри отчета
@@ -48,12 +66,16 @@ model ReportBlock {
 model Upload {
   id        String   @id @default(uuid())
   reportId  String?  @map("report_id")
+  groupId   String   @map("group_id")
   filename  String
   path      String   @unique // относительный путь на сервере
   mimeType  String   @map("mime_type")
   size      Int
   createdAt DateTime @default(now()) @map("created_at")
 
+  group      ReportGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
   @@map("uploads")
   @@index([reportId])
+  @@index([groupId])
 }

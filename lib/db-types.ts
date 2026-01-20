@@ -59,6 +59,7 @@ export interface ReportFromDB {
     client?: string | null;
     date?: string | null;
     status: string;
+    groupId: string; // ID группы отчетов
     titleFontSize?: string | null; // размер шрифта заголовка в px (по умолчанию 40px)
     descriptionFontSize?: string | null; // размер шрифта описания в px (по умолчанию 20px)
     captionFontSize?: string | null; // размер шрифта подписи к изображениям в px (по умолчанию 16px)
@@ -74,6 +75,7 @@ export interface CreateReportInput {
     client?: string;
     date?: string;
     status?: string;
+    groupId: string; // ID группы отчетов
 }
 
 export interface UpdateReportInput extends Partial<CreateReportInput> {
