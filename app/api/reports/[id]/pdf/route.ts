@@ -70,12 +70,37 @@ export async function GET(
 
         await browser.close();
 
-        // Формируем имя файла
-        const safeTitle = report.title
-            .replace(/[^a-z0-9]/gi, '_')
+        // Формируем имя файла из названия отчета
+        const cleanTitle = report.title
+            .replace(/<[^>]*>/g, '') // Убираем HTML теги
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .trim();
+        
+        // Транслитерация русских символов
+        const transliterate = (text: string): string => {
+            const translitMap: Record<string, string> = {
+                а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo',
+                ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
+                н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u',
+                ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch',
+                ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+            };
+            return text.split('').map(char => translitMap[char.toLowerCase()] || char).join('');
+        };
+        
+        const safeTitle = transliterate(cleanTitle)
+            .replace(/[^a-z0-9\s-]/gi, '_')
+            .replace(/\s+/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '')
             .toLowerCase()
-            .substring(0, 50);
-        const filename = `${safeTitle}_${id.substring(0, 8)}.pdf`;
+            .substring(0, 50) || 'report';
+        
+        const filename = `${safeTitle}.pdf`;
 
         return new NextResponse(pdfBuffer, {
             status: 200,

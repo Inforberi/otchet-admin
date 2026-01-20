@@ -121,7 +121,9 @@ export default function ReportViewPage() {
             
             // Получаем имя файла из заголовка Content-Disposition
             const contentDisposition = response.headers.get('Content-Disposition');
-            let filename = `report_${reportId}.pdf`;
+            let filename = report?.title 
+                ? `${report.title.replace(/<[^>]*>/g, '').trim()}.pdf`
+                : `report_${reportId}.pdf`;
             if (contentDisposition) {
                 const filenameMatch = contentDisposition.match(/filename="(.+)"/);
                 if (filenameMatch) {
