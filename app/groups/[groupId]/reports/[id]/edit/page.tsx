@@ -49,6 +49,95 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+// Компонент для перетаскиваемого изображения
+const SortableImageItem = memo(function SortableImageItem({
+    image,
+    index,
+    onUpdateCaption,
+    onUpdateAlt,
+    onRemove,
+}: {
+    image: ImageData;
+    index: number;
+    onUpdateCaption: (index: number, caption: string, inputRef?: HTMLInputElement) => void;
+    onUpdateAlt: (index: number, alt: string, inputRef?: HTMLInputElement) => void;
+    onRemove: (index: number) => void;
+}) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging,
+    } = useSortable({ id: `image-${index}` });
+
+    const style = useMemo(() => ({
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    }), [transform, transition, isDragging]);
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className="border border-zinc-700 rounded p-3 bg-zinc-800"
+        >
+            <div className="flex gap-3">
+                <div
+                    {...attributes}
+                    {...listeners}
+                    className="cursor-grab active:cursor-grabbing flex items-center justify-center w-8 h-24 bg-zinc-700 rounded hover:bg-zinc-600 transition-colors"
+                    title="Перетащите для изменения порядка"
+                >
+                    <GripVertical className="w-4 h-4 text-zinc-400" />
+                </div>
+                <img
+                    src={image.url}
+                    alt={image.alt}
+                    className="w-24 h-24 object-cover rounded"
+                />
+                <div className="flex-1 space-y-2">
+                    <input
+                        type="text"
+                        value={image.caption || ''}
+                        onChange={(e) =>
+                            onUpdateCaption(
+                                index,
+                                e.target.value,
+                                e.currentTarget
+                            )
+                        }
+                        placeholder="Подпись к изображению..."
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
+                    />
+                    <input
+                        type="text"
+                        value={image.alt || ''}
+                        onChange={(e) =>
+                            onUpdateAlt(
+                                index,
+                                e.target.value,
+                                e.currentTarget
+                            )
+                        }
+                        placeholder="Alt текст..."
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
+                    />
+                </div>
+                <button
+                    onClick={() => onRemove(index)}
+                    className="self-start p-1 hover:bg-red-900 rounded text-red-400 cursor-pointer"
+                    title="Удалить изображение"
+                >
+                    <X className="w-4 h-4" />
+                </button>
+            </div>
+        </div>
+    );
+});
+
 // Компактная карточка блока в sidebar
 const SortableBlockCard = memo(function SortableBlockCard({
     block,
@@ -193,6 +282,14 @@ function BlockEditor({
     const [uploading, setUploading] = useState(false);
     const [isExpanded, setIsExpanded] = useState(true);
     const [isDragOver, setIsDragOver] = useState(false);
+
+    // Сенсоры для drag and drop изображений
+    const imageSensors = useSensors(
+        useSensor(PointerSensor),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
 
     useEffect(() => {
         setLocalData(block.data);
@@ -376,6 +473,27 @@ function BlockEditor({
         }
     }, []);
 
+    // Обработчик изменения порядка изображений через drag and drop
+    const handleImageDragEnd = useCallback((event: DragEndEvent) => {
+        const { active, over } = event;
+
+        if (!over || active.id === over.id) {
+            return;
+        }
+
+        const images = (localData as ScreenshotBlockData).images || [];
+        const oldIndex = parseInt(String(active.id).replace('image-', ''));
+        const newIndex = parseInt(String(over.id).replace('image-', ''));
+
+        if (oldIndex !== undefined && newIndex !== undefined && !isNaN(oldIndex) && !isNaN(newIndex)) {
+            const newImages = arrayMove(images, oldIndex, newIndex);
+            setLocalData({
+                ...(localData as ScreenshotBlockData),
+                images: newImages,
+            } as ScreenshotBlockData);
+        }
+    }, [localData]);
+
     if (block.type === 'divider') {
         return (
             <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
@@ -511,93 +629,65 @@ function BlockEditor({
                                 <label className="block text-sm font-medium text-zinc-300 mb-2">
                                     Изображения
                                 </label>
-                                <div className="space-y-3">
-                                    {(
-                                        localData as ScreenshotBlockData
-                                    ).images?.map((img, idx) => (
-                                        <div
-                                            key={img.uploadId || `img-${idx}-${img.url}`}
-                                            className="border border-zinc-700 rounded p-3 bg-zinc-800"
-                                        >
-                                            <div className="flex gap-3">
-                                                <img
-                                                    src={img.url}
-                                                    alt={img.alt}
-                                                    className="w-24 h-24 object-cover rounded"
+                                <DndContext
+                                    sensors={imageSensors}
+                                    collisionDetection={closestCenter}
+                                    onDragEnd={handleImageDragEnd}
+                                >
+                                    <SortableContext
+                                        items={
+                                            (localData as ScreenshotBlockData).images?.map(
+                                                (_, idx) => `image-${idx}`
+                                            ) || []
+                                        }
+                                        strategy={verticalListSortingStrategy}
+                                    >
+                                        <div className="space-y-3">
+                                            {(
+                                                localData as ScreenshotBlockData
+                                            ).images?.map((img, idx) => (
+                                                <SortableImageItem
+                                                    key={img.uploadId || `img-${idx}-${img.url}`}
+                                                    image={img}
+                                                    index={idx}
+                                                    onUpdateCaption={handleUpdateImageCaption}
+                                                    onUpdateAlt={handleUpdateImageAlt}
+                                                    onRemove={handleRemoveImage}
                                                 />
-                                                <div className="flex-1 space-y-2">
+                                            ))}
+
+                                            <div
+                                                onDragOver={handleDragOver}
+                                                onDragLeave={handleDragLeave}
+                                                onDrop={handleDrop}
+                                                className={`flex items-center justify-center gap-2 border-2 rounded p-4 transition-all ${
+                                                    isDragOver
+                                                        ? 'border-blue-500 bg-blue-500/10 border-solid'
+                                                        : 'border-zinc-700 border-dashed hover:bg-zinc-800'
+                                                }`}
+                                            >
+                                                <label className="flex items-center justify-center gap-2 cursor-pointer w-full">
+                                                    <Upload className="w-5 h-5 text-zinc-400" />
+                                                    <span className="text-sm text-zinc-300">
+                                                        {uploading
+                                                            ? 'Загрузка...'
+                                                            : isDragOver
+                                                            ? 'Отпустите для загрузки'
+                                                            : 'Перетащите изображения или нажмите для выбора'}
+                                                    </span>
                                                     <input
-                                                        type="text"
-                                                        value={
-                                                            img.caption || ''
-                                                        }
-                                                        onChange={(e) =>
-                                                            handleUpdateImageCaption(
-                                                                idx,
-                                                                e.target.value,
-                                                                e.currentTarget
-                                                            )
-                                                        }
-                                                        placeholder="Подпись к изображению..."
-                                                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
+                                                        type="file"
+                                                        accept="image/*"
+                                                        multiple
+                                                        onChange={handleImageUpload}
+                                                        disabled={uploading}
+                                                        className="hidden"
                                                     />
-                                                    <input
-                                                        type="text"
-                                                        value={img.alt || ''}
-                                                        onChange={(e) =>
-                                                            handleUpdateImageAlt(
-                                                                idx,
-                                                                e.target.value,
-                                                                e.currentTarget
-                                                            )
-                                                        }
-                                                        placeholder="Alt текст..."
-                                                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
-                                                    />
-                                                </div>
-                                                <button
-                                                    onClick={() =>
-                                                        handleRemoveImage(idx)
-                                                    }
-                                                    className="self-start p-1 hover:bg-red-900 rounded text-red-400 cursor-pointer"
-                                                    title="Удалить изображение"
-                                                >
-                                                    <X className="w-4 h-4" />
-                                                </button>
+                                                </label>
                                             </div>
                                         </div>
-                                    ))}
-
-                                    <div
-                                        onDragOver={handleDragOver}
-                                        onDragLeave={handleDragLeave}
-                                        onDrop={handleDrop}
-                                        className={`flex items-center justify-center gap-2 border-2 rounded p-4 transition-all ${
-                                            isDragOver
-                                                ? 'border-blue-500 bg-blue-500/10 border-solid'
-                                                : 'border-zinc-700 border-dashed hover:bg-zinc-800'
-                                        }`}
-                                    >
-                                        <label className="flex items-center justify-center gap-2 cursor-pointer w-full">
-                                            <Upload className="w-5 h-5 text-zinc-400" />
-                                            <span className="text-sm text-zinc-300">
-                                                {uploading
-                                                    ? 'Загрузка...'
-                                                    : isDragOver
-                                                    ? 'Отпустите для загрузки'
-                                                    : 'Перетащите изображения или нажмите для выбора'}
-                                            </span>
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                multiple
-                                                onChange={handleImageUpload}
-                                                disabled={uploading}
-                                                className="hidden"
-                                            />
-                                        </label>
-                                    </div>
-                                </div>
+                                    </SortableContext>
+                                </DndContext>
                             </div>
 
                             <div>
