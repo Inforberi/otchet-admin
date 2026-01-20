@@ -6,15 +6,26 @@ interface TextBlockViewProps {
     contentFontSize?: string;
 }
 
+// Функция для проверки, является ли HTML строка пустой
+function isEmptyHtml(html: string | null | undefined): boolean {
+    if (!html) return true;
+    // Удаляем HTML теги и проверяем, осталось ли что-то кроме пробелов
+    const textContent = html.replace(/<[^>]*>/g, '').trim();
+    return textContent.length === 0;
+}
+
 export function TextBlockView({ data, titleFontSize = '40', contentFontSize = '20' }: TextBlockViewProps) {
     // Не показываем блок, если нет ни заголовка, ни контента
-    if (!data.title && !data.content) {
+    const hasTitle = !isEmptyHtml(data.title);
+    const hasContent = !isEmptyHtml(data.content);
+    
+    if (!hasTitle && !hasContent) {
         return null;
     }
 
     return (
         <section className="space-y-8">
-            {data.title && (
+            {hasTitle && (
                 <h2
                     className="font-semibold text-zinc-100 mb-8 tracking-tight"
                     style={{ fontSize: `${titleFontSize}px` }}
@@ -22,7 +33,7 @@ export function TextBlockView({ data, titleFontSize = '40', contentFontSize = '2
                 />
             )}
 
-            {data.content && (
+            {hasContent && (
                 <div
                     className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                     style={{ fontSize: `${contentFontSize}px` }}

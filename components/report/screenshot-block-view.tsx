@@ -12,6 +12,20 @@ interface ScreenshotBlockViewProps {
     captionFontSize?: string;
 }
 
+// Функция для проверки, является ли HTML строка пустой
+function isEmptyHtml(html: string | null | undefined): boolean {
+    if (!html) return true;
+    // Удаляем HTML теги и проверяем, осталось ли что-то кроме пробелов
+    const textContent = html.replace(/<[^>]*>/g, '').trim();
+    return textContent.length === 0;
+}
+
+// Функция для проверки, является ли обычная строка пустой
+function isEmpty(str: string | null | undefined): boolean {
+    if (!str) return true;
+    return str.trim().length === 0;
+}
+
 export function ScreenshotBlockView({ 
     data, 
     titleFontSize = '40', 
@@ -56,11 +70,11 @@ export function ScreenshotBlockView({
     };
 
     // Не показываем блок, если нет ни заголовка, ни описания, ни изображений
-    if (
-        !data.title &&
-        !data.description &&
-        (!data.images || data.images.length === 0)
-    ) {
+    const hasTitle = !isEmptyHtml(data.title);
+    const hasDescription = !isEmptyHtml(data.description);
+    const hasImages = data.images && data.images.length > 0;
+    
+    if (!hasTitle && !hasDescription && !hasImages) {
         return null;
     }
 
@@ -69,7 +83,7 @@ export function ScreenshotBlockView({
         return (
             <>
                 <section className="space-y-8">
-                    {data.title && (
+                    {hasTitle && (
                         <h2
                             className="font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
@@ -77,7 +91,7 @@ export function ScreenshotBlockView({
                         />
                     )}
 
-                    {data.description && (
+                    {hasDescription && (
                         <div
                             className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                             style={{ fontSize: `${descriptionFontSize}px` }}
@@ -106,7 +120,7 @@ export function ScreenshotBlockView({
                                     />
                                     <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/5" />
                                 </button>
-                                {img.caption && (
+                                {!isEmpty(img.caption) && (
                                     <p
                                         className="text-zinc-400 font-medium mt-3"
                                         style={{ fontSize: `${captionFontSize}px` }}
@@ -137,7 +151,7 @@ export function ScreenshotBlockView({
         return (
             <>
                 <section className="space-y-8">
-                    {data.title && (
+                    {hasTitle && (
                         <h2
                             className="font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
@@ -145,7 +159,7 @@ export function ScreenshotBlockView({
                         />
                     )}
 
-                    {data.description && (
+                    {hasDescription && (
                         <div
                             className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                             style={{ fontSize: `${descriptionFontSize}px` }}
@@ -209,7 +223,7 @@ export function ScreenshotBlockView({
         return (
             <>
                 <section className="space-y-6">
-                    {data.title && (
+                    {hasTitle && (
                         <h2
                             className="text-[20px] font-semibold text-white mb-8 tracking-tight"
                             dangerouslySetInnerHTML={{ __html: data.title }}
@@ -217,17 +231,17 @@ export function ScreenshotBlockView({
                     )}
 
                     <div className="flex flex-col md:flex-row gap-8">
-                        <div className="md:w-[40%]">
-                            {data.description && (
+                        {hasDescription && (
+                            <div className="md:w-[40%]">
                                 <div 
                                     className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
                                     dangerouslySetInnerHTML={{ __html: data.description }}
                                 />
-                            )}
-                        </div>
+                            </div>
+                        )}
 
                         <div
-                            className={`md:w-[60%] space-y-3 ${spacingClasses[spacing]}`}
+                            className={`${hasDescription ? 'md:w-[60%]' : 'md:w-full'} space-y-3 ${spacingClasses[spacing]}`}
                             style={
                                 customWidth ? { width: customWidth } : undefined
                             }
@@ -279,7 +293,7 @@ export function ScreenshotBlockView({
         return (
             <>
                 <section className="space-y-6">
-                    {data.title && (
+                    {hasTitle && (
                         <h2
                             className="text-[20px] font-semibold text-white mb-8 tracking-tight"
                             dangerouslySetInnerHTML={{ __html: data.title }}
@@ -288,7 +302,7 @@ export function ScreenshotBlockView({
 
                     <div className="flex flex-col md:flex-row gap-8">
                         <div
-                            className={`md:w-[60%] space-y-4 ${spacingClasses[spacing]}`}
+                            className={`${hasDescription ? 'md:w-[60%]' : 'md:w-full'} space-y-4 ${spacingClasses[spacing]}`}
                             style={
                                 customWidth ? { width: customWidth } : undefined
                             }
@@ -320,14 +334,14 @@ export function ScreenshotBlockView({
                             ))}
                         </div>
 
-                        <div className="md:w-[40%]">
-                            {data.description && (
+                        {hasDescription && (
+                            <div className="md:w-[40%]">
                                 <div 
                                     className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
                                     dangerouslySetInnerHTML={{ __html: data.description }}
                                 />
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </div>
                 </section>
 
@@ -347,16 +361,15 @@ export function ScreenshotBlockView({
     // Default/Grid layout
     return (
         <section className="space-y-8">
-            {data.title && (
+            {hasTitle && (
                 <h2
                     className="font-semibold text-zinc-100 mb-8 tracking-tight"
                     style={{ fontSize: `${titleFontSize}px` }}
-                >
-                    {data.title}
-                </h2>
+                    dangerouslySetInnerHTML={{ __html: data.title }}
+                />
             )}
 
-            {data.description && (
+            {hasDescription && (
                 <div
                     className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                     style={{ fontSize: `${descriptionFontSize}px` }}
@@ -394,7 +407,7 @@ export function ScreenshotBlockView({
                                     />
                                     <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/5" />
                                 </button>
-                                {img.caption && (
+                                {!isEmpty(img.caption) && (
                                     <p
                                         className="text-zinc-400 font-medium mt-3"
                                         style={{ fontSize: `${captionFontSize}px` }}
