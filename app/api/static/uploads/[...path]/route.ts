@@ -20,13 +20,28 @@ export async function GET(
 ) {
     try {
         const { path: pathSegments } = await params;
-        const filename = pathSegments.join('/');
+        // Декодируем каждый сегмент пути и объединяем
+        // Важно: decodeURIComponent обрабатывает пробелы как %20
+        const decodedSegments = pathSegments.map(segment => {
+            try {
+                return decodeURIComponent(segment);
+            } catch (e) {
+                // Если декодирование не удалось, возвращаем как есть
+                return segment;
+            }
+        });
+        const filename = decodedSegments.join('/');
         const uploadDir = getUploadDir();
         const filePath = path.join(uploadDir, filename);
+        
+        console.log(`[Static Uploads] Request segments:`, pathSegments);
+        console.log(`[Static Uploads] Decoded filename: ${filename}`);
+        console.log(`[Static Uploads] Full path: ${filePath}`);
+        console.log(`[Static Uploads] File exists: ${existsSync(filePath)}`);
 
         if (!existsSync(filePath)) {
             console.error(
-                `File not found: ${filePath} (uploadDir: ${uploadDir}, filename: ${filename})`
+                `File not found: ${filePath} (uploadDir: ${uploadDir}, filename: ${filename}, segments: ${JSON.stringify(pathSegments)})`
             );
             return NextResponse.json(
                 { error: 'File not found' },

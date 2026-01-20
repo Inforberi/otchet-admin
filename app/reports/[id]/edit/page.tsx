@@ -179,6 +179,7 @@ function BlockEditor({
     block,
     onUpdate,
     reportId,
+    groupId,
 }: {
     block: ReportBlockFromDB;
     onUpdate: (
@@ -186,6 +187,7 @@ function BlockEditor({
         data: TextBlockData | ScreenshotBlockData | DividerBlockData
     ) => void;
     reportId: string;
+    groupId?: string;
 }) {
     const [localData, setLocalData] = useState(block.data);
     const [uploading, setUploading] = useState(false);
@@ -212,6 +214,32 @@ function BlockEditor({
         try {
             const newImages: ImageData[] = [];
 
+            // Получаем groupId из пропа или из API
+            let currentGroupId: string;
+            if (groupId) {
+                currentGroupId = groupId;
+            } else {
+                // Если groupId не передан, получаем его из API
+                try {
+                    const reportRes = await fetch(`/api/reports/${reportId}`);
+                    if (!reportRes.ok) {
+                        throw new Error('Не удалось загрузить отчет');
+                    }
+                    const { report: reportData } = await reportRes.json();
+                    if (!reportData?.groupId) {
+                        alert('Ошибка: группа не найдена');
+                        setUploading(false);
+                        return;
+                    }
+                    currentGroupId = reportData.groupId;
+                } catch (error) {
+                    console.error('Error fetching report:', error);
+                    alert('Ошибка: не удалось загрузить данные отчета');
+                    setUploading(false);
+                    return;
+                }
+            }
+
             for (const file of Array.from(files)) {
                 // Проверяем, что это изображение
                 if (!file.type.startsWith('image/')) {
@@ -221,6 +249,7 @@ function BlockEditor({
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('reportId', reportId);
+                formData.append('groupId', currentGroupId);
 
                 const res = await fetch('/api/uploads', {
                     method: 'POST',
@@ -252,7 +281,7 @@ function BlockEditor({
         } finally {
             setUploading(false);
         }
-    }, [reportId]);
+    }, [reportId, groupId]);
 
     const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -2244,6 +2273,7 @@ export default function EditReportPage() {
                                         block={block}
                                         onUpdate={handleUpdateBlock}
                                         reportId={reportId}
+                                        groupId={report?.groupId}
                                     />
                                 </div>
                             ))
