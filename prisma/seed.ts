@@ -5,6 +5,20 @@ const prisma = new PrismaClient()
 async function main() {
   console.log("🌱 Начинаю заполнение БД тестовыми данными...")
 
+  // Находим или создаем группу по умолчанию
+  let defaultGroup = await prisma.reportGroup.findUnique({
+    where: { name: "Отчеты по сайту" },
+  });
+
+  if (!defaultGroup) {
+    defaultGroup = await prisma.reportGroup.create({
+      data: {
+        name: "Отчеты по сайту",
+        description: "Группа по умолчанию",
+      },
+    });
+  }
+
   // Создаем тестовый отчет
   const report = await prisma.report.create({
     data: {
@@ -13,6 +27,7 @@ async function main() {
       client: "ООО «Пример»",
       date: "2026-01-14",
       status: "draft",
+      groupId: defaultGroup.id,
       blocks: {
         create: [
           {
@@ -125,6 +140,7 @@ async function main() {
       client: "Тестовый клиент",
       date: "2026-01-10",
       status: "published",
+      groupId: defaultGroup.id,
       blocks: {
         create: [
           {
