@@ -691,6 +691,8 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
     const [currentColor, setCurrentColor] = useState('#ffffff');
     const [hasCustomColor, setHasCustomColor] = useState(false);
     const savedSelectionRef = useRef<Range | null>(null);
+    const isEditingRef = useRef(false);
+    const onChangeDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
     // Цвета сайта
     const siteColors = useMemo(() => [
@@ -805,10 +807,9 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
     }, []);
 
     useEffect(() => {
-        if (editorRef.current) {
+        if (editorRef.current && !isEditingRef.current) {
             const htmlValue = convertTextToHtml(value || '');
-            // Не обновляем если редактор в фокусе и пользователь активно редактирует
-            // Это предотвращает сброс курсора во время ввода
+            // Не обновляем если редактор в фокусе и содержимое не изменилось
             const isFocused = document.activeElement === editorRef.current;
             if (isFocused && editorRef.current.innerHTML === htmlValue) {
                 return;
@@ -817,9 +818,20 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             // Сохраняем позицию курсора перед обновлением
             const selection = window.getSelection();
             let savedRange: Range | null = null;
+            let savedOffset = 0;
             
             if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
-                savedRange = selection.getRangeAt(0).cloneRange();
+                const range = selection.getRangeAt(0);
+                savedRange = range.cloneRange();
+                // Сохраняем смещение от начала контейнера
+                try {
+                    const preRange = range.cloneRange();
+                    preRange.selectNodeContents(editorRef.current);
+                    preRange.setEnd(range.startContainer, range.startOffset);
+                    savedOffset = preRange.toString().length;
+                } catch {
+                    // Если не удалось вычислить смещение, используем range
+                }
             }
             
             // Обновляем содержимое
@@ -848,17 +860,55 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
             
             // Восстанавливаем позицию курсора после обновления
-            if (savedRange && editorRef.current) {
+            if (editorRef.current) {
                 try {
-                    // Пытаемся восстановить позицию
                     const newSelection = window.getSelection();
                     if (newSelection) {
-                        // Если сохраненный range все еще валиден, используем его
-                        if (editorRef.current.contains(savedRange.startContainer)) {
+                        // Пытаемся восстановить по сохраненному range
+                        if (savedRange && editorRef.current.contains(savedRange.startContainer)) {
                             newSelection.removeAllRanges();
                             newSelection.addRange(savedRange);
-                        } else {
-                            // Иначе ставим курсор в конец
+                        } else if (savedOffset > 0) {
+                            // Пытаемся восстановить по смещению
+                            const textContent = editorRef.current.textContent || '';
+                            const targetOffset = Math.min(savedOffset, textContent.length);
+                            const range = document.createRange();
+                            const walker = document.createTreeWalker(
+                                editorRef.current,
+                                NodeFilter.SHOW_TEXT,
+                                null
+                            );
+                            
+                            let currentOffset = 0;
+                            let targetNode: Node | null = null;
+                            let targetNodeOffset = 0;
+                            
+                            while (walker.nextNode()) {
+                                const node = walker.currentNode;
+                                const nodeLength = node.textContent?.length || 0;
+                                if (currentOffset + nodeLength >= targetOffset) {
+                                    targetNode = node;
+                                    targetNodeOffset = targetOffset - currentOffset;
+                                    break;
+                                }
+                                currentOffset += nodeLength;
+                            }
+                            
+                            if (targetNode) {
+                                range.setStart(targetNode, targetNodeOffset);
+                                range.collapse(true);
+                                newSelection.removeAllRanges();
+                                newSelection.addRange(range);
+                            } else {
+                                // Fallback: ставим курсор в конец
+                                const range = document.createRange();
+                                range.selectNodeContents(editorRef.current);
+                                range.collapse(false);
+                                newSelection.removeAllRanges();
+                                newSelection.addRange(range);
+                            }
+                        } else if (isFocused) {
+                            // Если был в фокусе, ставим курсор в конец
                             const range = document.createRange();
                             range.selectNodeContents(editorRef.current);
                             range.collapse(false);
@@ -867,14 +917,16 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                         }
                     }
                 } catch (e) {
-                    // Если не удалось восстановить, ставим курсор в конец
-                    const newSelection = window.getSelection();
-                    if (newSelection && editorRef.current) {
-                        const range = document.createRange();
-                        range.selectNodeContents(editorRef.current);
-                        range.collapse(false);
-                        newSelection.removeAllRanges();
-                        newSelection.addRange(range);
+                    // Если не удалось восстановить, ставим курсор в конец только если был в фокусе
+                    if (isFocused) {
+                        const newSelection = window.getSelection();
+                        if (newSelection && editorRef.current) {
+                            const range = document.createRange();
+                            range.selectNodeContents(editorRef.current);
+                            range.collapse(false);
+                            newSelection.removeAllRanges();
+                            newSelection.addRange(range);
+                        }
                     }
                 }
             }
@@ -1048,6 +1100,15 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
         setRecentColors(getRecentColors());
     }, []);
 
+    // Cleanup debounce таймера при размонтировании
+    useEffect(() => {
+        return () => {
+            if (onChangeDebounceRef.current) {
+                clearTimeout(onChangeDebounceRef.current);
+            }
+        };
+    }, []);
+
     // Сохранение выделения при открытии color picker
     const handleColorPickerToggle = () => {
         if (!showColorPicker) {
@@ -1083,6 +1144,8 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
 
     const handleInput = () => {
         if (editorRef.current) {
+            isEditingRef.current = true;
+            
             // Убираем лишние отступы при каждом изменении, но сохраняем fontSize в HTML
             const allElements = editorRef.current.querySelectorAll('*');
             allElements.forEach((el) => {
@@ -1107,15 +1170,24 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             
             const html = editorRef.current.innerHTML.trim();
             // Если содержимое пустое или только пробелы/br, сохраняем пустую строку
-            if (!html || 
+            const finalValue = (!html || 
                 html === '<br>' || 
                 html === '<div><br></div>' ||
                 html === '<br><br>' ||
-                html.replace(/<br\s*\/?>/gi, '').trim() === '') {
-                onChange('');
-            } else {
-                onChange(html);
+                html.replace(/<br\s*\/?>/gi, '').trim() === '') ? '' : html;
+            
+            // Используем debounce для onChange, чтобы не вызывать его слишком часто
+            if (onChangeDebounceRef.current) {
+                clearTimeout(onChangeDebounceRef.current);
             }
+            
+            onChangeDebounceRef.current = setTimeout(() => {
+                onChange(finalValue);
+                // Сбрасываем флаг редактирования после небольшой задержки
+                setTimeout(() => {
+                    isEditingRef.current = false;
+                }, 50);
+            }, 100);
         }
     };
 

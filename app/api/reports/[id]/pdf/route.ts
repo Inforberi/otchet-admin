@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { chromium } from 'playwright';
-import type { ReportFromDB, ScreenshotBlockData, TextBlockData } from '@/lib/db-types';
+import type { ReportFromDB, ScreenshotBlockData, TextBlockData, DividerBlockData } from '@/lib/db-types';
 
 // GET /api/reports/[id]/pdf - генерация PDF отчета
 export async function GET(
@@ -29,12 +29,22 @@ export async function GET(
         }
 
         // Получаем базовый URL для изображений
-        const protocol = request.headers.get('x-forwarded-proto') || 'http';
-        const host = request.headers.get('host') || 'localhost:3000';
-        const baseUrl = `${protocol}://${host}`;
+        // Используем URL из запроса напрямую, чтобы получить правильный порт
+        const requestUrl = new URL(request.url);
+        const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+
+        // Приводим тип отчета к ReportFromDB (Prisma возвращает type как string, а не литеральный тип)
+        const reportWithTypedBlocks: ReportFromDB = {
+            ...report,
+            blocks: report.blocks.map(block => ({
+                ...block,
+                type: block.type as 'text' | 'screenshot' | 'divider',
+                data: block.data as TextBlockData | ScreenshotBlockData | DividerBlockData,
+            })),
+        };
 
         // Генерируем HTML для PDF
-        const html = generatePDFHTML(report, baseUrl);
+        const html = generatePDFHTML(reportWithTypedBlocks, baseUrl);
 
         // Генерируем PDF через Playwright
         // В production используем браузеры, установленные через Playwright
@@ -51,9 +61,9 @@ export async function GET(
             ],
         });
         const page = await browser.newPage();
-        
+
         await page.setContent(html, { waitUntil: 'networkidle' });
-        
+
         // Ждем загрузки всех изображений
         await page.evaluate(() => {
             return Promise.all(
@@ -65,10 +75,10 @@ export async function GET(
                     }))
             );
         });
-        
+
         // Дополнительная задержка для полной загрузки
         await page.waitForTimeout(1000);
-        
+
         const pdfBuffer = await page.pdf({
             format: 'A4',
             margin: {
@@ -93,7 +103,7 @@ export async function GET(
             .replace(/&gt;/g, '>')
             .replace(/&quot;/g, '"')
             .trim();
-        
+
         // Транслитерация русских символов
         const transliterate = (text: string): string => {
             const translitMap: Record<string, string> = {
@@ -105,7 +115,7 @@ export async function GET(
             };
             return text.split('').map(char => translitMap[char.toLowerCase()] || char).join('');
         };
-        
+
         const safeTitle = transliterate(cleanTitle)
             .replace(/[^a-z0-9\s-]/gi, '_')
             .replace(/\s+/g, '_')
@@ -113,7 +123,7 @@ export async function GET(
             .replace(/^_+|_+$/g, '')
             .toLowerCase()
             .substring(0, 50) || 'report';
-        
+
         const filename = `${safeTitle}.pdf`;
 
         return new NextResponse(pdfBuffer, {
@@ -153,7 +163,7 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
     const titleFontSize = report.titleFontSize || '40';
     const descriptionFontSize = report.descriptionFontSize || '20';
     const captionFontSize = report.captionFontSize || '16';
-    
+
     // Вычисляем максимальную высоту изображения: высота A4 (297mm) - отступы (30mm) - подпись (примерно 20mm если есть)
     // Для изображения с подписью: 297 - 30 - 20 = 247mm
     // Для изображения без подписи: 297 - 30 = 267mm
@@ -189,18 +199,18 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                         imagesHTML = `
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: ${spacingValue}; margin-bottom: 20px;">
                                 ${data.images
-                                    .map(
-                                        (img) => {
-                                            const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
-                                            return `
+                                .map(
+                                    (img) => {
+                                        const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                        return `
                                     <div style="page-break-inside: avoid;">
                                         <img src="${getImageUrl(img.url, baseUrl)}" alt="${img.alt || ''}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
                                         ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${img.caption}</p>` : ''}
                                     </div>
                                 `;
-                                        }
-                                    )
-                                    .join('')}
+                                    }
+                                )
+                                .join('')}
                             </div>
                         `;
                     } else if (layout === 'sidebar' || layout === 'sidebar-reverse') {
@@ -212,18 +222,18 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                 </div>
                                 <div style="flex: 1;">
                                     ${data.images
-                                        .map(
-                                            (img) => {
-                                                const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
-                                                return `
+                                .map(
+                                    (img) => {
+                                        const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                        return `
                                         <div style="margin-bottom: ${spacingValue}; page-break-inside: avoid;">
                                             <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
                                             ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                         </div>
                                     `;
-                                            }
-                                        )
-                                        .join('')}
+                                    }
+                                )
+                                .join('')}
                                 </div>
                             </div>
                         `;
@@ -232,18 +242,18 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                         imagesHTML = `
                             <div style="display: flex; flex-direction: column; gap: ${spacingValue}; margin-bottom: 20px;">
                                 ${data.images
-                                    .map(
-                                        (img) => {
-                                            const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
-                                            return `
+                                .map(
+                                    (img) => {
+                                        const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                        return `
                                     <div style="page-break-inside: avoid;">
                                         <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
                                         ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                     </div>
                                 `;
-                                        }
-                                    )
-                                    .join('')}
+                                    }
+                                )
+                                .join('')}
                             </div>
                         `;
                     }
@@ -352,21 +362,81 @@ function escapeHTML(text: string): string {
 }
 
 function getImageUrl(url: string, baseUrl: string): string {
+    if (!url || !url.trim()) {
+        return '';
+    }
+
     // Если URL уже полный, возвращаем как есть
     if (url.startsWith('http://') || url.startsWith('https://')) {
         return url;
     }
-    
-    // Если URL начинается с /api/static/uploads/ или /uploads/, добавляем baseUrl
-    if (url.startsWith('/api/static/uploads/') || url.startsWith('/uploads/')) {
-        return `${baseUrl}${url}`;
+
+    let normalizedUrl = url.trim();
+
+    // Если URL начинается с /api/static/uploads/, кодируем сегменты пути
+    if (normalizedUrl.startsWith('/api/static/uploads/')) {
+        const pathAfterPrefix = normalizedUrl.substring('/api/static/uploads/'.length);
+        // Кодируем каждый сегмент пути отдельно (важно для путей с пробелами)
+        const encodedPath = pathAfterPrefix
+            .split('/')
+            .map(segment => {
+                // Пробуем декодировать, чтобы избежать двойного кодирования
+                try {
+                    const decoded = decodeURIComponent(segment);
+                    return encodeURIComponent(decoded);
+                } catch {
+                    return encodeURIComponent(segment);
+                }
+            })
+            .join('/');
+        return `${baseUrl}/api/static/uploads/${encodedPath}`;
     }
-    
-    // Если URL начинается с /, добавляем baseUrl
-    if (url.startsWith('/')) {
-        return `${baseUrl}${url}`;
+
+    // Если URL начинается с /uploads/, преобразуем в /api/static/uploads/
+    if (normalizedUrl.startsWith('/uploads/')) {
+        const pathAfterPrefix = normalizedUrl.substring('/uploads/'.length);
+        const encodedPath = pathAfterPrefix
+            .split('/')
+            .map(segment => {
+                try {
+                    const decoded = decodeURIComponent(segment);
+                    return encodeURIComponent(decoded);
+                } catch {
+                    return encodeURIComponent(segment);
+                }
+            })
+            .join('/');
+        return `${baseUrl}/api/static/uploads/${encodedPath}`;
     }
-    
+
+    // Если URL начинается с /, добавляем baseUrl и кодируем
+    if (normalizedUrl.startsWith('/')) {
+        const pathWithoutSlash = normalizedUrl.substring(1);
+        const encodedPath = pathWithoutSlash
+            .split('/')
+            .map(segment => {
+                try {
+                    const decoded = decodeURIComponent(segment);
+                    return encodeURIComponent(decoded);
+                } catch {
+                    return encodeURIComponent(segment);
+                }
+            })
+            .join('/');
+        return `${baseUrl}/${encodedPath}`;
+    }
+
     // Иначе добавляем /api/static/uploads/ для относительных путей
-    return `${baseUrl}/api/static/uploads/${url}`;
+    const encodedPath = normalizedUrl
+        .split('/')
+        .map(segment => {
+            try {
+                const decoded = decodeURIComponent(segment);
+                return encodeURIComponent(decoded);
+            } catch {
+                return encodeURIComponent(segment);
+            }
+        })
+        .join('/');
+    return `${baseUrl}/api/static/uploads/${encodedPath}`;
 }
