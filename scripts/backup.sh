@@ -12,11 +12,30 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Параметры подключения к БД
+# Читаем настройки из .env файла проекта
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${PROJECT_DIR}/.env"
+
+# Загружаем переменные из .env
+if [ -f "$ENV_FILE" ]; then
+    # Парсим DATABASE_URL для получения порта
+    if grep -q "DATABASE_URL" "$ENV_FILE"; then
+        DATABASE_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | cut -d '=' -f2- | tr -d '"')
+        # Извлекаем порт из DATABASE_URL (формат: postgresql://user:pass@host:port/db)
+        DB_PORT=$(echo "$DATABASE_URL" | sed -n 's/.*@[^:]*:\([0-9]*\).*/\1/p')
+    fi
+    # Если есть отдельная переменная DB_PORT, используем её
+    if grep -q "^DB_PORT=" "$ENV_FILE"; then
+        DB_PORT=$(grep "^DB_PORT=" "$ENV_FILE" | cut -d '=' -f2 | tr -d '"')
+    fi
+fi
+
+# Значения по умолчанию
 DB_CONTAINER="admin-panel-db"
 DB_USER="admin"
 DB_NAME="admin_panel"
 DB_HOST="localhost"
-DB_PORT="5433"
+DB_PORT="${DB_PORT:-5455}"
 
 # Путь для сохранения бэкапов (рабочий стол)
 BACKUP_DIR="$HOME/Desktop/otchet-admin-backups"
@@ -25,8 +44,7 @@ DATE_FULL=$(date +"%Y-%m-%d_%H%M%S")
 BACKUP_FILE="$BACKUP_DIR/${PROJECT_NAME}_${DATE_FULL}.sql"
 BACKUP_FILE_COMPRESSED="$BACKUP_DIR/${PROJECT_NAME}_${DATE_FULL}.sql.gz"
 
-# Пути для бэкапа uploads
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Пути для бэкапа uploads (PROJECT_DIR уже определен выше)
 UPLOADS_DIR="${PROJECT_DIR}/uploads"
 UPLOADS_BACKUP_FILE="$BACKUP_DIR/${PROJECT_NAME}_uploads_${DATE_FULL}.tar.gz"
 
