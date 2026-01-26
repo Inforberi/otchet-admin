@@ -28,6 +28,8 @@ import {
     Italic,
     Palette,
     AlignCenter,
+    AlignLeft,
+    AlignRight,
     LogOut,
     Settings,
 } from 'lucide-react';
@@ -55,12 +57,16 @@ const SortableImageItem = memo(function SortableImageItem({
     index,
     onUpdateCaption,
     onUpdateAlt,
+    onUpdateFit,
+    onUpdateAlign,
     onRemove,
 }: {
     image: ImageData;
     index: number;
     onUpdateCaption: (index: number, caption: string, inputRef?: HTMLInputElement) => void;
     onUpdateAlt: (index: number, alt: string, inputRef?: HTMLInputElement) => void;
+    onUpdateFit: (index: number, fit: 'auto-width' | 'auto-height') => void;
+    onUpdateAlign: (index: number, align: 'left' | 'center' | 'right') => void;
     onRemove: (index: number) => void;
 }) {
     const {
@@ -125,6 +131,44 @@ const SortableImageItem = memo(function SortableImageItem({
                         placeholder="Alt текст..."
                         className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
                     />
+                    <div className="flex flex-wrap items-center gap-5">
+                        <div className="flex items-center gap-2.5">
+                            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Размер</span>
+                            <select
+                                aria-label="Размер изображения"
+                                value={image.fit === 'auto-height' || image.fit === 'vertical' ? 'auto-height' : 'auto-width'}
+                                onChange={(e) =>
+                                    onUpdateFit(index, e.target.value as 'auto-width' | 'auto-height')
+                                }
+                                className="cursor-pointer rounded-lg border border-zinc-600 bg-zinc-800/80 px-3 py-1.5 text-sm text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                            >
+                                <option value="auto-width">Вписать по ширине (высота подстроится)</option>
+                                <option value="auto-height">Вписать по высоте (ширина подстроится)</option>
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Выравнивание</span>
+                            <div className="inline-flex rounded-lg border border-zinc-600 bg-zinc-800/50 p-0.5" role="group" aria-label="Выравнивание изображения">
+                                {(['left', 'center', 'right'] as const).map((a) => {
+                                    const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight;
+                                    const active = (image.align ?? (image.center ? 'center' : 'left')) === a;
+                                    const label = a === 'left' ? 'По левому краю' : a === 'center' ? 'По центру' : 'По правому краю';
+                                    return (
+                                        <button
+                                            key={a}
+                                            type="button"
+                                            onClick={() => onUpdateAlign(index, a)}
+                                            title={label}
+                                            aria-label={label}
+                                            className={`cursor-pointer rounded-md p-1.5 transition-colors hover:bg-zinc-700/80 ${active ? 'bg-blue-600/25 text-blue-400 ring-1 ring-blue-500/50' : 'text-zinc-400 hover:text-zinc-200'}`}
+                                        >
+                                            <Icon className="h-4 w-4" aria-hidden />
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <button
                     onClick={() => onRemove(index)}
@@ -205,11 +249,10 @@ const SortableBlockCard = memo(function SortableBlockCard({
             ref={setNodeRef}
             style={style}
             onClick={handleSelect}
-            className={`rounded border mb-2 p-3 hover:border-zinc-600 transition-colors cursor-pointer ${
-                isSelected
-                    ? 'bg-zinc-700 border-blue-500'
-                    : 'bg-zinc-800 border-zinc-700'
-            }`}
+            className={`rounded border mb-2 p-3 hover:border-zinc-600 transition-colors cursor-pointer ${isSelected
+                ? 'bg-zinc-700 border-blue-500'
+                : 'bg-zinc-800 border-zinc-700'
+                }`}
         >
             <div className="flex items-center gap-2">
                 <button
@@ -223,19 +266,18 @@ const SortableBlockCard = memo(function SortableBlockCard({
 
                 <div className="flex-1 min-w-0">
                     <span
-                        className={`inline-block px-2 py-0.5 text-xs font-medium rounded mb-1 ${
-                            block.type === 'text'
-                                ? 'bg-green-600 text-white'
-                                : block.type === 'divider'
+                        className={`inline-block px-2 py-0.5 text-xs font-medium rounded mb-1 ${block.type === 'text'
+                            ? 'bg-green-600 text-white'
+                            : block.type === 'divider'
                                 ? 'bg-gray-600 text-white'
                                 : 'bg-blue-600 text-white'
-                        }`}
+                            }`}
                     >
                         {block.type === 'text'
                             ? 'Текст'
                             : block.type === 'divider'
-                            ? 'HR'
-                            : 'Фото'}
+                                ? 'HR'
+                                : 'Фото'}
                     </span>
                     <p className="text-xs text-zinc-300 truncate">
                         {blockTitle}
@@ -473,6 +515,28 @@ function BlockEditor({
         }
     }, []);
 
+    const handleUpdateImageFit = useCallback((index: number, fit: 'auto-width' | 'auto-height') => {
+        setLocalData((prevData) => {
+            const images = [...(prevData as ScreenshotBlockData).images];
+            images[index] = { ...images[index], fit };
+            return {
+                ...(prevData as ScreenshotBlockData),
+                images,
+            } as ScreenshotBlockData;
+        });
+    }, []);
+
+    const handleUpdateImageAlign = useCallback((index: number, align: 'left' | 'center' | 'right') => {
+        setLocalData((prevData) => {
+            const images = [...(prevData as ScreenshotBlockData).images];
+            images[index] = { ...images[index], align };
+            return {
+                ...(prevData as ScreenshotBlockData),
+                images,
+            } as ScreenshotBlockData;
+        });
+    }, []);
+
     // Обработчик изменения порядка изображений через drag and drop
     const handleImageDragEnd = useCallback((event: DragEndEvent) => {
         const { active, over } = event;
@@ -515,11 +579,10 @@ function BlockEditor({
             <div className="flex items-center justify-between p-4 border-b border-zinc-800">
                 <div className="flex items-center gap-3">
                     <span
-                        className={`px-2.5 py-1 text-xs font-medium rounded ${
-                            block.type === 'text'
-                                ? 'bg-green-600 text-white'
-                                : 'bg-blue-600 text-white'
-                        }`}
+                        className={`px-2.5 py-1 text-xs font-medium rounded ${block.type === 'text'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-blue-600 text-white'
+                            }`}
                     >
                         {block.type === 'text' ? 'Текст' : 'Фото'}
                     </span>
@@ -652,6 +715,8 @@ function BlockEditor({
                                                     index={idx}
                                                     onUpdateCaption={handleUpdateImageCaption}
                                                     onUpdateAlt={handleUpdateImageAlt}
+                                                    onUpdateFit={handleUpdateImageFit}
+                                                    onUpdateAlign={handleUpdateImageAlign}
                                                     onRemove={handleRemoveImage}
                                                 />
                                             ))}
@@ -660,20 +725,19 @@ function BlockEditor({
                                                 onDragOver={handleDragOver}
                                                 onDragLeave={handleDragLeave}
                                                 onDrop={handleDrop}
-                                                className={`flex items-center justify-center gap-2 border-2 rounded p-4 transition-all ${
-                                                    isDragOver
-                                                        ? 'border-blue-500 bg-blue-500/10 border-solid'
-                                                        : 'border-zinc-700 border-dashed hover:bg-zinc-800'
-                                                }`}
+                                                className={`flex cursor-pointer items-center justify-center gap-2 rounded border-2 p-4 transition-all ${isDragOver
+                                                    ? 'border-blue-500 bg-blue-500/10 border-solid'
+                                                    : 'border-zinc-700 border-dashed hover:bg-zinc-800'
+                                                    }`}
                                             >
-                                                <label className="flex items-center justify-center gap-2 cursor-pointer w-full">
+                                                <label className="flex w-full cursor-pointer items-center justify-center gap-2">
                                                     <Upload className="w-5 h-5 text-zinc-400" />
                                                     <span className="text-sm text-zinc-300">
                                                         {uploading
                                                             ? 'Загрузка...'
                                                             : isDragOver
-                                                            ? 'Отпустите для загрузки'
-                                                            : 'Перетащите изображения или нажмите для выбора'}
+                                                                ? 'Отпустите для загрузки'
+                                                                : 'Перетащите изображения или нажмите для выбора'}
                                                     </span>
                                                     <input
                                                         type="file"
@@ -823,12 +887,12 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
         if (editorRef.current) {
             const cleanupStyles = () => {
                 if (!editorRef.current) return;
-                
+
                 // Убираем отступы у самого редактора
                 editorRef.current.style.margin = '0';
                 editorRef.current.style.textIndent = '0';
                 editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-                
+
                 // Убираем отступы у всех дочерних элементов, но сохраняем fontSize в style (для HTML)
                 const allElements = editorRef.current.querySelectorAll('*');
                 allElements.forEach((el) => {
@@ -848,9 +912,9 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                     }
                 });
             };
-            
+
             cleanupStyles();
-            
+
             // Наблюдаем за изменениями DOM
             const observer = new MutationObserver(() => {
                 cleanupStyles();
@@ -861,7 +925,7 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                 attributes: true,
                 attributeFilter: ['style']
             });
-            
+
             return () => {
                 observer.disconnect();
             };
@@ -877,18 +941,18 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             if (isFocused && editorRef.current.innerHTML === htmlValue) {
                 return;
             }
-            
+
             // Сохраняем позицию курсора перед обновлением
             const selection = window.getSelection();
             let savedRange: Range | null = null;
-            
+
             if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
                 savedRange = selection.getRangeAt(0).cloneRange();
             }
-            
+
             // Обновляем содержимое
             editorRef.current.innerHTML = htmlValue;
-            
+
             // Убираем лишние отступы после обновления, но сохраняем fontSize в HTML
             const allElements = editorRef.current.querySelectorAll('*');
             allElements.forEach((el) => {
@@ -910,7 +974,7 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             editorRef.current.style.margin = '0';
             editorRef.current.style.textIndent = '0';
             editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-            
+
             // Восстанавливаем позицию курсора после обновления
             if (savedRange && editorRef.current) {
                 try {
@@ -1168,11 +1232,11 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             editorRef.current.style.margin = '0';
             editorRef.current.style.textIndent = '0';
             editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-            
+
             const html = editorRef.current.innerHTML.trim();
             // Если содержимое пустое или только пробелы/br, сохраняем пустую строку
-            if (!html || 
-                html === '<br>' || 
+            if (!html ||
+                html === '<br>' ||
                 html === '<div><br></div>' ||
                 html === '<br><br>' ||
                 html.replace(/<br\s*\/?>/gi, '').trim() === '') {
@@ -1185,23 +1249,23 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
 
     const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
         e.preventDefault();
-        
+
         // Получаем только текст из буфера обмена, без форматирования
         const text = e.clipboardData.getData('text/plain');
-        
+
         if (!editorRef.current || !text) return;
-        
+
         const selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) return;
-        
+
         const range = selection.getRangeAt(0);
-        
+
         // Удаляем выделенный текст, если есть
         range.deleteContents();
-        
+
         // Разбиваем текст на строки и вставляем с сохранением переносов
         const lines = text.split('\n');
-        
+
         lines.forEach((line, index) => {
             if (line.trim() || line === '') {
                 // Вставляем текстовый узел для каждой строки (включая пустые)
@@ -1210,7 +1274,7 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                 // Перемещаем курсор после вставленного текста
                 range.setStartAfter(textNode);
             }
-            
+
             // Добавляем <br> для переноса строки (кроме последней строки)
             if (index < lines.length - 1) {
                 const br = document.createElement('br');
@@ -1218,12 +1282,12 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                 range.setStartAfter(br);
             }
         });
-        
+
         // Перемещаем курсор в конец вставленного текста
         range.collapse(false);
         selection.removeAllRanges();
         selection.addRange(range);
-        
+
         // Обновляем состояние
         handleInput();
     };
@@ -1287,11 +1351,11 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
         setCurrentColor(color);
         setCustomColor(color);
         setHasCustomColor(true);
-        
+
         // Сохраняем цвет в последние
         saveRecentColor(color);
         setRecentColors(getRecentColors());
-        
+
         setShowColorPicker(false);
     };
 
@@ -1304,7 +1368,7 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             formatText('foreColor', color);
             setCurrentColor(color);
             setHasCustomColor(true);
-            
+
             // Сохраняем цвет в последние
             saveRecentColor(color);
             setRecentColors(getRecentColors());
@@ -1316,36 +1380,36 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
 
         const selection = window.getSelection();
         if (!selection) return;
-        
+
         if (selection.rangeCount === 0 || selection.isCollapsed) {
             // Если нет выделения или курсор без выделения, применяем ко всему содержимому
             editorRef.current.focus();
-            
+
             // Выделяем весь текст
             const range = document.createRange();
             range.selectNodeContents(editorRef.current);
             selection.removeAllRanges();
             selection.addRange(range);
-            
+
             // Применяем размер через execCommand
             document.execCommand('fontSize', false, '7');
-            
+
             // Находим все созданные font элементы и заменяем их на span с нужным размером
             const fontElements = editorRef.current.querySelectorAll('font[size="7"]');
             fontElements.forEach((fontEl) => {
                 const span = document.createElement('span');
                 span.style.fontSize = `${size}px`; // Сохраняем в HTML
                 span.style.display = 'inline';
-                
+
                 // Переносим все дочерние элементы
                 while (fontEl.firstChild) {
                     span.appendChild(fontEl.firstChild);
                 }
-                
+
                 // Заменяем font на span
                 fontEl.parentNode?.replaceChild(span, fontEl);
             });
-            
+
             // Убираем выделение
             selection.removeAllRanges();
             handleInput();
@@ -1363,20 +1427,20 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
         if (selection) {
             selection.removeAllRanges();
             selection.addRange(savedRange);
-            
+
             document.execCommand('fontSize', false, '7');
-            
+
             // Находим все созданные font элементы в выделенной области и заменяем их
             const fontElements = editorRef.current.querySelectorAll('font[size="7"]');
             fontElements.forEach((fontEl) => {
                 const span = document.createElement('span');
                 span.style.fontSize = `${size}px`; // Сохраняем в HTML
                 span.style.display = 'inline';
-                
+
                 while (fontEl.firstChild) {
                     span.appendChild(fontEl.firstChild);
                 }
-                
+
                 fontEl.parentNode?.replaceChild(span, fontEl);
             });
 
@@ -1399,11 +1463,10 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                 <button
                     type="button"
                     onClick={() => formatText('bold')}
-                    className={`p-1.5 rounded transition-colors cursor-pointer ${
-                        isBold
-                            ? 'bg-blue-600 text-white hover:bg-blue-700'
-                            : 'hover:bg-zinc-700 text-zinc-300'
-                    }`}
+                    className={`p-1.5 rounded transition-colors cursor-pointer ${isBold
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'hover:bg-zinc-700 text-zinc-300'
+                        }`}
                     title="Жирный (Ctrl+B)"
                 >
                     <Bold className="w-4 h-4" />
@@ -1411,11 +1474,10 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                 <button
                     type="button"
                     onClick={() => formatText('italic')}
-                    className={`p-1.5 rounded transition-colors cursor-pointer ${
-                        isItalic
-                            ? 'bg-blue-600 text-white hover:bg-blue-700'
-                            : 'hover:bg-zinc-700 text-zinc-300'
-                    }`}
+                    className={`p-1.5 rounded transition-colors cursor-pointer ${isItalic
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'hover:bg-zinc-700 text-zinc-300'
+                        }`}
                     title="Курсив (Ctrl+I)"
                 >
                     <Italic className="w-4 h-4" />
@@ -1423,11 +1485,10 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                 <button
                     type="button"
                     onClick={() => formatText('justifyCenter')}
-                    className={`p-1.5 rounded transition-colors cursor-pointer ${
-                        isCentered
-                            ? 'bg-blue-600 text-white hover:bg-blue-700'
-                            : 'hover:bg-zinc-700 text-zinc-300'
-                    }`}
+                    className={`p-1.5 rounded transition-colors cursor-pointer ${isCentered
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'hover:bg-zinc-700 text-zinc-300'
+                        }`}
                     title="Выровнять по центру"
                 >
                     <AlignCenter className="w-4 h-4" />
@@ -1436,11 +1497,10 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                     <button
                         type="button"
                         onClick={handleColorPickerToggle}
-                        className={`p-1.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${
-                            showColorPicker
-                                ? 'bg-zinc-700'
-                                : 'hover:bg-zinc-700 text-zinc-300'
-                        }`}
+                        className={`p-1.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${showColorPicker
+                            ? 'bg-zinc-700'
+                            : 'hover:bg-zinc-700 text-zinc-300'
+                            }`}
                         title="Цвет текста"
                     >
                         <Palette className="w-4 h-4" />
@@ -1477,7 +1537,7 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                                     </div>
                                 </div>
                             )}
-                            
+
                             {/* Цвета сайта */}
                             <div className={recentColors.length > 0 ? "mb-3" : "mb-2"}>
                                 <label className="block text-xs text-zinc-400 mb-1">
@@ -1588,8 +1648,8 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                     }
                 }}
                 className="w-full bg-zinc-800 border border-zinc-700 border-t-0 rounded-b px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none relative"
-                style={{ 
-                    whiteSpace: 'pre-wrap', 
+                style={{
+                    whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
                     minHeight,
                     color: 'rgb(228, 228, 231)', // zinc-200 - убеждаемся что текст виден
@@ -1657,18 +1717,18 @@ export default function EditReportPage() {
                     groupResponse = await fetch(`/api/groups/${groupSlug}`);
                 }
                 if (!groupResponse.ok) return;
-                
+
                 const groupData = await groupResponse.json();
                 const currentGroupId = groupData.group.id;
                 setGroupId(currentGroupId);
-                
+
                 // Теперь получаем отчет по slug в группе
                 let reportResponse = await fetch(`/api/groups/${currentGroupId}/reports/by-slug/${reportSlug}`);
                 if (!reportResponse.ok) {
                     reportResponse = await fetch(`/api/reports/${reportSlug}`);
                 }
                 if (!reportResponse.ok) return;
-                
+
                 const reportData = await reportResponse.json();
                 setReportId(reportData.report.id);
             } catch (error) {
@@ -1742,7 +1802,7 @@ export default function EditReportPage() {
             setLoading(false);
         }
     }, [reportId]);
-    
+
     // Обновляем reportId когда он загрузится
     useEffect(() => {
         if (reportId) {
@@ -1888,17 +1948,17 @@ export default function EditReportPage() {
                     data:
                         type === 'text'
                             ? {
-                                  title: '',
-                                  content: '',
-                              }
+                                title: '',
+                                content: '',
+                            }
                             : type === 'divider'
-                            ? {}
-                            : {
-                                  title: '',
-                                  description: '',
-                                  images: [],
-                                  layout: 'full-width',
-                              },
+                                ? {}
+                                : {
+                                    title: '',
+                                    description: '',
+                                    images: [],
+                                    layout: 'full-width',
+                                },
                 }),
             });
             if (!res.ok) throw new Error('Failed to create block');
@@ -2069,8 +2129,8 @@ export default function EditReportPage() {
                             <span>
                                 {autoSaveEnabled
                                     ? `Автосохранение: ${formatTime(
-                                          timeUntilSave
-                                      )}`
+                                        timeUntilSave
+                                    )}`
                                     : 'Автосохранение: выключено'}
                             </span>
                             <Settings className="w-3.5 h-3.5" />
@@ -2089,18 +2149,16 @@ export default function EditReportPage() {
                                                 );
                                             }}
                                             aria-label={autoSaveEnabled ? "Отключить автосохранение" : "Включить автосохранение"}
-                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                                                autoSaveEnabled
-                                                    ? 'bg-blue-600'
-                                                    : 'bg-zinc-700'
-                                            }`}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${autoSaveEnabled
+                                                ? 'bg-blue-600'
+                                                : 'bg-zinc-700'
+                                                }`}
                                         >
                                             <span
-                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                                    autoSaveEnabled
-                                                        ? 'translate-x-6'
-                                                        : 'translate-x-1'
-                                                }`}
+                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoSaveEnabled
+                                                    ? 'translate-x-6'
+                                                    : 'translate-x-1'
+                                                    }`}
                                             />
                                         </button>
                                     </div>
@@ -2374,11 +2432,10 @@ export default function EditReportPage() {
                                 <div
                                     key={block.id}
                                     id={`block-${block.id}`}
-                                    className={`transition-all ${
-                                        selectedBlockId === block.id
-                                            ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-zinc-950'
-                                            : ''
-                                    }`}
+                                    className={`transition-all ${selectedBlockId === block.id
+                                        ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-zinc-950'
+                                        : ''
+                                        }`}
                                 >
                                     {reportId && groupId && (
                                         <BlockEditor

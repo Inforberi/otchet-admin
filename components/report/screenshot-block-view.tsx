@@ -26,9 +26,9 @@ function isEmpty(str: string | null | undefined): boolean {
     return str.trim().length === 0;
 }
 
-export function ScreenshotBlockView({ 
-    data, 
-    titleFontSize = '40', 
+export function ScreenshotBlockView({
+    data,
+    titleFontSize = '40',
     descriptionFontSize = '20',
     captionFontSize = '16'
 }: ScreenshotBlockViewProps) {
@@ -69,11 +69,50 @@ export function ScreenshotBlockView({
         large: 'sm:grid-cols-1 lg:grid-cols-2',
     };
 
+    const autoHeightMaxPx = { small: 240, medium: 400, large: 560 }[imageSize];
+
+    const renderImg = (img: (typeof data.images)[0], index: number, title: string, layoutClass: string, captionClass?: string) => {
+        const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
+        const align = img.align ?? (img.center ? 'center' : 'left');
+        const justify = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start';
+        return (
+            <div key={index} className="space-y-2">
+                <div
+                    className={`${layoutClass}${isAutoHeight ? ` min-h-[120px] flex ${justify} items-center` : ''}`}
+                >
+                    <button
+                        type="button"
+                        onClick={() => openLightbox(index)}
+                        className={`group block cursor-pointer rounded-lg bg-transparent transition-all focus:outline-none focus-visible:outline-none ${isAutoHeight ? 'w-fit max-w-full' : 'w-full'}`}
+                    >
+                        <span
+                            className={`relative block overflow-hidden rounded-lg ring-2 ring-transparent ring-offset-2 ring-offset-zinc-950 transition-all group-hover:ring-blue-500 group-focus-visible:ring-blue-500 ${isAutoHeight ? 'w-fit max-w-full' : 'w-full'}`}
+                        >
+                            <img
+                                src={img.url}
+                                alt={img.alt || `${title} - изображение ${index + 1}`}
+                                className={isAutoHeight ? 'block h-auto w-auto object-contain' : 'block h-auto w-full object-contain'}
+                                style={isAutoHeight ? { maxHeight: autoHeightMaxPx } : undefined}
+                            />
+                        </span>
+                    </button>
+                </div>
+                {!isEmpty(img.caption) && (
+                    <p className={`font-medium mt-3 ${captionClass ?? 'text-zinc-400'}`} style={{ fontSize: `${captionFontSize}px` }}>
+                        {img.caption}
+                    </p>
+                )}
+            </div>
+        );
+    };
+
+    const layoutClass = 'w-full';
+
     // Не показываем блок, если нет ни заголовка, ни описания, ни изображений
     const hasTitle = !isEmptyHtml(data.title);
     const hasDescription = !isEmptyHtml(data.description);
     const hasImages = data.images && data.images.length > 0;
-    
+
     if (!hasTitle && !hasDescription && !hasImages) {
         return null;
     }
@@ -87,7 +126,7 @@ export function ScreenshotBlockView({
                         <h2
                             className="font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.title }}
+                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
 
@@ -95,41 +134,16 @@ export function ScreenshotBlockView({
                         <div
                             className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                             style={{ fontSize: `${descriptionFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.description }}
+                            dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                         />
                     )}
 
                     <div
                         className={`grid grid-cols-1 md:grid-cols-2 ${spacingClasses[spacing]}`}
                     >
-                        {data.images.map((img, index) => (
-                            <div key={index} className="space-y-2">
-                                <button
-                                    onClick={() => openLightbox(index)}
-                                    className="group relative w-full overflow-hidden rounded-lg border border-zinc-700 bg-white shadow-lg transition-all hover:border-blue-500 hover:shadow-xl"
-                                >
-                                    <img
-                                        src={img.url}
-                                        alt={
-                                            img.alt ||
-                                            `${data.title} - изображение ${
-                                                index + 1
-                                            }`
-                                        }
-                                        className="h-auto w-full object-contain"
-                                    />
-                                    <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/5" />
-                                </button>
-                                {!isEmpty(img.caption) && (
-                                    <p
-                                        className="text-zinc-400 font-medium mt-3"
-                                        style={{ fontSize: `${captionFontSize}px` }}
-                                    >
-                                        {img.caption}
-                                    </p>
-                                )}
-                            </div>
-                        ))}
+                        {data.images.map((img, index) =>
+                            renderImg(img, index, data.title ?? '', layoutClass, 'text-zinc-400')
+                        )}
                     </div>
                 </section>
 
@@ -155,7 +169,7 @@ export function ScreenshotBlockView({
                         <h2
                             className="font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.title }}
+                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
 
@@ -163,45 +177,22 @@ export function ScreenshotBlockView({
                         <div
                             className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                             style={{ fontSize: `${descriptionFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.description }}
+                            dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                         />
                     )}
 
                     <div
-                        className={`grid ${spacingClasses[spacing]} ${
-                            customWidth ? '' : 'grid-cols-1'
-                        }`}
+                        className={`grid ${spacingClasses[spacing]} ${customWidth ? '' : 'grid-cols-1'
+                            }`}
                         style={
                             customWidth
                                 ? { width: customWidth, margin: '0 auto' }
                                 : undefined
                         }
                     >
-                        {data.images.map((img, index) => (
-                            <div key={index} className="space-y-2">
-                                <button
-                                    onClick={() => openLightbox(index)}
-                                    className="group relative w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-50 transition-all hover:border-blue-500"
-                                >
-                                    <img
-                                        src={img.url}
-                                        alt={
-                                            img.alt ||
-                                            `${data.title} - изображение ${
-                                                index + 1
-                                            }`
-                                        }
-                                        className="h-auto w-full object-contain"
-                                    />
-                                    <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/10" />
-                                </button>
-                                {img.caption && (
-                                    <p className="text-sm text-center text-gray-300 font-medium mt-3">
-                                        {img.caption}
-                                    </p>
-                                )}
-                            </div>
-                        ))}
+                        {data.images.map((img, index) =>
+                            renderImg(img, index, data.title ?? '', layoutClass, 'text-sm text-center text-gray-300')
+                        )}
                     </div>
                 </section>
 
@@ -226,16 +217,16 @@ export function ScreenshotBlockView({
                     {hasTitle && (
                         <h2
                             className="text-[20px] font-semibold text-white mb-8 tracking-tight"
-                            dangerouslySetInnerHTML={{ __html: data.title }}
+                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
 
                     <div className="flex flex-col md:flex-row gap-8">
                         {hasDescription && (
                             <div className="md:w-[40%]">
-                                <div 
+                                <div
                                     className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
-                                    dangerouslySetInnerHTML={{ __html: data.description }}
+                                    dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                                 />
                             </div>
                         )}
@@ -246,31 +237,9 @@ export function ScreenshotBlockView({
                                 customWidth ? { width: customWidth } : undefined
                             }
                         >
-                            {data.images.map((img, index) => (
-                                <div key={index} className="space-y-2">
-                                    <button
-                                        onClick={() => openLightbox(index)}
-                                        className="group relative w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-50 transition-all hover:border-blue-500"
-                                    >
-                                        <img
-                                            src={img.url}
-                                            alt={
-                                                img.alt ||
-                                                `${data.title} - изображение ${
-                                                    index + 1
-                                                }`
-                                            }
-                                            className="h-auto w-full object-contain"
-                                        />
-                                        <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/10" />
-                                    </button>
-                                    {img.caption && (
-                                        <p className="text-sm text-gray-300 font-medium mt-3">
-                                            {img.caption}
-                                        </p>
-                                    )}
-                                </div>
-                            ))}
+                            {data.images.map((img, index) =>
+                                renderImg(img, index, data.title ?? '', layoutClass, 'text-sm text-gray-300')
+                            )}
                         </div>
                     </div>
                 </section>
@@ -296,7 +265,7 @@ export function ScreenshotBlockView({
                     {hasTitle && (
                         <h2
                             className="text-[20px] font-semibold text-white mb-8 tracking-tight"
-                            dangerouslySetInnerHTML={{ __html: data.title }}
+                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
 
@@ -307,38 +276,16 @@ export function ScreenshotBlockView({
                                 customWidth ? { width: customWidth } : undefined
                             }
                         >
-                            {data.images.map((img, index) => (
-                                <div key={index} className="space-y-2">
-                                    <button
-                                        onClick={() => openLightbox(index)}
-                                        className="group relative w-full overflow-hidden rounded-lg border border-gray-200 bg-gray-50 transition-all hover:border-blue-500"
-                                    >
-                                        <img
-                                            src={img.url}
-                                            alt={
-                                                img.alt ||
-                                                `${data.title} - изображение ${
-                                                    index + 1
-                                                }`
-                                            }
-                                            className="h-auto w-full object-contain"
-                                        />
-                                        <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/10" />
-                                    </button>
-                                    {img.caption && (
-                                        <p className="text-sm text-gray-300 font-medium mt-3">
-                                            {img.caption}
-                                        </p>
-                                    )}
-                                </div>
-                            ))}
+                            {data.images.map((img, index) =>
+                                renderImg(img, index, data.title ?? '', layoutClass, 'text-sm text-gray-300')
+                            )}
                         </div>
 
                         {hasDescription && (
                             <div className="md:w-[40%]">
-                                <div 
+                                <div
                                     className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
-                                    dangerouslySetInnerHTML={{ __html: data.description }}
+                                    dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                                 />
                             </div>
                         )}
@@ -365,7 +312,7 @@ export function ScreenshotBlockView({
                 <h2
                     className="font-semibold text-zinc-100 mb-8 tracking-tight"
                     style={{ fontSize: `${titleFontSize}px` }}
-                    dangerouslySetInnerHTML={{ __html: data.title }}
+                    dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                 />
             )}
 
@@ -373,50 +320,24 @@ export function ScreenshotBlockView({
                 <div
                     className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
                     style={{ fontSize: `${descriptionFontSize}px` }}
-                    dangerouslySetInnerHTML={{ __html: data.description }}
+                    dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                 />
             )}
 
             {data.images.length > 0 ? (
                 <>
                     <div
-                        className={`grid ${spacingClasses[spacing]} ${
-                            customWidth ? '' : sizeClasses[imageSize]
-                        }`}
+                        className={`grid ${spacingClasses[spacing]} ${customWidth ? '' : sizeClasses[imageSize]
+                            }`}
                         style={
                             customWidth
                                 ? { width: customWidth, margin: '0 auto' }
                                 : undefined
                         }
                     >
-                        {data.images.map((img, index) => (
-                            <div key={index} className="space-y-2">
-                                <button
-                                    onClick={() => openLightbox(index)}
-                                    className="group relative w-full overflow-hidden rounded-lg border border-zinc-700 bg-white shadow-lg transition-all hover:border-blue-500 hover:shadow-xl"
-                                >
-                                    <img
-                                        src={img.url}
-                                        alt={
-                                            img.alt ||
-                                            `${data.title} - изображение ${
-                                                index + 1
-                                            }`
-                                        }
-                                        className="h-auto w-full object-contain"
-                                    />
-                                    <div className="absolute inset-0 bg-black/0 transition-colors duration-300 group-hover:bg-black/5" />
-                                </button>
-                                {!isEmpty(img.caption) && (
-                                    <p
-                                        className="text-zinc-400 font-medium mt-3"
-                                        style={{ fontSize: `${captionFontSize}px` }}
-                                    >
-                                        {img.caption}
-                                    </p>
-                                )}
-                            </div>
-                        ))}
+                        {data.images.map((img, index) =>
+                            renderImg(img, index, data.title ?? '', layoutClass, 'text-zinc-400')
+                        )}
                     </div>
 
                     {lightboxOpen && (
