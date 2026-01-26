@@ -23,6 +23,12 @@ export interface ImageData {
     caption?: string; // подпись под изображением
     alt?: string; // alt текст
     uploadId?: string; // ID записи в таблице uploads (для удаления)
+    /** auto-width: ширина 100%, высота auto; auto-height: высота по контейнеру, ширина auto; vertical: @deprecated используйте auto-height */
+    fit?: 'auto-width' | 'auto-height' | 'vertical';
+    /** Выравнивание (для auto-height): по левому краю, по центру, по правому краю */
+    align?: 'left' | 'center' | 'right';
+    /** @deprecated используйте align; true → center */
+    center?: boolean;
 }
 
 // Данные скриншот-блока в БД
@@ -60,6 +66,8 @@ export interface ReportFromDB {
     date?: string | null;
     status: string;
     groupId: string; // ID группы отчетов
+    /** URL-friendly имя (уникален в рамках группы), приходит с API */
+    slug?: string | null;
     titleFontSize?: string | null; // размер шрифта заголовка в px (по умолчанию 40px)
     descriptionFontSize?: string | null; // размер шрифта описания в px (по умолчанию 20px)
     captionFontSize?: string | null; // размер шрифта подписи к изображениям в px (по умолчанию 16px)

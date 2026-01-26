@@ -14,6 +14,7 @@ async function main() {
     defaultGroup = await prisma.reportGroup.create({
       data: {
         name: "Отчеты по сайту",
+        slug: "otchety-po-sajtu",
         description: "Группа по умолчанию",
       },
     });
@@ -23,6 +24,7 @@ async function main() {
   const report = await prisma.report.create({
     data: {
       title: "Анализ производительности веб-сайта",
+      slug: "analiz-proizvoditelnosti-veb-sajta",
       subtitle: "Результаты аудита и рекомендации по оптимизации",
       client: "ООО «Пример»",
       date: "2026-01-14",
@@ -136,6 +138,7 @@ async function main() {
   const report2 = await prisma.report.create({
     data: {
       title: "Краткий отчет по безопасности",
+      slug: "kratkij-otchet-po-bezopasnosti",
       subtitle: "Security audit results",
       client: "Тестовый клиент",
       date: "2026-01-10",
