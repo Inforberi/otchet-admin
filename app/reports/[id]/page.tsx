@@ -88,7 +88,7 @@ export default function ReportViewPage() {
 
         // Проверяем каждые 100ms
         const interval = setInterval(checkLightbox, 100);
-        
+
         // Также проверяем при изменении DOM
         const observer = new MutationObserver(checkLightbox);
         observer.observe(document.body, {
@@ -123,7 +123,7 @@ export default function ReportViewPage() {
         try {
             setIsExporting(true);
             const response = await fetch(`/api/reports/${reportId}/pdf`);
-            
+
             if (!response.ok) {
                 throw new Error('Ошибка при генерации PDF');
             }
@@ -132,10 +132,10 @@ export default function ReportViewPage() {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            
+
             // Получаем имя файла из заголовка Content-Disposition
             const contentDisposition = response.headers.get('Content-Disposition');
-            let filename = report?.title 
+            let filename = report?.title
                 ? `${report.title.replace(/<[^>]*>/g, '').trim()}.pdf`
                 : `report_${reportId}.pdf`;
             if (contentDisposition) {
@@ -144,7 +144,7 @@ export default function ReportViewPage() {
                     filename = filenameMatch[1];
                 }
             }
-            
+
             a.download = filename;
             document.body.appendChild(a);
             a.click();
@@ -217,7 +217,7 @@ export default function ReportViewPage() {
                                 <h1
                                     className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
                                     dangerouslySetInnerHTML={{
-                                        __html: report.title,
+                                        __html: report.title ?? '',
                                     }}
                                 />
                             )}
@@ -225,7 +225,7 @@ export default function ReportViewPage() {
                                 <div
                                     className="text-lg text-zinc-300 whitespace-pre-wrap"
                                     dangerouslySetInnerHTML={{
-                                        __html: report.subtitle,
+                                        __html: report.subtitle ?? '',
                                     }}
                                 />
                             )}

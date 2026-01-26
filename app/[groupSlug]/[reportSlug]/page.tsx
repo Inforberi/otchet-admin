@@ -162,7 +162,7 @@ export default function GroupReportViewPage() {
             const contentDisposition = response.headers.get('Content-Disposition');
             let filename = report?.title 
                 ? `${report.title.replace(/<[^>]*>/g, '').trim()}.pdf`
-                : `report_${reportId}.pdf`;
+                : `report_${report?.id ?? 'unknown'}.pdf`;
             if (contentDisposition) {
                 const filenameMatch = contentDisposition.match(/filename="(.+)"/);
                 if (filenameMatch) {
@@ -242,7 +242,7 @@ export default function GroupReportViewPage() {
                                 <h1
                                     className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
                                     dangerouslySetInnerHTML={{
-                                        __html: report.title,
+                                        __html: report.title ?? '',
                                     }}
                                 />
                             )}
@@ -250,7 +250,7 @@ export default function GroupReportViewPage() {
                                 <div
                                     className="text-lg text-zinc-300 whitespace-pre-wrap"
                                     dangerouslySetInnerHTML={{
-                                        __html: report.subtitle,
+                                        __html: report.subtitle ?? '',
                                     }}
                                 />
                             )}
