@@ -126,7 +126,7 @@ export async function GET(
 
         const filename = `${safeTitle}.pdf`;
 
-        return new NextResponse(pdfBuffer, {
+        return new NextResponse(new Uint8Array(pdfBuffer), {
             status: 200,
             headers: {
                 'Content-Type': 'application/pdf',
@@ -202,10 +202,17 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                 .map(
                                     (img) => {
                                         const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                        const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
+                                        const align = img.align ?? (img.center ? 'center' : 'left');
+                                        const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
+                                        const imgStyle = isAutoHeight
+                                            ? `width: auto; height: auto; display: block; border-radius: 8px; max-height: ${maxHeight}; object-fit: contain;`
+                                            : `width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;`;
+                                        const wrapperStyle = isAutoHeight ? `display: flex; justify-content: ${justify}; page-break-inside: avoid;` : 'page-break-inside: avoid;';
                                         return `
-                                    <div style="page-break-inside: avoid;">
-                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${img.alt || ''}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
-                                        ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${img.caption}</p>` : ''}
+                                    <div style="${wrapperStyle}">
+                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
+                                        ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                     </div>
                                 `;
                                     }
@@ -225,9 +232,16 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                 .map(
                                     (img) => {
                                         const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                        const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
+                                        const align = img.align ?? (img.center ? 'center' : 'left');
+                                        const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
+                                        const imgStyle = isAutoHeight
+                                            ? `width: auto; height: auto; display: block; border-radius: 8px; max-height: ${maxHeight}; object-fit: contain;`
+                                            : `width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;`;
+                                        const wrapperStyle = isAutoHeight ? `display: flex; justify-content: ${justify}; margin-bottom: ${spacingValue}; page-break-inside: avoid;` : `margin-bottom: ${spacingValue}; page-break-inside: avoid;`;
                                         return `
-                                        <div style="margin-bottom: ${spacingValue}; page-break-inside: avoid;">
-                                            <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
+                                        <div style="${wrapperStyle}">
+                                            <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
                                             ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                         </div>
                                     `;
@@ -245,9 +259,16 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                 .map(
                                     (img) => {
                                         const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                        const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
+                                        const align = img.align ?? (img.center ? 'center' : 'left');
+                                        const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
+                                        const imgStyle = isAutoHeight
+                                            ? `width: auto; height: auto; display: block; border-radius: 8px; max-height: ${maxHeight}; object-fit: contain;`
+                                            : `width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;`;
+                                        const wrapperStyle = isAutoHeight ? `display: flex; justify-content: ${justify}; page-break-inside: avoid;` : 'page-break-inside: avoid;';
                                         return `
-                                    <div style="page-break-inside: avoid;">
-                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: ${maxHeight}; object-fit: contain;" />
+                                    <div style="${wrapperStyle}">
+                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
                                         ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                     </div>
                                 `;
