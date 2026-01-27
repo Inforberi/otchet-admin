@@ -145,6 +145,30 @@ export async function GET(
     }
 }
 
+/** Оценка высоты текстового блока (заголовок + описание/контент) в мм для A4. Ширина ~180mm. */
+function estimateTextBlockHeightMm(p: {
+    title?: string | null;
+    description?: string | null;
+    content?: string | null;
+    titleFontSize: string;
+    descriptionFontSize: string;
+}): number {
+    const titleSz = parseInt(p.titleFontSize || '40', 10);
+    const descSz = parseInt(p.descriptionFontSize || '20', 10);
+    let mm = 0;
+    const titleText = (p.title || '').replace(/<[^>]*>/g, '').trim();
+    if (titleText) {
+        mm += (titleSz * 1.4) / 96 * 25.4 + 4;
+    }
+    const body = (p.description ?? p.content ?? '').replace(/<[^>]*>/g, '').trim();
+    if (body) {
+        const charsPerLine = Math.max(35, Math.floor((180 / (descSz / 96 * 25.4)) * 2.2));
+        const lines = Math.ceil(body.length / charsPerLine);
+        mm += lines * (descSz * 1.7) / 96 * 25.4 + 5;
+    }
+    return mm;
+}
+
 function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
     const formatDate = (dateString: string | null | undefined): string => {
         if (!dateString) return '';
@@ -164,34 +188,65 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
     const descriptionFontSize = report.descriptionFontSize || '20';
     const captionFontSize = report.captionFontSize || '16';
 
-    // Вычисляем максимальную высоту изображения: высота A4 (297mm) - отступы (30mm) - подпись (примерно 20mm если есть)
-    // Для изображения с подписью: 297 - 30 - 20 = 247mm
-    // Для изображения без подписи: 297 - 30 = 267mm
+    const PAGE_USABLE_MM = 267;
+    const HEADER_MM = 38; // шапка отчёта
     const maxImageHeightWithCaption = '247mm';
     const maxImageHeightWithoutCaption = '267mm';
+    const gapMm = 6;
+    const captionMm = 8;
+    const minReadableMm = 70;
 
-    // Рендерим блоки
-    const blocksHTML = report.blocks
-        ?.map((block) => {
-            if (block.type === 'divider') {
-                return '<div style="margin: 30px 0; border-top: 1px solid #e5e7eb; page-break-inside: avoid;"></div>';
-            }
+    // Рендерим блоки с учётом накопленной высоты: «остаток страницы» передаём в блок со скриншотом
+    const blocks = report.blocks ?? [];
+    let accumulatedMm = HEADER_MM;
 
-            if (block.type === 'text') {
-                const data = block.data as TextBlockData;
-                return `
+    const blockHtmls = blocks.map((block) => {
+        if (block.type === 'divider') {
+            accumulatedMm += 10;
+            return '<div style="margin: 30px 0; border-top: 1px solid #e5e7eb; page-break-inside: avoid;"></div>';
+        }
+
+        if (block.type === 'text') {
+            const data = block.data as TextBlockData;
+            const h = estimateTextBlockHeightMm({ title: data.title, content: data.content, titleFontSize, descriptionFontSize });
+            accumulatedMm += h + 10;
+            return `
                     <section style="margin-bottom: 40px; orphans: 3; widows: 3;">
                         ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 16px; margin-top: 0; page-break-after: avoid;">${data.title}</h2>` : ''}
                         ${data.content ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap; orphans: 3; widows: 3;">${data.content}</div>` : ''}
                     </section>
                 `;
-            }
+        }
 
-            if (block.type === 'screenshot') {
-                const data = block.data as ScreenshotBlockData;
-                const layout = data.layout || 'full-width';
-                const spacing = data.spacing || 'medium';
-                const spacingValue = spacing === 'small' ? '8px' : spacing === 'large' ? '24px' : '16px';
+        if (block.type === 'screenshot') {
+            const data = block.data as ScreenshotBlockData;
+            const layout = data.layout || 'full-width';
+            const spacing = data.spacing || 'medium';
+            const spacingValue = spacing === 'small' ? '8px' : spacing === 'large' ? '24px' : '16px';
+
+            const textHeightMm = estimateTextBlockHeightMm({
+                title: data.title,
+                description: layout !== 'sidebar' && layout !== 'sidebar-reverse' ? data.description : null,
+                titleFontSize,
+                descriptionFontSize,
+            });
+            // Остаток места на текущей странице (учитываем шапку и все предыдущие блоки)
+            const usedOnPageMm = accumulatedMm % PAGE_USABLE_MM;
+            const spaceLeftOnPageMm = PAGE_USABLE_MM - usedOnPageMm;
+            // Если на странице ещё есть место — ограничиваем первую картинку, чтобы вписать на эту же страницу
+            const firstImgMaxMm =
+                spaceLeftOnPageMm >= minReadableMm + gapMm
+                    ? Math.min(267, Math.max(minReadableMm, Math.floor(spaceLeftOnPageMm - textHeightMm - gapMm)))
+                    : null;
+            const firstImgMaxWithCaptionMm =
+                firstImgMaxMm != null ? Math.max(minReadableMm, firstImgMaxMm - captionMm) : null;
+            const isFirstRow = layout === 'two-column' ? (i: number) => i < 2 : (i: number) => i === 0;
+
+            const pickMaxHeight = (img: { caption?: string | null }, index: number, withCap: string, withoutCap: string): string => {
+                if (!isFirstRow(index) || firstImgMaxMm == null) return img.caption ? withCap : withoutCap;
+                const mm = img.caption ? firstImgMaxWithCaptionMm : firstImgMaxMm;
+                return mm != null ? `${mm}mm` : (img.caption ? withCap : withoutCap);
+            };
 
                 let imagesHTML = '';
                 if (data.images && data.images.length > 0) {
@@ -200,8 +255,8 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: ${spacingValue}; margin-bottom: 20px;">
                                 ${data.images
                                 .map(
-                                    (img) => {
-                                        const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                    (img, idx) => {
+                                        const maxHeight = pickMaxHeight(img, idx, maxImageHeightWithCaption, maxImageHeightWithoutCaption);
                                         const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
                                         const align = img.align ?? (img.center ? 'center' : 'left');
                                         const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
@@ -227,11 +282,11 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                 <div style="flex: 0 0 40%; orphans: 3; widows: 3;">
                                     ${data.description ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap;">${data.description}</div>` : ''}
                                 </div>
-                                <div style="flex: 1;">
+                                    <div style="flex: 1;">
                                     ${data.images
                                 .map(
-                                    (img) => {
-                                        const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                    (img, idx) => {
+                                        const maxHeight = pickMaxHeight(img, idx, maxImageHeightWithCaption, maxImageHeightWithoutCaption);
                                         const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
                                         const align = img.align ?? (img.center ? 'center' : 'left');
                                         const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
@@ -257,8 +312,8 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                             <div style="display: flex; flex-direction: column; gap: ${spacingValue}; margin-bottom: 20px;">
                                 ${data.images
                                 .map(
-                                    (img) => {
-                                        const maxHeight = img.caption ? maxImageHeightWithCaption : maxImageHeightWithoutCaption;
+                                    (img, idx) => {
+                                        const maxHeight = pickMaxHeight(img, idx, maxImageHeightWithCaption, maxImageHeightWithoutCaption);
                                         const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
                                         const align = img.align ?? (img.center ? 'center' : 'left');
                                         const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
@@ -280,18 +335,22 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                     }
                 }
 
-                return `
+            const blockHeightMm = textHeightMm + (firstImgMaxMm ?? 267) + gapMm;
+            accumulatedMm += blockHeightMm;
+
+            return `
                     <section style="margin-bottom: 40px;">
                         ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 16px; margin-top: 0; page-break-after: avoid;">${data.title}</h2>` : ''}
                         ${data.description && layout !== 'sidebar' && layout !== 'sidebar-reverse' ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap; margin-bottom: 20px; orphans: 3; widows: 3;">${data.description}</div>` : ''}
                         ${imagesHTML}
                     </section>
                 `;
-            }
+        }
 
-            return '';
-        })
-        .join('') || '<p style="color: #6b7280;">Блоки не добавлены</p>';
+        return '';
+    });
+
+    const blocksHTML = blockHtmls.length > 0 ? blockHtmls.join('') : '<p style="color: #6b7280;">Блоки не добавлены</p>';
 
     return `
 <!DOCTYPE html>
