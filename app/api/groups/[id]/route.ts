@@ -4,6 +4,11 @@ import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { rm, unlink } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import {
+    ensureNoGroupCycle,
+    generateGroupSlugAndPath,
+    updateGroupPathBranch,
+} from '@/lib/group-service';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
@@ -55,6 +60,7 @@ export async function GET(
                 _count: {
                     select: {
                         reports: true,
+                        children: true,
                     },
                 },
             },
@@ -88,7 +94,7 @@ export async function PATCH(
     try {
         const { id } = await params;
         const body = await request.json();
-        const { name, description, order } = body;
+        const { name, description, order, parentId } = body;
 
         // Проверяем существование группы
         const existing = await prisma.reportGroup.findUnique({
@@ -102,41 +108,55 @@ export async function PATCH(
             );
         }
 
-        // Если меняется имя, проверяем уникальность и обновляем slug
         let updateData: any = {
             ...(description !== undefined && {
                 description: description?.trim() || null,
             }),
             ...(order !== undefined && { order }),
+            ...(parentId !== undefined && { parentId: parentId || null }),
         };
 
-        if (name && name !== existing.name) {
-            const nameExists = await prisma.reportGroup.findUnique({
-                where: { name: name.trim() },
-            });
+        const nextName =
+            name && typeof name === 'string' && name.trim() !== ''
+                ? name.trim()
+                : existing.name
+        const nextParentId =
+            parentId !== undefined ? parentId || null : existing.parentId
+        const shouldRebuildPath =
+            nextName !== existing.name || nextParentId !== existing.parentId
 
-            if (nameExists) {
-                return NextResponse.json(
-                    { error: 'Group with this name already exists' },
-                    { status: 400 }
-                );
-            }
+        if (shouldRebuildPath) {
+            await ensureNoGroupCycle(id, nextParentId)
 
-            updateData.name = name.trim();
-            
-            // Генерируем новый slug
-            const { createSlug, generateUniqueSlug } = await import('@/lib/slug');
-            const baseSlug = createSlug(name.trim());
-            const slug = await generateUniqueSlug(
-                baseSlug,
-                async (s) => {
-                    const exists = await prisma.reportGroup.findUnique({
-                        where: { slug: s },
-                    });
-                    return !exists;
-                }
-            );
-            updateData.slug = slug;
+            const { slug, path: nextPath } = await generateGroupSlugAndPath({
+                name: nextName,
+                parentId: nextParentId,
+                currentGroupId: id,
+            })
+
+            updateData.name = nextName
+            updateData.slug = slug
+
+            await updateGroupPathBranch({
+                groupId: id,
+                oldPath: existing.path,
+                newPath: nextPath,
+                rootUpdateData: updateData,
+            })
+
+            const group = await prisma.reportGroup.findUnique({
+                where: { id },
+                include: {
+                    _count: {
+                        select: {
+                            reports: true,
+                            children: true,
+                        },
+                    },
+                },
+            })
+
+            return NextResponse.json({ group }, { status: 200 })
         }
 
         const group = await prisma.reportGroup.update({
@@ -146,6 +166,32 @@ export async function PATCH(
 
         return NextResponse.json({ group }, { status: 200 });
     } catch (error) {
+        if (error instanceof Error) {
+            if (error.message === 'PARENT_NOT_FOUND') {
+                return NextResponse.json(
+                    { error: 'Parent group not found' },
+                    { status: 404 }
+                );
+            }
+
+            if (error.message === 'GROUP_CYCLE') {
+                return NextResponse.json(
+                    { error: 'Cannot move group into itself or its descendants' },
+                    { status: 400 }
+                );
+            }
+
+            if (
+                error.message === 'RESERVED_GROUP_SLUG' ||
+                error.message === 'RESERVED_ROOT_GROUP_SLUG'
+            ) {
+                return NextResponse.json(
+                    { error: 'This group slug is reserved and cannot be used' },
+                    { status: 400 }
+                );
+            }
+        }
+
         console.error('Error updating group:', error);
         return NextResponse.json(
             { error: 'Failed to update group' },
@@ -171,6 +217,7 @@ export async function DELETE(
                 _count: {
                     select: {
                         reports: true,
+                        children: true,
                     },
                 },
             },
@@ -183,11 +230,10 @@ export async function DELETE(
             );
         }
 
-        // Предупреждаем, если в группе есть отчеты
-        if (existing._count.reports > 0) {
+        if (existing._count.reports > 0 || existing._count.children > 0) {
             return NextResponse.json(
                 {
-                    error: 'Cannot delete group with reports. Please delete or move reports first.',
+                    error: 'Cannot delete non-empty group. Please delete or move child groups and reports first.',
                 },
                 { status: 400 }
             );

@@ -38,6 +38,7 @@ export default function ReportViewPage() {
     const [isExporting, setIsExporting] = useState(false);
     const [showFloatingEdit, setShowFloatingEdit] = useState(false);
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+    const groupTarget = report?.group?.path ? `/${report.group.path}` : '/reports';
 
     // Форматирование даты в формате "16 января 2026"
     const formatReportDate = (
@@ -182,7 +183,7 @@ export default function ReportViewPage() {
                         Возможно, он был удален или не существует.
                     </p>
                     <button
-                        onClick={() => router.push('/reports')}
+                        onClick={() => router.push(groupTarget)}
                         className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
                     >
                         <ArrowLeft className="h-4 w-4" />К списку отчетов
@@ -199,7 +200,7 @@ export default function ReportViewPage() {
                 <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
                     <div className="mb-4 flex items-center gap-2">
                         <button
-                            onClick={() => router.push('/reports')}
+                            onClick={() => router.push(groupTarget)}
                             className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] print:hidden cursor-pointer"
                             title="Назад к списку отчетов"
                             aria-label="Назад к списку отчетов"

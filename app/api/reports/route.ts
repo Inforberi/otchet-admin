@@ -4,16 +4,26 @@ import type { CreateReportInput } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
+import { getCurrentMonthDateRange } from '@/lib/report-date-range';
 
 // GET /api/reports - список всех отчетов
 export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams;
         const search = searchParams.get('search');
-        const dateSearch = searchParams.get('date');
         const groupId = searchParams.get('groupId');
+        const dateFrom = searchParams.get('dateFrom');
+        const dateTo = searchParams.get('dateTo');
+        const allTime = searchParams.get('allTime') === '1';
 
         const where: Prisma.ReportWhereInput = {};
+        const defaultRange = getCurrentMonthDateRange();
+        const effectiveDateFrom = allTime
+            ? null
+            : dateFrom || defaultRange.dateFrom;
+        const effectiveDateTo = allTime
+            ? null
+            : dateTo || defaultRange.dateTo;
 
         if (groupId) {
             where.groupId = groupId;
@@ -26,8 +36,11 @@ export async function GET(request: NextRequest) {
             ];
         }
 
-        if (dateSearch) {
-            where.date = { contains: dateSearch, mode: 'insensitive' };
+        if (effectiveDateFrom || effectiveDateTo) {
+            where.date = {
+                ...(effectiveDateFrom && { gte: effectiveDateFrom }),
+                ...(effectiveDateTo && { lte: effectiveDateTo }),
+            };
         }
 
         const reports = await prisma.report.findMany({

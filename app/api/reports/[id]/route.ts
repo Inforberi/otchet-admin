@@ -28,6 +28,13 @@ export async function GET(
         const report = await prisma.report.findUnique({
             where: { id },
             include: {
+                group: {
+                    select: {
+                        id: true,
+                        name: true,
+                        path: true,
+                    },
+                },
                 blocks: {
                     orderBy: { position: 'asc' },
                 },

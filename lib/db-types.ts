@@ -73,6 +73,11 @@ export interface ReportFromDB {
     captionFontSize?: string | null; // размер шрифта подписи к изображениям в px (по умолчанию 16px)
     createdAt: Date;
     updatedAt: Date;
+    group?: {
+        id: string;
+        name: string;
+        path: string;
+    } | null;
     blocks?: ReportBlockFromDB[];
 }
 

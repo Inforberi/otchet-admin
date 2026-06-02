@@ -7,7 +7,7 @@ async function main() {
 
   // Находим или создаем группу по умолчанию
   let defaultGroup = await prisma.reportGroup.findUnique({
-    where: { name: "Отчеты по сайту" },
+    where: { path: "otchety-po-sajtu" },
   });
 
   if (!defaultGroup) {
@@ -15,6 +15,7 @@ async function main() {
       data: {
         name: "Отчеты по сайту",
         slug: "otchety-po-sajtu",
+        path: "otchety-po-sajtu",
         description: "Группа по умолчанию",
       },
     });

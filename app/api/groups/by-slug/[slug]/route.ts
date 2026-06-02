@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getGroupAncestors } from '@/lib/group-service';
 
 // GET /api/groups/by-slug/[slug] - получение группы по slug
 export async function GET(
@@ -8,12 +9,13 @@ export async function GET(
 ) {
     try {
         const { slug } = await params;
-        const group = await prisma.reportGroup.findUnique({
-            where: { slug },
+        const group = await prisma.reportGroup.findFirst({
+            where: { path: slug },
             include: {
                 _count: {
                     select: {
                         reports: true,
+                        children: true,
                     },
                 },
             },
@@ -26,7 +28,9 @@ export async function GET(
             );
         }
 
-        return NextResponse.json({ group }, { status: 200 });
+        const ancestors = await getGroupAncestors(group.parentId);
+
+        return NextResponse.json({ group, ancestors }, { status: 200 });
     } catch (error) {
         console.error('Error fetching group by slug:', error);
         return NextResponse.json(

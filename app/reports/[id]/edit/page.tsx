@@ -1683,6 +1683,7 @@ export default function EditReportPage() {
     const [saving, setSaving] = useState(false);
     const [timeUntilSave, setTimeUntilSave] = useState(120); // 2 минуты в секундах
     const [showAutoSaveSettings, setShowAutoSaveSettings] = useState(false);
+    const groupTarget = report?.group?.path ? `/${report.group.path}` : '/reports';
 
     // Настройки автосохранения
     const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
@@ -2065,7 +2066,7 @@ export default function EditReportPage() {
             <header className="bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => router.push('/reports')}
+                        onClick={() => router.push(groupTarget)}
                         className="p-2 hover:bg-zinc-800 rounded text-zinc-400 cursor-pointer"
                         title="К списку отчетов"
                     >
