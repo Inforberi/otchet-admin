@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { rm, unlink } from 'fs/promises';
 import path from 'path';
@@ -11,6 +12,7 @@ import {
 } from '@/lib/group-service';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
 // Получаем абсолютный путь к директории загрузок
 function getUploadDir(): string {
@@ -95,6 +97,17 @@ export async function PATCH(
         const { id } = await params;
         const body = await request.json();
         const { name, description, order, parentId } = body;
+        const expectedVersion =
+            typeof body.expectedVersion === 'number'
+                ? body.expectedVersion
+                : Number(body.expectedVersion);
+
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+            return NextResponse.json(
+                { error: 'expectedVersion is required' },
+                { status: 400 }
+            );
+        }
 
         // Проверяем существование группы
         const existing = await prisma.reportGroup.findUnique({
@@ -142,6 +155,7 @@ export async function PATCH(
                 oldPath: existing.path,
                 newPath: nextPath,
                 rootUpdateData: updateData,
+                expectedVersion,
             })
 
             const group = await prisma.reportGroup.findUnique({
@@ -159,9 +173,39 @@ export async function PATCH(
             return NextResponse.json({ group }, { status: 200 })
         }
 
-        const group = await prisma.reportGroup.update({
+        const updateResult = await prisma.reportGroup.updateMany({
+            where: {
+                id,
+                version: expectedVersion,
+            },
+            data: {
+                ...updateData,
+                version: {
+                    increment: 1,
+                },
+            },
+        });
+
+        if (updateResult.count === 0) {
+            return NextResponse.json(
+                {
+                    error: 'Group has been modified by another user',
+                    code: VERSION_CONFLICT,
+                },
+                { status: 409 }
+            );
+        }
+
+        const group = await prisma.reportGroup.findUnique({
             where: { id },
-            data: updateData,
+            include: {
+                _count: {
+                    select: {
+                        reports: true,
+                        children: true,
+                    },
+                },
+            },
         });
 
         return NextResponse.json({ group }, { status: 200 });
@@ -190,6 +234,26 @@ export async function PATCH(
                     { status: 400 }
                 );
             }
+
+            if (error.message === VERSION_CONFLICT) {
+                return NextResponse.json(
+                    {
+                        error: 'Group has been modified by another user',
+                        code: VERSION_CONFLICT,
+                    },
+                    { status: 409 }
+                );
+            }
+        }
+
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            return NextResponse.json(
+                { error: 'Group path already exists' },
+                { status: 409 }
+            );
         }
 
         console.error('Error updating group:', error);
@@ -210,6 +274,19 @@ export async function DELETE(
 
     try {
         const { id } = await params;
+        const body = await request.json().catch(() => ({}));
+        const expectedVersion =
+            typeof body.expectedVersion === 'number'
+                ? body.expectedVersion
+                : Number(body.expectedVersion);
+
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+            return NextResponse.json(
+                { error: 'expectedVersion is required' },
+                { status: 400 }
+            );
+        }
+
         // Проверяем существование группы
         const existing = await prisma.reportGroup.findUnique({
             where: { id },
@@ -227,6 +304,17 @@ export async function DELETE(
             return NextResponse.json(
                 { error: 'Group not found' },
                 { status: 404 }
+            );
+        }
+
+        if (existing.version !== expectedVersion) {
+            return NextResponse.json(
+                {
+                    error: 'Group has been modified by another user',
+                    code: VERSION_CONFLICT,
+                    currentVersion: existing.version,
+                },
+                { status: 409 }
             );
         }
 
@@ -291,9 +379,22 @@ export async function DELETE(
         }
 
         // Удаляем группу из БД
-        await prisma.reportGroup.delete({
-            where: { id },
+        const deleteResult = await prisma.reportGroup.deleteMany({
+            where: {
+                id,
+                version: expectedVersion,
+            },
         });
+
+        if (deleteResult.count === 0) {
+            return NextResponse.json(
+                {
+                    error: 'Group has been modified by another user',
+                    code: VERSION_CONFLICT,
+                },
+                { status: 409 }
+            );
+        }
 
         return NextResponse.json(
             { message: 'Group deleted successfully' },

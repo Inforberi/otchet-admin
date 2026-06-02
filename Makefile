@@ -1,4 +1,4 @@
-.PHONY: help up down logs prod clean dev backup backup-db backup-uploads
+.PHONY: help up down logs prod clean dev backup backup-db backup-uploads typecheck
 
 help: ## Показать эту справку
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -51,3 +51,6 @@ backup-db: ## Создать бэкап только базы данных
 backup-uploads: ## Создать бэкап только uploads
 	@chmod +x scripts/backup-uploads.sh
 	@bash scripts/backup-uploads.sh
+
+typecheck: ## Проверить TypeScript без сборки
+	pnpm exec tsc --noEmit

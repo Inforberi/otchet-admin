@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { generateGroupSlugAndPath } from '@/lib/group-service';
 
@@ -81,6 +82,16 @@ export async function POST(request: NextRequest) {
                     { status: 400 }
                 );
             }
+        }
+
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            return NextResponse.json(
+                { error: 'Group path already exists' },
+                { status: 409 }
+            );
         }
 
         console.error('Error creating group:', error);

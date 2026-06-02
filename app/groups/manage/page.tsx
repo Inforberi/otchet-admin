@@ -21,6 +21,7 @@ interface ReportGroup {
     description: string | null;
     order: number;
     parentId: string | null;
+    version: number;
     _count: {
         reports: number;
         children: number;
@@ -164,6 +165,8 @@ export default function ManageGroupsPage() {
                     name: editingName.trim(),
                     description: editingDescription.trim() || null,
                     parentId: editingParentId || null,
+                    expectedVersion:
+                        groups.find((group) => group.id === id)?.version,
                 }),
             });
 
@@ -192,6 +195,11 @@ export default function ManageGroupsPage() {
         try {
             const response = await fetch(`/api/groups/${id}`, {
                 method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    expectedVersion:
+                        groups.find((group) => group.id === id)?.version,
+                }),
             });
 
             if (response.ok) {

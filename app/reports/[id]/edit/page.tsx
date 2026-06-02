@@ -1715,36 +1715,6 @@ export default function EditReportPage() {
         return [...blocks].sort((a, b) => a.position - b.position);
     }, [blocks]);
 
-    const handleSaveMetadata = useCallback(async (isAutoSave = false) => {
-        if (!report) return;
-        setSaving(true);
-        try {
-            await fetch(`/api/reports/${reportId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: report.title,
-                    subtitle: report.subtitle,
-                    date: report.date || undefined,
-                    titleFontSize: report.titleFontSize,
-                    descriptionFontSize: report.descriptionFontSize,
-                    captionFontSize: report.captionFontSize,
-                }),
-            });
-            if (!isAutoSave) {
-                alert('Метаданные сохранены!');
-            }
-            setTimeUntilSave(120); // Сброс таймера после сохранения
-        } catch (error) {
-            console.error(error);
-            if (!isAutoSave) {
-                alert('Ошибка сохранения');
-            }
-        } finally {
-            setSaving(false);
-        }
-    }, [report, reportId]);
-
     const handleLogout = useCallback(async () => {
         try {
             await fetch('/api/auth/logout', { method: 'POST' });
@@ -1763,14 +1733,10 @@ export default function EditReportPage() {
 
     const fetchReport = useCallback(async () => {
         try {
-            const [reportRes, blocksRes] = await Promise.all([
-                fetch(`/api/reports/${reportId}`),
-                fetch(`/api/reports/${reportId}/blocks`),
-            ]);
-            if (!reportRes.ok || !blocksRes.ok)
-                throw new Error('Failed to fetch');
+            const reportRes = await fetch(`/api/reports/${reportId}`);
+            if (!reportRes.ok) throw new Error('Failed to fetch');
             const { report: reportData } = await reportRes.json();
-            const { blocks: blocksData } = await blocksRes.json();
+            const blocksData = reportData.blocks || [];
             setReport(reportData);
             setBlocks(
                 blocksData.sort(
@@ -1789,7 +1755,67 @@ export default function EditReportPage() {
         }
     }, [reportId]);
 
+    const handleVersionConflict = useCallback(async () => {
+        alert('Отчёт изменён другим пользователем. Данные будут перезагружены.');
+        await fetchReport();
+    }, [fetchReport]);
+
+    const handleSaveMetadata = useCallback(async (isAutoSave = false) => {
+        if (!report) return;
+        setSaving(true);
+        try {
+            const response = await fetch(`/api/reports/${reportId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: report.title,
+                    subtitle: report.subtitle,
+                    client: report.client,
+                    status: report.status,
+                    date: report.date || undefined,
+                    titleFontSize: report.titleFontSize,
+                    descriptionFontSize: report.descriptionFontSize,
+                    captionFontSize: report.captionFontSize,
+                    expectedVersion: report.version,
+                }),
+            });
+
+            if (response.status === 409) {
+                await handleVersionConflict();
+                return;
+            }
+
+            if (!response.ok) {
+                throw new Error('Failed to save metadata');
+            }
+
+            const data = await response.json();
+            if (data.report) {
+                setReport(data.report);
+                setBlocks(
+                    (data.report.blocks || []).sort(
+                        (a: ReportBlockFromDB, b: ReportBlockFromDB) =>
+                            a.position - b.position
+                    )
+                );
+            }
+
+            if (!isAutoSave) {
+                alert('Метаданные сохранены!');
+            }
+            setTimeUntilSave(120);
+        } catch (error) {
+            console.error(error);
+            if (!isAutoSave) {
+                alert('Ошибка сохранения');
+            }
+        } finally {
+            setSaving(false);
+        }
+    }, [report, reportId, handleVersionConflict]);
+
     const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+        if (!report) return;
         const { active, over } = event;
         if (!over || active.id === over.id) return;
 
@@ -1815,11 +1841,23 @@ export default function EditReportPage() {
                     const res = await fetch(`/api/reports/${reportId}/blocks/reorder`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ blockIds: newBlocks.map((b) => b.id) }),
+                        body: JSON.stringify({
+                            blockIds: newBlocks.map((b) => b.id),
+                            expectedReportVersion: report.version,
+                        }),
                     });
+                    if (res.status === 409) {
+                        await handleVersionConflict();
+                        return;
+                    }
                     if (!res.ok) {
                         throw new Error('Failed to save order');
                     }
+                    const data = await res.json();
+                    setBlocks(data.blocks || newBlocks);
+                    setReport((prev) =>
+                        prev ? { ...prev, version: data.reportVersion } : prev
+                    );
                 } catch (error) {
                     console.error(error);
                     // В случае ошибки возвращаем старый порядок
@@ -1830,50 +1868,74 @@ export default function EditReportPage() {
 
             return newBlocks;
         });
-    }, [reportId]);
+    }, [report, reportId, handleVersionConflict]);
 
     const handleUpdateBlock = useCallback(async (
         id: string,
         data: TextBlockData | ScreenshotBlockData | DividerBlockData
     ) => {
+        if (!report) return;
         try {
             const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data }),
+                body: JSON.stringify({
+                    data,
+                    expectedReportVersion: report.version,
+                }),
             });
+            if (res.status === 409) {
+                await handleVersionConflict();
+                return;
+            }
             if (!res.ok) throw new Error('Failed to update');
-            const { block: saved } = await res.json();
+            const { block: saved, reportVersion } = await res.json();
             setBlocks((prev) =>
                 prev.map((b) => (b.id === saved.id ? saved : b))
+            );
+            setReport((prev) =>
+                prev ? { ...prev, version: reportVersion } : prev
             );
         } catch (error) {
             console.error(error);
         }
-    }, [reportId]);
+    }, [report, reportId, handleVersionConflict]);
 
     const handleDeleteBlock = useCallback(async (id: string) => {
+        if (!report) return;
         if (!confirm('Удалить блок?')) return;
         try {
             const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
                 method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    expectedReportVersion: report.version,
+                }),
             });
+            if (res.status === 409) {
+                await handleVersionConflict();
+                return;
+            }
             if (!res.ok) throw new Error('Failed to delete');
-            setBlocks((prev) => {
-                const filtered = prev.filter((b) => b.id !== id);
-                if (selectedBlockId === id && filtered.length > 0) {
-                    const sorted = [...filtered].sort((a, b) => a.position - b.position);
-                    setSelectedBlockId(sorted[0]?.id || null);
-                }
-                return filtered;
-            });
+            const data = await res.json();
+            const nextBlocks = (data.blocks || []) as ReportBlockFromDB[];
+            setBlocks(nextBlocks);
+            setReport((prev) =>
+                prev ? { ...prev, version: data.reportVersion } : prev
+            );
+            setSelectedBlockId((currentSelectedId) =>
+                currentSelectedId === id
+                    ? nextBlocks[0]?.id || null
+                    : currentSelectedId
+            );
         } catch (error) {
             console.error(error);
             alert('Ошибка удаления блока');
         }
-    }, [reportId, selectedBlockId]);
+    }, [report, reportId, handleVersionConflict]);
 
     const handleDuplicateBlock = useCallback(async (id: string) => {
+        if (!report) return;
         const blockToDup = blocks.find((b) => b.id === id);
         if (!blockToDup) return;
 
@@ -1886,20 +1948,28 @@ export default function EditReportPage() {
                     type: blockToDup.type,
                     position: sorted.length,
                     data: blockToDup.data,
+                    expectedReportVersion: report.version,
                 }),
             });
+            if (res.status === 409) {
+                await handleVersionConflict();
+                return;
+            }
             if (!res.ok) throw new Error('Failed to duplicate');
-            const { block: newBlock } = await res.json();
+            const { block: newBlock, reportVersion } = await res.json();
             setBlocks((prev) => [...prev, newBlock]);
             setSelectedBlockId(newBlock.id);
+            setReport((prev) =>
+                prev ? { ...prev, version: reportVersion } : prev
+            );
         } catch (error) {
             console.error(error);
             alert('Ошибка дублирования блока');
         }
-    }, [reportId, blocks]);
+    }, [report, reportId, blocks, handleVersionConflict]);
 
     const handleAddBlock = useCallback(async (type: 'text' | 'screenshot' | 'divider') => {
-        if (!reportId) return;
+        if (!reportId || !report) return;
         try {
             const sorted = [...blocks].sort((a, b) => a.position - b.position);
             const res = await fetch(`/api/reports/${reportId}/blocks`, {
@@ -1922,17 +1992,25 @@ export default function EditReportPage() {
                                     images: [],
                                     layout: 'full-width',
                                 },
+                    expectedReportVersion: report.version,
                 }),
             });
+            if (res.status === 409) {
+                await handleVersionConflict();
+                return;
+            }
             if (!res.ok) throw new Error('Failed to create block');
-            const { block: newBlock } = await res.json();
+            const { block: newBlock, reportVersion } = await res.json();
             setBlocks((prev) => [...prev, newBlock]);
             setSelectedBlockId(newBlock.id);
+            setReport((prev) =>
+                prev ? { ...prev, version: reportVersion } : prev
+            );
         } catch (error) {
             console.error(error);
             alert('Ошибка создания блока');
         }
-    }, [reportId, blocks]);
+    }, [report, reportId, blocks, handleVersionConflict]);
 
     const handleSelectBlock = useCallback((id: string) => {
         setSelectedBlockId(id);

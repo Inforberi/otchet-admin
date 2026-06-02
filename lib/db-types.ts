@@ -52,6 +52,7 @@ export interface ReportBlockFromDB {
     reportId: string;
     type: 'text' | 'screenshot' | 'divider';
     position: number;
+    version: number;
     data: TextBlockData | ScreenshotBlockData | DividerBlockData;
     createdAt: Date;
     updatedAt: Date;
@@ -71,6 +72,7 @@ export interface ReportFromDB {
     titleFontSize?: string | null; // размер шрифта заголовка в px (по умолчанию 40px)
     descriptionFontSize?: string | null; // размер шрифта описания в px (по умолчанию 20px)
     captionFontSize?: string | null; // размер шрифта подписи к изображениям в px (по умолчанию 16px)
+    version: number;
     createdAt: Date;
     updatedAt: Date;
     group?: {
@@ -96,6 +98,7 @@ export interface UpdateReportInput extends Partial<CreateReportInput> {
     titleFontSize?: string | null;
     descriptionFontSize?: string | null;
     captionFontSize?: string | null;
+    expectedVersion?: number;
 }
 
 export interface CreateBlockInput {
@@ -109,4 +112,5 @@ export interface UpdateBlockInput {
     id: string;
     data?: TextBlockData | ScreenshotBlockData | DividerBlockData;
     position?: number;
+    expectedReportVersion?: number;
 }

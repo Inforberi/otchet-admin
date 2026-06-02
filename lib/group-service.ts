@@ -143,21 +143,30 @@ export const updateGroupPathBranch = async ({
   oldPath,
   newPath,
   rootUpdateData,
+  expectedVersion,
 }: {
   groupId: string
   oldPath: string
   newPath: string
   rootUpdateData?: Record<string, unknown>
+  expectedVersion: number
 }) => {
   if (oldPath === newPath) {
     if (rootUpdateData) {
-      await prisma.reportGroup.update({
-        where: { id: groupId },
+      const result = await prisma.reportGroup.updateMany({
+        where: { id: groupId, version: expectedVersion },
         data: {
           ...rootUpdateData,
           path: newPath,
+          version: {
+            increment: 1,
+          },
         },
       })
+
+      if (result.count === 0) {
+        throw new Error('VERSION_CONFLICT')
+      }
     }
     return
   }
@@ -182,13 +191,20 @@ export const updateGroupPathBranch = async ({
   )
 
   await prisma.$transaction(async (tx) => {
-    await tx.reportGroup.update({
-      where: { id: groupId },
+    const rootUpdate = await tx.reportGroup.updateMany({
+      where: { id: groupId, version: expectedVersion },
       data: {
         ...(rootUpdateData ?? {}),
         path: newPath,
+        version: {
+          increment: 1,
+        },
       },
     })
+
+    if (rootUpdate.count === 0) {
+      throw new Error('VERSION_CONFLICT')
+    }
 
     for (const descendant of sortedDescendants) {
       const parentPath = descendant.parentId
@@ -200,7 +216,12 @@ export const updateGroupPathBranch = async ({
 
       await tx.reportGroup.update({
         where: { id: descendant.id },
-        data: { path: nextPath },
+        data: {
+          path: nextPath,
+          version: {
+            increment: 1,
+          },
+        },
       })
     }
   })

@@ -18,6 +18,7 @@ model ReportGroup {
   description String?       // описание группы
   order       Int           @default(0) // порядок отображения
   parentId    String?       @map("parent_id")
+  version     Int           @default(1)
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
@@ -44,6 +45,7 @@ model Report {
   descriptionFontSize String? @default("20") @map("description_font_size") // размер шрифта описания в px
   captionFontSize   String?  @default("16") @map("caption_font_size") // размер шрифта подписи к изображениям в px
   groupId           String   @map("group_id")
+  version           Int      @default(1)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -62,6 +64,7 @@ model ReportBlock {
   type      String   // text | screenshot
   position  Int      // порядок блока
   data      Json     // содержимое блока (title, content, images, layout, etc.)
+  version   Int      @default(1)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -69,6 +72,7 @@ model ReportBlock {
 
   @@map("report_blocks")
   @@index([reportId])
+  @@unique([reportId, position])
 }
 
 // Метаданные загруженных файлов (изображения)

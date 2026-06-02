@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { UpdateReportInput } from '@/lib/db-types';
+import { Prisma } from '@prisma/client';
 import { unlink, rm, readdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
@@ -8,6 +9,7 @@ import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
 // Получаем абсолютный путь к директории загрузок
 function getUploadDir(): string {
@@ -70,11 +72,22 @@ export async function PATCH(
     try {
         const { id } = await params;
         const body: Partial<UpdateReportInput> = await request.json();
+        const expectedVersion =
+            typeof body.expectedVersion === 'number'
+                ? body.expectedVersion
+                : Number(body.expectedVersion);
+
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+            return NextResponse.json(
+                { error: 'expectedVersion is required' },
+                { status: 400 }
+            );
+        }
 
         // Получаем текущий отчет для проверки groupId
         const currentReport = await prisma.report.findUnique({
             where: { id },
-            select: { groupId: true, title: true },
+            select: { groupId: true, title: true, version: true },
         });
 
         if (!currentReport) {
@@ -124,13 +137,58 @@ export async function PATCH(
             updateData.slug = slug;
         }
 
-        const report = await prisma.report.update({
+        const updateResult = await prisma.report.updateMany({
+            where: {
+                id,
+                version: expectedVersion,
+            },
+            data: {
+                ...updateData,
+                version: {
+                    increment: 1,
+                },
+            },
+        });
+
+        if (updateResult.count === 0) {
+            return NextResponse.json(
+                {
+                    error: 'Report has been modified by another user',
+                    code: VERSION_CONFLICT,
+                    currentVersion: currentReport.version,
+                },
+                { status: 409 }
+            );
+        }
+
+        const report = await prisma.report.findUnique({
             where: { id },
-            data: updateData,
+            include: {
+                group: {
+                    select: {
+                        id: true,
+                        name: true,
+                        path: true,
+                    },
+                },
+                blocks: {
+                    orderBy: { position: 'asc' },
+                },
+            },
         });
 
         return NextResponse.json({ report }, { status: 200 });
     } catch (error) {
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            return NextResponse.json(
+                { error: 'Report slug already exists in this group' },
+                { status: 409 }
+            );
+        }
+
         console.error('Error updating report:', error);
         return NextResponse.json(
             { error: 'Failed to update report' },

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { CreateReportInput } from '@/lib/db-types';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 import { getCurrentMonthDateRange } from '@/lib/report-date-range';
@@ -145,6 +145,16 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ report }, { status: 201 });
     } catch (error) {
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            return NextResponse.json(
+                { error: 'Report slug already exists in this group' },
+                { status: 409 }
+            );
+        }
+
         console.error('Error creating report:', error);
         return NextResponse.json(
             { error: 'Failed to create report' },
