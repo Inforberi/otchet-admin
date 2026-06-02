@@ -28,28 +28,12 @@ export function ScreenshotBlockCard({
   onMoveDown,
 }: ScreenshotBlockCardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null)
   const [dragOverImageIndex, setDragOverImageIndex] = useState<number | null>(null)
 
   const handleFieldChange = (field: keyof ScreenshotBlock, value: string) => {
     onChange({ ...block, [field]: value })
-  }
-
-  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const textarea = e.target
-    const cursorPosition = textarea.selectionStart
-    const newValue = e.target.value
-    
-    handleFieldChange("description", newValue)
-    
-    // Восстанавливаем позицию курсора после обновления
-    setTimeout(() => {
-      if (descriptionTextareaRef.current) {
-        descriptionTextareaRef.current.setSelectionRange(cursorPosition, cursorPosition)
-      }
-    }, 0)
   }
 
   const handleImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,9 +179,8 @@ export function ScreenshotBlockCard({
         <div>
           <label className="mb-1.5 block text-sm text-[var(--color-grayscale-6)]">Описание</label>
           <textarea
-            ref={descriptionTextareaRef}
             value={block.description}
-            onChange={handleDescriptionChange}
+            onChange={(e) => handleFieldChange("description", e.target.value)}
             placeholder="Опишите результаты анализа..."
             rows={3}
             className="w-full resize-none rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-3 py-2 text-[var(--color-grayscale-3)] placeholder:text-[var(--color-grayscale-8)] focus:border-[var(--color-primary)] focus:outline-none"

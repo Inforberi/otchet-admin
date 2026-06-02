@@ -63,8 +63,8 @@ const SortableImageItem = memo(function SortableImageItem({
 }: {
     image: ImageData;
     index: number;
-    onUpdateCaption: (index: number, caption: string, inputRef?: HTMLInputElement) => void;
-    onUpdateAlt: (index: number, alt: string, inputRef?: HTMLInputElement) => void;
+    onUpdateCaption: (index: number, caption: string) => void;
+    onUpdateAlt: (index: number, alt: string) => void;
     onUpdateFit: (index: number, fit: 'auto-width' | 'auto-height') => void;
     onUpdateAlign: (index: number, align: 'left' | 'center' | 'right') => void;
     onRemove: (index: number) => void;
@@ -108,26 +108,14 @@ const SortableImageItem = memo(function SortableImageItem({
                     <input
                         type="text"
                         value={image.caption || ''}
-                        onChange={(e) =>
-                            onUpdateCaption(
-                                index,
-                                e.target.value,
-                                e.currentTarget
-                            )
-                        }
+                        onChange={(e) => onUpdateCaption(index, e.target.value)}
                         placeholder="Подпись к изображению..."
                         className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
                     />
                     <input
                         type="text"
                         value={image.alt || ''}
-                        onChange={(e) =>
-                            onUpdateAlt(
-                                index,
-                                e.target.value,
-                                e.currentTarget
-                            )
-                        }
+                        onChange={(e) => onUpdateAlt(index, e.target.value)}
                         placeholder="Alt текст..."
                         className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
                     />
@@ -467,13 +455,7 @@ function BlockEditor({
         });
     }, []);
 
-    const handleUpdateImageCaption = useCallback((index: number, caption: string, inputRef?: HTMLInputElement) => {
-        // Сохраняем позицию курсора перед обновлением
-        let cursorPosition: number | null = null;
-        if (inputRef) {
-            cursorPosition = inputRef.selectionStart || 0;
-        }
-
+    const handleUpdateImageCaption = useCallback((index: number, caption: string) => {
         setLocalData((prevData) => {
             const images = [...(prevData as ScreenshotBlockData).images];
             images[index] = { ...images[index], caption };
@@ -482,22 +464,9 @@ function BlockEditor({
                 images,
             } as ScreenshotBlockData;
         });
-
-        // Восстанавливаем позицию курсора после обновления
-        if (inputRef && cursorPosition !== null) {
-            setTimeout(() => {
-                inputRef.setSelectionRange(cursorPosition, cursorPosition);
-            }, 0);
-        }
     }, []);
 
-    const handleUpdateImageAlt = useCallback((index: number, alt: string, inputRef?: HTMLInputElement) => {
-        // Сохраняем позицию курсора перед обновлением
-        let cursorPosition: number | null = null;
-        if (inputRef) {
-            cursorPosition = inputRef.selectionStart || 0;
-        }
-
+    const handleUpdateImageAlt = useCallback((index: number, alt: string) => {
         setLocalData((prevData) => {
             const images = [...(prevData as ScreenshotBlockData).images];
             images[index] = { ...images[index], alt };
@@ -506,13 +475,6 @@ function BlockEditor({
                 images,
             } as ScreenshotBlockData;
         });
-
-        // Восстанавливаем позицию курсора после обновления
-        if (inputRef && cursorPosition !== null) {
-            setTimeout(() => {
-                inputRef.setSelectionRange(cursorPosition, cursorPosition);
-            }, 0);
-        }
     }, []);
 
     const handleUpdateImageFit = useCallback((index: number, fit: 'auto-width' | 'auto-height') => {
@@ -812,6 +774,7 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
     const editorRef = useRef<HTMLDivElement>(null);
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [customColor, setCustomColor] = useState('#ffffff');
+    const [fontSizeInput, setFontSizeInput] = useState(defaultFontSize);
     const colorPickerRef = useRef<HTMLDivElement>(null);
     const [isBold, setIsBold] = useState(false);
     const [isItalic, setIsItalic] = useState(false);
@@ -859,6 +822,77 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
 
     const [recentColors, setRecentColors] = useState<string[]>(getRecentColors());
 
+    const normalizeEditorHtml = (html: string): string => {
+        return html
+            .replace(/<div><br><\/div>/gi, '<br>')
+            .replace(/<div>/gi, '')
+            .replace(/<\/div>/gi, '<br>')
+            .replace(/(<br\s*\/?>)+$/gi, '')
+            .trim();
+    };
+
+    const cleanupEditorStyles = useCallback(() => {
+        if (!editorRef.current) return;
+
+        editorRef.current.style.margin = '0';
+        editorRef.current.style.textIndent = '0';
+        editorRef.current.style.fontSize = '';
+
+        const allElements = editorRef.current.querySelectorAll('*');
+        allElements.forEach((el) => {
+            const htmlEl = el as HTMLElement;
+            const fontSize = htmlEl.style.fontSize;
+            htmlEl.style.margin = '0';
+            htmlEl.style.marginLeft = '0';
+            htmlEl.style.marginRight = '0';
+            htmlEl.style.marginTop = '0';
+            htmlEl.style.marginBottom = '0';
+            htmlEl.style.paddingLeft = '0';
+            htmlEl.style.paddingRight = '0';
+            htmlEl.style.textIndent = '0';
+            if (fontSize) {
+                htmlEl.style.fontSize = fontSize;
+            }
+        });
+    }, []);
+
+    const getSelectionElement = (range: Range): HTMLElement | null => {
+        const container = range.commonAncestorContainer;
+        if (container.nodeType === Node.TEXT_NODE) {
+            return container.parentElement;
+        }
+        return container instanceof HTMLElement ? container : null;
+    };
+
+    const syncFontSizeInput = useCallback((range?: Range | null) => {
+        if (!editorRef.current) return;
+
+        const selection = window.getSelection();
+        const activeRange =
+            range ?? (selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null);
+        if (!activeRange || !editorRef.current.contains(activeRange.commonAncestorContainer)) {
+            setFontSizeInput(defaultFontSize);
+            return;
+        }
+
+        const element = getSelectionElement(activeRange);
+        if (!element) {
+            setFontSizeInput(defaultFontSize);
+            return;
+        }
+
+        const inlineFontSize = element.style.fontSize;
+        if (inlineFontSize) {
+            const parsedFontSize = parseInt(inlineFontSize, 10);
+            setFontSizeInput(Number.isNaN(parsedFontSize) ? defaultFontSize : String(parsedFontSize));
+            return;
+        }
+
+        const computedFontSize = window.getComputedStyle(element).fontSize;
+        const parsedFontSize = parseInt(computedFontSize, 10);
+        setFontSizeInput(Number.isNaN(parsedFontSize) ? defaultFontSize : String(parsedFontSize));
+    }, [defaultFontSize]);
+
     // Функция для конвертации текста с переносами строк в HTML
     const convertTextToHtml = (text: string): string => {
         if (!text || text.trim() === '') return '';
@@ -884,40 +918,16 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
 
     // Эффект для очистки стилей при монтировании и изменениях
     useEffect(() => {
+        setFontSizeInput(defaultFontSize);
+    }, [defaultFontSize]);
+
+    useEffect(() => {
         if (editorRef.current) {
-            const cleanupStyles = () => {
-                if (!editorRef.current) return;
-
-                // Убираем отступы у самого редактора
-                editorRef.current.style.margin = '0';
-                editorRef.current.style.textIndent = '0';
-                editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-
-                // Убираем отступы у всех дочерних элементов, но сохраняем fontSize в style (для HTML)
-                const allElements = editorRef.current.querySelectorAll('*');
-                allElements.forEach((el) => {
-                    const htmlEl = el as HTMLElement;
-                    const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
-                    htmlEl.style.margin = '0';
-                    htmlEl.style.marginLeft = '0';
-                    htmlEl.style.marginRight = '0';
-                    htmlEl.style.marginTop = '0';
-                    htmlEl.style.marginBottom = '0';
-                    htmlEl.style.paddingLeft = '0';
-                    htmlEl.style.paddingRight = '0';
-                    htmlEl.style.textIndent = '0';
-                    // fontSize сохраняем в style для HTML, но визуально он будет переопределен через CSS
-                    if (fontSize) {
-                        htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
-                    }
-                });
-            };
-
-            cleanupStyles();
+            cleanupEditorStyles();
 
             // Наблюдаем за изменениями DOM
             const observer = new MutationObserver(() => {
-                cleanupStyles();
+                cleanupEditorStyles();
             });
             observer.observe(editorRef.current, {
                 childList: true,
@@ -930,84 +940,24 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                 observer.disconnect();
             };
         }
-    }, []);
+    }, [cleanupEditorStyles]);
 
     useEffect(() => {
         if (editorRef.current) {
             const htmlValue = convertTextToHtml(value || '');
-            // Не обновляем если редактор в фокусе и пользователь активно редактирует
-            // Это предотвращает сброс курсора во время ввода
             const isFocused = document.activeElement === editorRef.current;
-            if (isFocused && editorRef.current.innerHTML === htmlValue) {
+            const currentNormalizedHtml = normalizeEditorHtml(editorRef.current.innerHTML);
+            const nextNormalizedHtml = normalizeEditorHtml(htmlValue);
+
+            if (isFocused && currentNormalizedHtml === nextNormalizedHtml) {
                 return;
-            }
-
-            // Сохраняем позицию курсора перед обновлением
-            const selection = window.getSelection();
-            let savedRange: Range | null = null;
-
-            if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
-                savedRange = selection.getRangeAt(0).cloneRange();
             }
 
             // Обновляем содержимое
             editorRef.current.innerHTML = htmlValue;
-
-            // Убираем лишние отступы после обновления, но сохраняем fontSize в HTML
-            const allElements = editorRef.current.querySelectorAll('*');
-            allElements.forEach((el) => {
-                const htmlEl = el as HTMLElement;
-                const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
-                htmlEl.style.margin = '0';
-                htmlEl.style.marginLeft = '0';
-                htmlEl.style.marginRight = '0';
-                htmlEl.style.marginTop = '0';
-                htmlEl.style.marginBottom = '0';
-                htmlEl.style.paddingLeft = '0';
-                htmlEl.style.paddingRight = '0';
-                htmlEl.style.textIndent = '0';
-                // fontSize сохраняем в style для HTML, визуально переопределяется через CSS
-                if (fontSize) {
-                    htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
-                }
-            });
-            editorRef.current.style.margin = '0';
-            editorRef.current.style.textIndent = '0';
-            editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-
-            // Восстанавливаем позицию курсора после обновления
-            if (savedRange && editorRef.current) {
-                try {
-                    // Пытаемся восстановить позицию
-                    const newSelection = window.getSelection();
-                    if (newSelection) {
-                        // Если сохраненный range все еще валиден, используем его
-                        if (editorRef.current.contains(savedRange.startContainer)) {
-                            newSelection.removeAllRanges();
-                            newSelection.addRange(savedRange);
-                        } else {
-                            // Иначе ставим курсор в конец
-                            const range = document.createRange();
-                            range.selectNodeContents(editorRef.current);
-                            range.collapse(false);
-                            newSelection.removeAllRanges();
-                            newSelection.addRange(range);
-                        }
-                    }
-                } catch (e) {
-                    // Если не удалось восстановить, ставим курсор в конец
-                    const newSelection = window.getSelection();
-                    if (newSelection && editorRef.current) {
-                        const range = document.createRange();
-                        range.selectNodeContents(editorRef.current);
-                        range.collapse(false);
-                        newSelection.removeAllRanges();
-                        newSelection.addRange(range);
-                    }
-                }
-            }
+            cleanupEditorStyles();
         }
-    }, [value]);
+    }, [cleanupEditorStyles, value]);
 
     // Функция для проверки активных стилей выделенного текста
     const checkActiveStyles = () => {
@@ -1020,6 +970,7 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             setIsCentered(false);
             setCurrentColor('#ffffff');
             setHasCustomColor(false);
+            setFontSizeInput(defaultFontSize);
             return;
         }
 
@@ -1030,8 +981,11 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             setIsCentered(false);
             setCurrentColor('#ffffff');
             setHasCustomColor(false);
+            setFontSizeInput(defaultFontSize);
             return;
         }
+
+        syncFontSizeInput(range);
 
         // Проверяем bold
         const isBoldActive = document.queryCommandState('bold');
@@ -1234,6 +1188,10 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
 
             const html = editorRef.current.innerHTML.trim();
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
+                savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+            }
             // Если содержимое пустое или только пробелы/br, сохраняем пустую строку
             if (!html ||
                 html === '<br>' ||
@@ -1324,18 +1282,21 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             // Восстанавливаем выделение после применения
             setTimeout(() => {
                 const newSelection = window.getSelection();
-                if (newSelection && savedRange && editorRef.current) {
+                if (newSelection && editorRef.current) {
                     try {
-                        // Пытаемся восстановить выделение
-                        if (editorRef.current.contains(savedRange.startContainer)) {
+                        const currentRange =
+                            newSelection.rangeCount > 0
+                                ? newSelection.getRangeAt(0).cloneRange()
+                                : savedRange;
+                        savedSelectionRef.current = currentRange;
+
+                        if (currentRange && editorRef.current.contains(currentRange.startContainer)) {
                             newSelection.removeAllRanges();
-                            newSelection.addRange(savedRange);
+                            newSelection.addRange(currentRange);
                         } else {
-                            // Если не удалось, просто фокусируемся
                             editorRef.current.focus();
                         }
-                    } catch (e) {
-                        // Если не удалось, просто фокусируемся
+                    } catch {
                         editorRef.current.focus();
                     }
                 }
@@ -1412,7 +1373,9 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
 
             // Убираем выделение
             selection.removeAllRanges();
+            savedSelectionRef.current = null;
             handleInput();
+            syncFontSizeInput(null);
             return;
         }
 
@@ -1448,12 +1411,24 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
             try {
                 selection.removeAllRanges();
                 selection.addRange(savedRange);
+                savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
             } catch (e) {
                 // Игнорируем ошибки восстановления
             }
         }
 
         handleInput();
+        syncFontSizeInput(savedRange);
+    };
+
+    const applyFontSizeValue = (size: string) => {
+        const parsedSize = parseInt(size, 10);
+        if (Number.isNaN(parsedSize) || parsedSize < 8 || parsedSize > 200) {
+            return;
+        }
+
+        applyFontSize(String(parsedSize));
+        setFontSizeInput(String(parsedSize));
     };
 
     return (
@@ -1577,8 +1552,6 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                                         value={customColor}
                                         placeholder="#000000"
                                         onChange={(e) => {
-                                            const input = e.currentTarget;
-                                            const cursorPosition = input.selectionStart || 0;
                                             const color = e.target.value;
                                             setCustomColor(color);
                                             if (/^#[0-9A-F]{6}$/i.test(color)) {
@@ -1586,9 +1559,6 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                                                 setCurrentColor(color);
                                                 setHasCustomColor(true);
                                             }
-                                            setTimeout(() => {
-                                                input.setSelectionRange(cursorPosition, cursorPosition);
-                                            }, 0);
                                         }}
                                         className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200"
                                     />
@@ -1604,23 +1574,23 @@ const FormattedTextEditor = memo(function FormattedTextEditor({
                         type="number"
                         min="8"
                         max="200"
-                        placeholder={defaultFontSize}
+                        value={fontSizeInput}
                         className="w-14 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        onChange={(e) => {
+                            setFontSizeInput(e.target.value);
+                        }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                                 e.preventDefault();
-                                const input = e.currentTarget;
-                                const size = input.value;
-                                if (size && parseInt(size) >= 8 && parseInt(size) <= 200) {
-                                    applyFontSize(size);
-                                    input.blur();
-                                }
+                                applyFontSizeValue(e.currentTarget.value);
+                                e.currentTarget.blur();
                             }
                         }}
                         onBlur={(e) => {
-                            const size = e.target.value;
-                            if (size && parseInt(size) >= 8 && parseInt(size) <= 200) {
-                                applyFontSize(size);
+                            if (e.target.value) {
+                                applyFontSizeValue(e.target.value);
+                            } else {
+                                setFontSizeInput(defaultFontSize);
                             }
                         }}
                     />
@@ -2177,8 +2147,6 @@ export default function EditReportPage() {
                                                         autoSaveIntervalMinutes
                                                     }
                                                     onChange={(e) => {
-                                                        const input = e.currentTarget;
-                                                        const cursorPosition = input.selectionStart || 0;
                                                         const value = parseInt(
                                                             e.target.value,
                                                             10
@@ -2191,9 +2159,6 @@ export default function EditReportPage() {
                                                                 value
                                                             );
                                                         }
-                                                        setTimeout(() => {
-                                                            input.setSelectionRange(cursorPosition, cursorPosition);
-                                                        }, 0);
                                                     }}
                                                     className="w-20 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                 />
@@ -2321,8 +2286,6 @@ export default function EditReportPage() {
                                                         '40'
                                                     }
                                                     onChange={(e) => {
-                                                        const input = e.currentTarget;
-                                                        const cursorPosition = input.selectionStart || 0;
                                                         setReport({
                                                             ...report,
                                                             titleFontSize:
@@ -2330,9 +2293,6 @@ export default function EditReportPage() {
                                                                     .value ||
                                                                 null,
                                                         });
-                                                        setTimeout(() => {
-                                                            input.setSelectionRange(cursorPosition, cursorPosition);
-                                                        }, 0);
                                                     }}
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     placeholder="40"
@@ -2356,8 +2316,6 @@ export default function EditReportPage() {
                                                         '20'
                                                     }
                                                     onChange={(e) => {
-                                                        const input = e.currentTarget;
-                                                        const cursorPosition = input.selectionStart || 0;
                                                         setReport({
                                                             ...report,
                                                             descriptionFontSize:
@@ -2365,9 +2323,6 @@ export default function EditReportPage() {
                                                                     .value ||
                                                                 null,
                                                         });
-                                                        setTimeout(() => {
-                                                            input.setSelectionRange(cursorPosition, cursorPosition);
-                                                        }, 0);
                                                     }}
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     placeholder="20"
@@ -2391,8 +2346,6 @@ export default function EditReportPage() {
                                                         '16'
                                                     }
                                                     onChange={(e) => {
-                                                        const input = e.currentTarget;
-                                                        const cursorPosition = input.selectionStart || 0;
                                                         setReport({
                                                             ...report,
                                                             captionFontSize:
@@ -2400,9 +2353,6 @@ export default function EditReportPage() {
                                                                     .value ||
                                                                 null,
                                                         });
-                                                        setTimeout(() => {
-                                                            input.setSelectionRange(cursorPosition, cursorPosition);
-                                                        }, 0);
                                                     }}
                                                     className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     placeholder="16"

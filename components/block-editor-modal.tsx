@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState } from "react"
 import type { ReportBlockFromDB, TextBlockData, ScreenshotBlockData } from "@/lib/db-types"
 import { X, Save } from "lucide-react"
 import dynamic from "next/dynamic"
@@ -18,26 +18,10 @@ interface BlockEditorModalProps {
 
 export function BlockEditorModal({ block, onClose, onSave }: BlockEditorModalProps) {
   const [data, setData] = useState(block.data as TextBlockData | ScreenshotBlockData)
-  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSave = () => {
     onSave(data)
     onClose()
-  }
-
-  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const textarea = e.target
-    const cursorPosition = textarea.selectionStart
-    const newValue = e.target.value
-    
-    setData({ ...data, description: newValue } as ScreenshotBlockData)
-    
-    // Восстанавливаем позицию курсора после обновления
-    setTimeout(() => {
-      if (descriptionTextareaRef.current) {
-        descriptionTextareaRef.current.setSelectionRange(cursorPosition, cursorPosition)
-      }
-    }, 0)
   }
 
   return (
@@ -115,10 +99,11 @@ export function BlockEditorModal({ block, onClose, onSave }: BlockEditorModalPro
                   Описание
                 </label>
                 <textarea
-                  ref={descriptionTextareaRef}
                   placeholder="Введите описание"
                   value={(data as ScreenshotBlockData).description || ""}
-                  onChange={handleDescriptionChange}
+                  onChange={(e) =>
+                    setData({ ...data, description: e.target.value } as ScreenshotBlockData)
+                  }
                   rows={3}
                   className="w-full resize-none rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-3 py-2 text-[var(--color-grayscale-3)] focus:border-[var(--color-primary)] focus:outline-none"
                 />
