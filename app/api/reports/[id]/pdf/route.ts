@@ -36,6 +36,7 @@ export async function GET(
         // Приводим тип отчета к ReportFromDB (Prisma возвращает type как string, а не литеральный тип)
         const reportWithTypedBlocks: ReportFromDB = {
             ...report,
+            publishedSnapshot: report.publishedSnapshot,
             blocks: report.blocks.map(block => ({
                 ...block,
                 type: block.type as 'text' | 'screenshot' | 'divider',

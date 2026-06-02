@@ -34,6 +34,7 @@ export default function ReportViewPage() {
     const { isAdmin } = useUserRole();
 
     const [report, setReport] = useState<ReportFromDB | null>(null);
+    const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
     const [showFloatingEdit, setShowFloatingEdit] = useState(false);
@@ -108,10 +109,11 @@ export default function ReportViewPage() {
     const loadReport = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`/api/reports/${reportId}`);
+            const response = await fetch(`/api/reports/${reportId}?view=published`);
             if (response.ok) {
-                const { report } = await response.json();
-                setReport(report);
+                const data = await response.json();
+                setReport(data.report);
+                setHasUnpublishedChanges(Boolean(data.hasUnpublishedChanges));
             }
         } catch (error) {
             console.error('Error loading report:', error);
@@ -266,6 +268,11 @@ export default function ReportViewPage() {
 
             {/* Content */}
             <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+                {isAdmin && hasUnpublishedChanges && (
+                    <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        Есть неопубликованные изменения. Просмотр показывает последнюю опубликованную версию.
+                    </div>
+                )}
                 {!report.blocks || report.blocks.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-6 py-16 text-center">
                         <p className="text-[var(--color-grayscale-6)]">

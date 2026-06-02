@@ -1,5 +1,9 @@
 // Типы для работы с БД (более расширенная версия)
 
+import type { DraftPayload } from '@/lib/draft-hash';
+
+export type { DraftPayload };
+
 export interface ReportMeta {
     title: string;
     subtitle?: string;
@@ -73,6 +77,11 @@ export interface ReportFromDB {
     descriptionFontSize?: string | null; // размер шрифта описания в px (по умолчанию 20px)
     captionFontSize?: string | null; // размер шрифта подписи к изображениям в px (по умолчанию 16px)
     version: number;
+    draftHash?: string | null;
+    publishedHash?: string | null;
+    publishedSnapshot?: unknown | null;
+    publishedAt?: Date | string | null;
+    draftUpdatedAt?: Date | string | null;
     createdAt: Date;
     updatedAt: Date;
     group?: {

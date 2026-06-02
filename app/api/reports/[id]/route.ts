@@ -26,6 +26,7 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
+        const view = request.nextUrl.searchParams.get('view');
 
         const report = await prisma.report.findUnique({
             where: { id },
@@ -50,7 +51,69 @@ export async function GET(
             );
         }
 
-        return NextResponse.json({ report }, { status: 200 });
+        const hasUnpublishedChanges =
+            Boolean(report.draftHash) &&
+            Boolean(report.publishedHash) &&
+            report.draftHash !== report.publishedHash;
+
+        if (view === 'published' && report.publishedSnapshot) {
+            const snapshot = report.publishedSnapshot as {
+                metadata: {
+                    title: string;
+                    subtitle: string | null;
+                    client: string | null;
+                    date: string | null;
+                    titleFontSize: string | null;
+                    descriptionFontSize: string | null;
+                    captionFontSize: string | null;
+                };
+                blocks: Array<{
+                    id: string;
+                    type: string;
+                    position: number;
+                    data: unknown;
+                }>;
+            };
+
+            const publishedReport = {
+                ...report,
+                title: snapshot.metadata.title,
+                subtitle: snapshot.metadata.subtitle,
+                client: snapshot.metadata.client,
+                date: snapshot.metadata.date,
+                titleFontSize: snapshot.metadata.titleFontSize,
+                descriptionFontSize: snapshot.metadata.descriptionFontSize,
+                captionFontSize: snapshot.metadata.captionFontSize,
+                blocks: snapshot.blocks.map((block) => ({
+                    id: block.id,
+                    reportId: report.id,
+                    type: block.type,
+                    position: block.position,
+                    data: block.data,
+                    version: 1,
+                    createdAt: report.createdAt,
+                    updatedAt: report.updatedAt,
+                })),
+            };
+
+            const headers = report.publishedHash
+                ? { ETag: `"${report.publishedHash}"` }
+                : undefined;
+
+            return NextResponse.json(
+                {
+                    report: publishedReport,
+                    hasUnpublishedChanges,
+                    isPublishedView: true,
+                },
+                { status: 200, headers }
+            );
+        }
+
+        return NextResponse.json(
+            { report, hasUnpublishedChanges, isPublishedView: false },
+            { status: 200 }
+        );
     } catch (error) {
         console.error('Error fetching report:', error);
         return NextResponse.json(

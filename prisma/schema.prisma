@@ -46,6 +46,11 @@ model Report {
   captionFontSize   String?  @default("16") @map("caption_font_size") // размер шрифта подписи к изображениям в px
   groupId           String   @map("group_id")
   version           Int      @default(1)
+  draftHash         String?  @map("draft_hash")
+  publishedHash     String?  @map("published_hash")
+  publishedSnapshot Json?    @map("published_snapshot")
+  publishedAt       DateTime? @map("published_at")
+  draftUpdatedAt    DateTime? @map("draft_updated_at")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 

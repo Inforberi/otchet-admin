@@ -23,7 +23,6 @@ import {
     Upload,
     X,
     Save,
-    Clock,
     Bold,
     Italic,
     Palette,
@@ -31,8 +30,8 @@ import {
     AlignLeft,
     AlignRight,
     LogOut,
-    Settings,
 } from 'lucide-react';
+import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
 import {
     DndContext,
     closestCenter,
@@ -177,12 +176,12 @@ const SortableBlockCard = memo(function SortableBlockCard({
 // Полноценный редактор блока (инлайн)
 function BlockEditor({
     block,
-    onUpdate,
+    onLocalChange,
     reportId,
     groupId,
 }: {
     block: ReportBlockFromDB;
-    onUpdate: (
+    onLocalChange: (
         id: string,
         data: TextBlockData | ScreenshotBlockData | DividerBlockData
     ) => void;
@@ -193,19 +192,24 @@ function BlockEditor({
     const [uploading, setUploading] = useState(false);
     const [isExpanded, setIsExpanded] = useState(true);
     const [isDragOver, setIsDragOver] = useState(false);
+    const skipNextChangeRef = useRef(true);
 
     useEffect(() => {
         setLocalData(block.data);
-    }, [block.id]);
+        skipNextChangeRef.current = true;
+    }, [block.id, block.data]);
 
     useEffect(() => {
+        if (skipNextChangeRef.current) {
+            skipNextChangeRef.current = false;
+            return;
+        }
+
         const debounce = setTimeout(() => {
-            if (JSON.stringify(localData) !== JSON.stringify(block.data)) {
-                onUpdate(block.id, localData);
-            }
-        }, 500);
+            onLocalChange(block.id, localData);
+        }, 100);
         return () => clearTimeout(debounce);
-    }, [localData, block.id, block.data, onUpdate]);
+    }, [localData, block.id, onLocalChange]);
 
     const processFiles = useCallback(async (files: FileList | File[]) => {
         if (!files || files.length === 0) return;
@@ -1676,32 +1680,24 @@ export default function EditReportPage() {
     const reportId = params.id as string;
     const { isAdmin, loading: roleLoading } = useUserRole();
 
-    const [report, setReport] = useState<ReportFromDB | null>(null);
-    const [blocks, setBlocks] = useState<ReportBlockFromDB[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-    const [saving, setSaving] = useState(false);
-    const [timeUntilSave, setTimeUntilSave] = useState(120); // 2 минуты в секундах
-    const [showAutoSaveSettings, setShowAutoSaveSettings] = useState(false);
-    const groupTarget = report?.group?.path ? `/${report.group.path}` : '/reports';
+    const {
+        report,
+        blocks,
+        setBlocks,
+        loading,
+        syncStatus,
+        publishing,
+        loadReport,
+        markBlockDirty,
+        markMetadataDirty,
+        flush,
+        publish,
+        afterStructuralChange,
+        handleVersionConflict,
+    } = useReportDraftSync(reportId);
 
-    // Настройки автосохранения
-    const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('autoSaveEnabled');
-            return saved !== null ? saved === 'true' : true; // По умолчанию включено
-        }
-        return true;
-    });
-    const [autoSaveIntervalMinutes, setAutoSaveIntervalMinutes] = useState(
-        () => {
-            if (typeof window !== 'undefined') {
-                const saved = localStorage.getItem('autoSaveIntervalMinutes');
-                return saved ? parseInt(saved, 10) : 2; // По умолчанию 2 минуты
-            }
-            return 2;
-        }
-    );
+    const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+    const groupTarget = report?.group?.path ? `/${report.group.path}` : '/reports';
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -1725,94 +1721,30 @@ export default function EditReportPage() {
         }
     }, [router]);
 
-    const formatTime = useCallback((seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    }, []);
-
-    const fetchReport = useCallback(async () => {
-        try {
-            const reportRes = await fetch(`/api/reports/${reportId}`);
-            if (!reportRes.ok) throw new Error('Failed to fetch');
-            const { report: reportData } = await reportRes.json();
-            const blocksData = reportData.blocks || [];
-            setReport(reportData);
-            setBlocks(
-                blocksData.sort(
-                    (a: ReportBlockFromDB, b: ReportBlockFromDB) =>
-                        a.position - b.position
-                )
-            );
-            if (blocksData.length > 0) {
-                setSelectedBlockId(blocksData[0].id);
-            }
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка загрузки отчета');
-        } finally {
-            setLoading(false);
+    const syncStatusLabel = useMemo(() => {
+        switch (syncStatus) {
+            case 'local':
+                return '● Локально';
+            case 'syncing':
+                return '↻ Синхронизация...';
+            case 'conflict':
+                return '⚠ Конфликт';
+            case 'error':
+                return '⚠ Ошибка';
+            default:
+                return '✓ Сохранено';
         }
-    }, [reportId]);
+    }, [syncStatus]);
 
-    const handleVersionConflict = useCallback(async () => {
-        alert('Отчёт изменён другим пользователем. Данные будут перезагружены.');
-        await fetchReport();
-    }, [fetchReport]);
+    const handleSaveDraft = useCallback(async () => {
+        const ok = await flush({ force: true });
+        if (ok) alert('Черновик сохранён');
+    }, [flush]);
 
-    const handleSaveMetadata = useCallback(async (isAutoSave = false) => {
-        if (!report) return;
-        setSaving(true);
-        try {
-            const response = await fetch(`/api/reports/${reportId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: report.title,
-                    subtitle: report.subtitle,
-                    client: report.client,
-                    status: report.status,
-                    date: report.date || undefined,
-                    titleFontSize: report.titleFontSize,
-                    descriptionFontSize: report.descriptionFontSize,
-                    captionFontSize: report.captionFontSize,
-                    expectedVersion: report.version,
-                }),
-            });
-
-            if (response.status === 409) {
-                await handleVersionConflict();
-                return;
-            }
-
-            if (!response.ok) {
-                throw new Error('Failed to save metadata');
-            }
-
-            const data = await response.json();
-            if (data.report) {
-                setReport(data.report);
-                setBlocks(
-                    (data.report.blocks || []).sort(
-                        (a: ReportBlockFromDB, b: ReportBlockFromDB) =>
-                            a.position - b.position
-                    )
-                );
-            }
-
-            if (!isAutoSave) {
-                alert('Метаданные сохранены!');
-            }
-            setTimeUntilSave(120);
-        } catch (error) {
-            console.error(error);
-            if (!isAutoSave) {
-                alert('Ошибка сохранения');
-            }
-        } finally {
-            setSaving(false);
-        }
-    }, [report, reportId, handleVersionConflict]);
+    const handlePublish = useCallback(async () => {
+        const ok = await publish();
+        if (ok) alert('Отчёт опубликован');
+    }, [publish]);
 
     const handleDragEnd = useCallback(async (event: DragEndEvent) => {
         if (!report) return;
@@ -1854,10 +1786,13 @@ export default function EditReportPage() {
                         throw new Error('Failed to save order');
                     }
                     const data = await res.json();
-                    setBlocks(data.blocks || newBlocks);
-                    setReport((prev) =>
-                        prev ? { ...prev, version: data.reportVersion } : prev
-                    );
+                    const nextBlocks = (data.blocks || newBlocks) as ReportBlockFromDB[];
+                    if (report) {
+                        afterStructuralChange(
+                            { ...report, version: data.reportVersion },
+                            nextBlocks
+                        );
+                    }
                 } catch (error) {
                     console.error(error);
                     // В случае ошибки возвращаем старый порядок
@@ -1868,38 +1803,7 @@ export default function EditReportPage() {
 
             return newBlocks;
         });
-    }, [report, reportId, handleVersionConflict]);
-
-    const handleUpdateBlock = useCallback(async (
-        id: string,
-        data: TextBlockData | ScreenshotBlockData | DividerBlockData
-    ) => {
-        if (!report) return;
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    data,
-                    expectedReportVersion: report.version,
-                }),
-            });
-            if (res.status === 409) {
-                await handleVersionConflict();
-                return;
-            }
-            if (!res.ok) throw new Error('Failed to update');
-            const { block: saved, reportVersion } = await res.json();
-            setBlocks((prev) =>
-                prev.map((b) => (b.id === saved.id ? saved : b))
-            );
-            setReport((prev) =>
-                prev ? { ...prev, version: reportVersion } : prev
-            );
-        } catch (error) {
-            console.error(error);
-        }
-    }, [report, reportId, handleVersionConflict]);
+    }, [report, reportId, handleVersionConflict, afterStructuralChange]);
 
     const handleDeleteBlock = useCallback(async (id: string) => {
         if (!report) return;
@@ -1919,10 +1823,12 @@ export default function EditReportPage() {
             if (!res.ok) throw new Error('Failed to delete');
             const data = await res.json();
             const nextBlocks = (data.blocks || []) as ReportBlockFromDB[];
-            setBlocks(nextBlocks);
-            setReport((prev) =>
-                prev ? { ...prev, version: data.reportVersion } : prev
-            );
+            if (report) {
+                afterStructuralChange(
+                    { ...report, version: data.reportVersion },
+                    nextBlocks
+                );
+            }
             setSelectedBlockId((currentSelectedId) =>
                 currentSelectedId === id
                     ? nextBlocks[0]?.id || null
@@ -1932,7 +1838,7 @@ export default function EditReportPage() {
             console.error(error);
             alert('Ошибка удаления блока');
         }
-    }, [report, reportId, handleVersionConflict]);
+    }, [report, reportId, handleVersionConflict, afterStructuralChange]);
 
     const handleDuplicateBlock = useCallback(async (id: string) => {
         if (!report) return;
@@ -1957,16 +1863,18 @@ export default function EditReportPage() {
             }
             if (!res.ok) throw new Error('Failed to duplicate');
             const { block: newBlock, reportVersion } = await res.json();
-            setBlocks((prev) => [...prev, newBlock]);
+            if (report) {
+                afterStructuralChange(
+                    { ...report, version: reportVersion },
+                    [...blocks, newBlock]
+                );
+            }
             setSelectedBlockId(newBlock.id);
-            setReport((prev) =>
-                prev ? { ...prev, version: reportVersion } : prev
-            );
         } catch (error) {
             console.error(error);
             alert('Ошибка дублирования блока');
         }
-    }, [report, reportId, blocks, handleVersionConflict]);
+    }, [report, reportId, blocks, handleVersionConflict, afterStructuralChange]);
 
     const handleAddBlock = useCallback(async (type: 'text' | 'screenshot' | 'divider') => {
         if (!reportId || !report) return;
@@ -2001,16 +1909,18 @@ export default function EditReportPage() {
             }
             if (!res.ok) throw new Error('Failed to create block');
             const { block: newBlock, reportVersion } = await res.json();
-            setBlocks((prev) => [...prev, newBlock]);
+            if (report) {
+                afterStructuralChange(
+                    { ...report, version: reportVersion },
+                    [...blocks, newBlock]
+                );
+            }
             setSelectedBlockId(newBlock.id);
-            setReport((prev) =>
-                prev ? { ...prev, version: reportVersion } : prev
-            );
         } catch (error) {
             console.error(error);
             alert('Ошибка создания блока');
         }
-    }, [report, reportId, blocks, handleVersionConflict]);
+    }, [report, reportId, blocks, handleVersionConflict, afterStructuralChange]);
 
     const handleSelectBlock = useCallback((id: string) => {
         setSelectedBlockId(id);
@@ -2022,17 +1932,19 @@ export default function EditReportPage() {
             return;
         }
         if (isAdmin && reportId) {
-            fetchReport();
+            void loadReport().then((merged) => {
+                if (merged && merged.blocks.length > 0) {
+                    setSelectedBlockId(merged.blocks[0].id);
+                }
+            });
         }
-    }, [reportId, isAdmin, roleLoading, router, fetchReport]);
+    }, [reportId, isAdmin, roleLoading, router, loadReport]);
 
-    // Установить текущую дату, если она не задана
     useEffect(() => {
         if (report && !report.date) {
-            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-            setReport({ ...report, date: today });
+            markMetadataDirty({ date: new Date().toISOString().split('T')[0] });
         }
-    }, [report]);
+    }, [report, markMetadataDirty]);
 
     // Scroll to selected block
     useEffect(() => {
@@ -2043,76 +1955,6 @@ export default function EditReportPage() {
             }
         }
     }, [selectedBlockId]);
-
-    // Сохранение настроек автосохранения в localStorage
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('autoSaveEnabled', String(autoSaveEnabled));
-        }
-    }, [autoSaveEnabled]);
-
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem(
-                'autoSaveIntervalMinutes',
-                String(autoSaveIntervalMinutes)
-            );
-        }
-    }, [autoSaveIntervalMinutes]);
-
-    // Таймер обратного отсчета (только если автосохранение включено)
-    useEffect(() => {
-        if (!autoSaveEnabled) {
-            setTimeUntilSave(0);
-            return;
-        }
-
-        const intervalSeconds = autoSaveIntervalMinutes * 60;
-        setTimeUntilSave(intervalSeconds);
-
-        const timer = setInterval(() => {
-            setTimeUntilSave((prev) => {
-                if (prev <= 1) {
-                    return intervalSeconds; // Сброс таймера
-                }
-                return prev - 1;
-            });
-        }, 1000);
-
-        return () => clearInterval(timer);
-    }, [autoSaveEnabled, autoSaveIntervalMinutes]);
-
-    // Автосохранение (только если включено)
-    useEffect(() => {
-        if (!autoSaveEnabled || !report) {
-            return;
-        }
-
-        const intervalMs = autoSaveIntervalMinutes * 60 * 1000;
-        const autoSave = setInterval(() => {
-            handleSaveMetadata(true);
-        }, intervalMs);
-
-        return () => clearInterval(autoSave);
-    }, [report, autoSaveEnabled, autoSaveIntervalMinutes, handleSaveMetadata]);
-
-    // Закрытие меню настроек при клике вне его
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            const target = event.target as HTMLElement;
-            if (
-                showAutoSaveSettings &&
-                !target.closest('.auto-save-settings-menu') &&
-                !target.closest('.auto-save-settings-button')
-            ) {
-                setShowAutoSaveSettings(false);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () =>
-            document.removeEventListener('mousedown', handleClickOutside);
-    }, [showAutoSaveSettings]);
 
     if (roleLoading) {
         return (
@@ -2158,99 +2000,9 @@ export default function EditReportPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <button
-                            onClick={() =>
-                                setShowAutoSaveSettings(!showAutoSaveSettings)
-                            }
-                            className="auto-save-settings-button flex items-center gap-2 text-zinc-400 text-sm px-3 py-2 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
-                            title="Настройки автосохранения"
-                        >
-                            <Clock className="w-4 h-4" />
-                            <span>
-                                {autoSaveEnabled
-                                    ? `Автосохранение: ${formatTime(
-                                        timeUntilSave
-                                    )}`
-                                    : 'Автосохранение: выключено'}
-                            </span>
-                            <Settings className="w-3.5 h-3.5" />
-                        </button>
-                        {showAutoSaveSettings && (
-                            <div className="auto-save-settings-menu absolute right-0 top-full mt-2 bg-zinc-800 border border-zinc-700 rounded-lg shadow-lg p-4 z-50 min-w-[280px]">
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-sm font-medium text-zinc-300">
-                                            Включить автосохранение
-                                        </label>
-                                        <button
-                                            onClick={() => {
-                                                setAutoSaveEnabled(
-                                                    !autoSaveEnabled
-                                                );
-                                            }}
-                                            aria-label={autoSaveEnabled ? "Отключить автосохранение" : "Включить автосохранение"}
-                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${autoSaveEnabled
-                                                ? 'bg-blue-600'
-                                                : 'bg-zinc-700'
-                                                }`}
-                                        >
-                                            <span
-                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoSaveEnabled
-                                                    ? 'translate-x-6'
-                                                    : 'translate-x-1'
-                                                    }`}
-                                            />
-                                        </button>
-                                    </div>
-                                    {autoSaveEnabled && (
-                                        <div>
-                                            <label className="block text-sm font-medium text-zinc-300 mb-2">
-                                                Интервал (минуты)
-                                            </label>
-                                            <div className="flex items-center gap-2">
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    max="60"
-                                                    placeholder="5"
-                                                    value={
-                                                        autoSaveIntervalMinutes
-                                                    }
-                                                    onChange={(e) => {
-                                                        const input = e.currentTarget;
-                                                        const cursorPosition = input.selectionStart || 0;
-                                                        const value = parseInt(
-                                                            e.target.value,
-                                                            10
-                                                        );
-                                                        if (
-                                                            value >= 1 &&
-                                                            value <= 60
-                                                        ) {
-                                                            setAutoSaveIntervalMinutes(
-                                                                value
-                                                            );
-                                                        }
-                                                        setTimeout(() => {
-                                                            input.setSelectionRange(cursorPosition, cursorPosition);
-                                                        }, 0);
-                                                    }}
-                                                    className="w-20 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                                />
-                                                <span className="text-sm text-zinc-400">
-                                                    мин
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-zinc-500 mt-1">
-                                                От 1 до 60 минут
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <span className="text-sm text-zinc-400 px-3 py-2">
+                        {syncStatusLabel}
+                    </span>
                     <button
                         onClick={handleLogout}
                         className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded hover:bg-red-500/20 hover:border-red-500/30 flex items-center gap-2 text-red-400 hover:text-red-300 transition-all cursor-pointer"
@@ -2259,12 +2011,19 @@ export default function EditReportPage() {
                         <LogOut className="w-4 h-4" />
                     </button>
                     <button
-                        onClick={() => handleSaveMetadata(false)}
-                        disabled={saving}
-                        className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 flex items-center gap-2 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        onClick={handleSaveDraft}
+                        disabled={syncStatus === 'syncing'}
+                        className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     >
                         <Save className="w-4 h-4" />
-                        {saving ? 'Сохранение...' : 'Сохранить'}
+                        {syncStatus === 'syncing' ? 'Сохранение...' : 'Сохранить'}
+                    </button>
+                    <button
+                        onClick={handlePublish}
+                        disabled={publishing || syncStatus === 'syncing'}
+                        className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 flex items-center gap-2 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                        {publishing ? 'Публикация...' : 'Опубликовать'}
                     </button>
                     <button
                         onClick={() => router.push(`/reports/${reportId}`)}
@@ -2293,10 +2052,7 @@ export default function EditReportPage() {
                                     <FormattedTextEditor
                                         value={report.title}
                                         onChange={(value) =>
-                                            setReport({
-                                                ...report,
-                                                title: value,
-                                            })
+                                            markMetadataDirty({ title: value })
                                         }
                                         placeholder="Отчёт по аудиту сайта"
                                         minHeight="60px"
@@ -2309,10 +2065,7 @@ export default function EditReportPage() {
                                     <FormattedTextEditor
                                         value={report.subtitle || ''}
                                         onChange={(value) =>
-                                            setReport({
-                                                ...report,
-                                                subtitle: value,
-                                            })
+                                            markMetadataDirty({ subtitle: value })
                                         }
                                         placeholder="Анализ производительности и SEO"
                                     />
@@ -2331,8 +2084,7 @@ export default function EditReportPage() {
                                                 .split('T')[0]
                                         }
                                         onChange={(e) =>
-                                            setReport({
-                                                ...report,
+                                            markMetadataDirty({
                                                 date: e.target.value,
                                             })
                                         }
@@ -2360,12 +2112,9 @@ export default function EditReportPage() {
                                                     onChange={(e) => {
                                                         const input = e.currentTarget;
                                                         const cursorPosition = input.selectionStart || 0;
-                                                        setReport({
-                                                            ...report,
+                                                        markMetadataDirty({
                                                             titleFontSize:
-                                                                e.target
-                                                                    .value ||
-                                                                null,
+                                                                e.target.value || null,
                                                         });
                                                         setTimeout(() => {
                                                             input.setSelectionRange(cursorPosition, cursorPosition);
@@ -2395,12 +2144,9 @@ export default function EditReportPage() {
                                                     onChange={(e) => {
                                                         const input = e.currentTarget;
                                                         const cursorPosition = input.selectionStart || 0;
-                                                        setReport({
-                                                            ...report,
+                                                        markMetadataDirty({
                                                             descriptionFontSize:
-                                                                e.target
-                                                                    .value ||
-                                                                null,
+                                                                e.target.value || null,
                                                         });
                                                         setTimeout(() => {
                                                             input.setSelectionRange(cursorPosition, cursorPosition);
@@ -2430,12 +2176,9 @@ export default function EditReportPage() {
                                                     onChange={(e) => {
                                                         const input = e.currentTarget;
                                                         const cursorPosition = input.selectionStart || 0;
-                                                        setReport({
-                                                            ...report,
+                                                        markMetadataDirty({
                                                             captionFontSize:
-                                                                e.target
-                                                                    .value ||
-                                                                null,
+                                                                e.target.value || null,
                                                         });
                                                         setTimeout(() => {
                                                             input.setSelectionRange(cursorPosition, cursorPosition);
@@ -2476,7 +2219,7 @@ export default function EditReportPage() {
                                 >
                                     <BlockEditor
                                         block={block}
-                                        onUpdate={handleUpdateBlock}
+                                        onLocalChange={markBlockDirty}
                                         reportId={reportId}
                                         groupId={report?.groupId}
                                     />
