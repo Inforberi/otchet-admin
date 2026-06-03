@@ -9,6 +9,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  firstName          String   @map("first_name")
+  lastName           String   @map("last_name")
+  role               String
+  passwordHash       String   @map("password_hash")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  isActive           Boolean  @default(true) @map("is_active")
+  lastLoginAt        DateTime? @map("last_login_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+  @@index([role])
+  @@index([isActive])
+}
+
 // Группы отчетов
 model ReportGroup {
   id          String        @id @default(uuid())

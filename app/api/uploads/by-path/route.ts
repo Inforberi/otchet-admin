@@ -18,7 +18,7 @@ function getUploadDir(): string {
 // DELETE /api/uploads/by-path?path=... - удалить загруженный файл по пути
 export async function DELETE(request: NextRequest) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

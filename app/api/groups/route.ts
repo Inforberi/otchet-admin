@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/groups - создание новой группы
 export async function POST(request: NextRequest) {
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

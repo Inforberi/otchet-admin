@@ -90,7 +90,7 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
@@ -269,7 +269,7 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

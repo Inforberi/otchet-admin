@@ -11,7 +11,7 @@ export const POST = async (
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) => {
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

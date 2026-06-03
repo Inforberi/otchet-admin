@@ -4,16 +4,28 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Lock, Eye, EyeOff, Loader2, User } from 'lucide-react';
+import { Lock, Eye, EyeOff, Loader2, Mail } from 'lucide-react';
 
 function LoginForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [needsSetup, setNeedsSetup] = useState(false);
+
+    useEffect(() => {
+        fetch('/api/setup/status')
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                setNeedsSetup(Boolean(data?.needsSetup));
+            })
+            .catch(() => {
+                setNeedsSetup(false);
+            });
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,7 +38,7 @@ function LoginForm() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ username, password }),
+                body: JSON.stringify({ email, password }),
             });
 
             const data = await response.json();
@@ -37,7 +49,9 @@ function LoginForm() {
             }
 
             // Редирект на сохраненный путь или на главную
-            const redirect = searchParams.get('redirect') || '/reports';
+            const redirect = data.mustChangePassword
+                ? '/change-password'
+                : searchParams.get('redirect') || '/reports';
             router.push(redirect);
             router.refresh();
         } catch (err) {
@@ -66,28 +80,28 @@ function LoginForm() {
 
                     {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-6">
-                        {/* Username Input */}
+                        {/* Email Input */}
                         <div className="space-y-2">
                             <label
-                                htmlFor="username"
+                                htmlFor="email"
                                 className="text-sm font-medium text-[var(--color-grayscale-5)]"
                             >
-                                Логин
+                                Email
                             </label>
                             <div className="relative">
-                                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-grayscale-6)] pointer-events-none" />
+                                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-grayscale-6)] pointer-events-none" />
                                 <Input
-                                    id="username"
-                                    type="text"
-                                    value={username}
+                                    id="email"
+                                    type="email"
+                                    value={email}
                                     onChange={(e) =>
-                                        setUsername(e.target.value)
+                                        setEmail(e.target.value)
                                     }
-                                    placeholder="Введите логин"
+                                    placeholder="Введите email"
                                     className="pl-10 bg-[var(--color-grayscale-14)] border-[var(--color-alpha-3)] text-[var(--color-grayscale-3)] placeholder:text-[var(--color-grayscale-7)] focus-visible:border-[var(--color-primary)]"
                                     disabled={loading}
                                     autoFocus
-                                    autoComplete="username"
+                                    autoComplete="email"
                                 />
                             </div>
                         </div>
@@ -140,7 +154,7 @@ function LoginForm() {
                         {/* Submit Button */}
                         <Button
                             type="submit"
-                            disabled={loading || !username || !password}
+                            disabled={loading || !email || !password}
                             className="w-full bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 text-white h-11 font-medium"
                         >
                             {loading ? (
@@ -156,6 +170,20 @@ function LoginForm() {
                             )}
                         </Button>
                     </form>
+
+                    {needsSetup && (
+                        <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+                            Система ещё не настроена. Перейдите на{' '}
+                            <button
+                                type="button"
+                                onClick={() => router.push('/setup')}
+                                className="font-medium underline underline-offset-4 cursor-pointer"
+                            >
+                                страницу первичной настройки
+                            </button>
+                            .
+                        </div>
+                    )}
 
                     {/* Footer */}
                     <div className="mt-6 text-center">

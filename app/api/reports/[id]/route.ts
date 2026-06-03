@@ -129,7 +129,7 @@ export async function PATCH(
     { params }: { params: Promise<{ id: string }> }
 ) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
@@ -266,7 +266,7 @@ export async function DELETE(
     { params }: { params: Promise<{ id: string }> }
 ) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

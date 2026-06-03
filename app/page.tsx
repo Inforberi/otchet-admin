@@ -21,7 +21,7 @@ interface ReportGroup {
 
 export default function HomePage() {
     const router = useRouter();
-    const { isAdmin, loading: roleLoading } = useUserRole();
+    const { isAdmin, isSuperAdmin, loading: roleLoading } = useUserRole();
     const [groups, setGroups] = useState<ReportGroup[]>([]);
     const [loading, setLoading] = useState(true);
     const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
@@ -95,6 +95,15 @@ export default function HomePage() {
                                         <Settings className="h-4 w-4" />
                                         Управление
                                     </button>
+                                    {isSuperAdmin && (
+                                        <button
+                                            onClick={() => router.push('/users/manage')}
+                                            className="flex items-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-2 text-sm font-medium text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
+                                        >
+                                            <Settings className="h-4 w-4" />
+                                            Пользователи
+                                        </button>
+                                    )}
                                 </>
                             )}
                             <button

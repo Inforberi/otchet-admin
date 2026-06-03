@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 // POST /api/reports/[id]/blocks - создать новый блок
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   // Проверка прав администратора
-  const adminCheck = requireAdminMiddleware(request);
+  const adminCheck = await requireAdminMiddleware(request);
   if (adminCheck) return adminCheck;
 
   try {

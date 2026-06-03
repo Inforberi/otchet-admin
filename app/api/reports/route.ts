@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
 // POST /api/reports - создание нового отчета
 export async function POST(request: NextRequest) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

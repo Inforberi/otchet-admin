@@ -207,7 +207,7 @@ async function getProjectUploadPath(
 // POST /api/uploads - загрузка файла
 export async function POST(request: NextRequest) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireAdminMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
