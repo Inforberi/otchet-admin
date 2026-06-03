@@ -16,26 +16,16 @@ NC='\033[0m' # No Color
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${PROJECT_DIR}/.env"
 
-# Загружаем переменные из .env
 if [ -f "$ENV_FILE" ]; then
-    # Парсим DATABASE_URL для получения порта
-    if grep -q "DATABASE_URL" "$ENV_FILE"; then
-        DATABASE_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | cut -d '=' -f2- | tr -d '"')
-        # Извлекаем порт из DATABASE_URL (формат: postgresql://user:pass@host:port/db)
-        DB_PORT=$(echo "$DATABASE_URL" | sed -n 's/.*@[^:]*:\([0-9]*\).*/\1/p')
-    fi
-    # Если есть отдельная переменная DB_PORT, используем её
-    if grep -q "^DB_PORT=" "$ENV_FILE"; then
-        DB_PORT=$(grep "^DB_PORT=" "$ENV_FILE" | cut -d '=' -f2 | tr -d '"')
-    fi
+    set -a
+    . "$ENV_FILE"
+    set +a
 fi
 
-# Значения по умолчанию
 DB_CONTAINER="admin-panel-db"
-DB_USER="admin"
-DB_NAME="admin_panel"
-DB_HOST="localhost"
-DB_PORT="${DB_PORT:-5455}"
+DB_USER="${POSTGRES_USER:-admin}"
+DB_PASSWORD="${POSTGRES_PASSWORD:-password}"
+DB_NAME="${POSTGRES_DB:-admin_panel}"
 
 # Путь для сохранения бэкапов (рабочий стол)
 BACKUP_DIR="$HOME/Desktop/otchet-admin-backups"
@@ -61,7 +51,7 @@ fi
 
 # Создаем бэкап через docker exec
 echo -e "${YELLOW}Экспорт базы данных...${NC}"
-docker exec -e PGPASSWORD=password "$DB_CONTAINER" \
+docker exec -e PGPASSWORD="$DB_PASSWORD" "$DB_CONTAINER" \
     pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists > "$BACKUP_FILE"
 
 # Проверяем успешность создания бэкапа

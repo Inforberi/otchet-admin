@@ -64,8 +64,8 @@ pnpm dev
 ### Docker (production)
 
 ```bash
-# Поднять всё (БД + приложение)
-make up
+# Production запуск: build + postgres + migrate + app
+make prod
 
 # Посмотреть логи
 make logs
@@ -342,9 +342,8 @@ pnpm exec playwright install chromium
 
 ## 🚀 Production Deployment
 
-1. Настройте `.env` с production БД
-2. Соберите Docker образ: `make build`
-3. Запустите: `make up`
+1. Настройте `.env` с production значениями
+2. Запустите: `make prod`
 4. Проверьте логи: `make logs`
 
 ### Чеклист перед деплоем

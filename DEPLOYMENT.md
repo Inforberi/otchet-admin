@@ -23,10 +23,12 @@ cp .env.template .env
 
 ### 3. Запустить через Docker
 ```bash
-make up
+make prod
 ```
 
-Приложение будет доступно на http://localhost:3000
+`make prod` поднимает `postgres`, запускает одноразовый контейнер `migrate`, затем стартует `app`.
+
+Приложение будет доступно на `http://127.0.0.1:3033`, если не меняли `APP_BIND_IP` и `APP_PORT`.
 
 ## Ручная настройка
 
@@ -48,14 +50,14 @@ pnpm prisma:generate
 pnpm playwright:install
 ```
 
-### Шаг 3: Миграции
-```bash
-pnpm prisma:migrate
-```
-
-### Шаг 4: Сборка
+### Шаг 3: Сборка
 ```bash
 pnpm build
+```
+
+### Шаг 4: Миграции
+```bash
+pnpm prisma:migrate
 ```
 
 ### Шаг 5: Запуск
@@ -156,7 +158,7 @@ networks:
 
 Запуск:
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+make prod
 ```
 
 ## Мониторинг
