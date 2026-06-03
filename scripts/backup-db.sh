@@ -12,9 +12,19 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Параметры подключения к БД
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${PROJECT_DIR}/.env"
+
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    . "$ENV_FILE"
+    set +a
+fi
+
 DB_CONTAINER="admin-panel-db"
-DB_USER="admin"
-DB_NAME="admin_panel"
+DB_USER="${POSTGRES_USER:-admin}"
+DB_PASSWORD="${POSTGRES_PASSWORD:-password}"
+DB_NAME="${POSTGRES_DB:-admin_panel}"
 
 # Путь для сохранения бэкапов (рабочий стол)
 BACKUP_BASE_DIR="$HOME/Desktop/otchet-admin-backups"
@@ -38,7 +48,7 @@ fi
 
 # Создаем бэкап через docker exec
 echo -e "${YELLOW}Экспорт базы данных...${NC}"
-docker exec -e PGPASSWORD=password "$DB_CONTAINER" \
+docker exec -e PGPASSWORD="$DB_PASSWORD" "$DB_CONTAINER" \
     pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists > "$BACKUP_FILE"
 
 # Проверяем успешность создания бэкапа
