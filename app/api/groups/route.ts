@@ -1,17 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
-import { createSlug, generateUniqueSlug } from '@/lib/slug';
+import { Prisma } from '@prisma/client';
+import {
+    getRequestUser,
+    requireEditorMiddleware,
+} from '@/lib/auth-helpers';
+import { getAccessibleGroupFilter } from '@/lib/group-access';
+import { generateGroupSlugAndPath } from '@/lib/group-service';
 
 // GET /api/groups - список всех групп
 export async function GET(request: NextRequest) {
     try {
+        const user = await getRequestUser(request);
+        const tree = request.nextUrl.searchParams.get('tree');
+        const groupFilter = await getAccessibleGroupFilter(user);
         const groups = await prisma.reportGroup.findMany({
+            where: {
+                ...(tree === '1' ? {} : { parentId: null }),
+                ...(groupFilter ?? {}),
+            },
             orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
             include: {
                 _count: {
                     select: {
                         reports: true,
+                        children: true,
                     },
                 },
             },
@@ -29,12 +42,12 @@ export async function GET(request: NextRequest) {
 
 // POST /api/groups - создание новой группы
 export async function POST(request: NextRequest) {
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
         const body = await request.json();
-        const { name, description, order } = body;
+        const { name, description, order, parentId } = body;
 
         if (!name || typeof name !== 'string' || name.trim() === '') {
             return NextResponse.json(
@@ -43,41 +56,53 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Проверяем, что группа с таким именем не существует
-        const existing = await prisma.reportGroup.findUnique({
-            where: { name: name.trim() },
+        const { slug, path } = await generateGroupSlugAndPath({
+            name: name.trim(),
+            parentId: parentId ?? null,
         });
-
-        if (existing) {
-            return NextResponse.json(
-                { error: 'Group with this name already exists' },
-                { status: 400 }
-            );
-        }
-
-        // Генерируем уникальный slug
-        const baseSlug = createSlug(name.trim());
-        const slug = await generateUniqueSlug(
-            baseSlug,
-            async (s) => {
-                const exists = await prisma.reportGroup.findUnique({
-                    where: { slug: s },
-                });
-                return !exists;
-            }
-        );
 
         const group = await prisma.reportGroup.create({
             data: {
                 name: name.trim(),
                 slug,
+                path,
                 description: description?.trim() || null,
                 order: order ?? 0,
+                parentId: parentId ?? null,
             },
         });
 
         return NextResponse.json({ group }, { status: 201 });
     } catch (error) {
+        if (error instanceof Error) {
+            if (error.message === 'PARENT_NOT_FOUND') {
+                return NextResponse.json(
+                    { error: 'Parent group not found' },
+                    { status: 404 }
+                );
+            }
+
+            if (
+                error.message === 'RESERVED_GROUP_SLUG' ||
+                error.message === 'RESERVED_ROOT_GROUP_SLUG'
+            ) {
+                return NextResponse.json(
+                    { error: 'This group slug is reserved and cannot be used' },
+                    { status: 400 }
+                );
+            }
+        }
+
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            return NextResponse.json(
+                { error: 'Group path already exists' },
+                { status: 409 }
+            );
+        }
+
         console.error('Error creating group:', error);
         return NextResponse.json(
             { error: 'Failed to create group' },

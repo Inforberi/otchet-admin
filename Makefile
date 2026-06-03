@@ -1,9 +1,9 @@
-.PHONY: help up down logs restart migrate migrate-create migrate-reset seed reset build build-up clean dev dev-start backup backup-install backup-uninstall
+.PHONY: help up down logs prod clean dev backup backup-db backup-uploads typecheck
 
 help: ## Показать эту справку
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-up: ## Поднять все сервисы (БД + приложение)
+up: ## Поднять docker compose без пересборки
 	mkdir -p uploads
 	docker compose up -d
 
@@ -13,89 +13,36 @@ down: ## Остановить все сервисы
 logs: ## Показать логи всех сервисов
 	docker compose logs -f
 
-logs-app: ## Показать логи приложения
-	docker compose logs -f app
-
-logs-db: ## Показать логи БД
-	docker compose logs -f postgres
-
-restart: ## Перезапустить все сервисы
-	docker compose restart
-
-migrate: ## Применить миграции БД
-	pnpm prisma:migrate
-
-migrate-dev: ## Создать и применить миграцию в dev режиме
-	pnpm prisma:migrate:dev
-
-migrate-create: ## Создать новую миграцию без применения
-	pnpm prisma migrate dev --create-only
-
-migrate-reset: ## Сбросить БД и применить все миграции заново
-	pnpm prisma migrate reset --force
-
-seed: ## Заполнить БД тестовыми данными
-	pnpm prisma db seed
-
-reset: down ## Полный сброс: остановить, удалить volumes, поднять заново
-	docker compose down -v
-	docker compose up -d
-
-build: ## Собрать Docker образы заново
-	docker compose build --no-cache
-
-build-up: ## Собрать образы и поднять все сервисы
-	@echo "🔨 Сборка Docker образов..."
-	@docker compose build --no-cache
-	@echo "🚀 Подъем сервисов..."
+prod: ## Продовый запуск: собрать образы и поднять сервисы
+	@echo "Запуск prod окружения..."
 	@mkdir -p uploads
+	@echo "Собираю Docker образы..."
+	@docker compose build --no-cache
+	@echo "Поднимаю сервисы..."
 	@docker compose up -d
-	@echo "✅ Готово! Сервисы запущены."
+	@echo "Готово. Миграции будут применены контейнером app при старте."
 
 clean: ## Очистить Docker (образы, volumes, etc)
 	docker compose down -v
 	docker system prune -af --volumes
 
-dev: ## Запустить приложение в dev режиме (автоматически запускает БД)
-	@echo "🚀 Запуск dev окружения..."
-	@mkdir -p uploads
-	@echo "📦 Проверяю и поднимаю БД..."
-	@docker compose up -d postgres || true
-	@echo "⏳ Жду готовности БД..."
-	@sleep 3
-	@echo "🎨 Запускаю dev-сервер на http://localhost:3000"
-	@pnpm dev
-
-dev-start: ## Запустить БД и dev-сервер (полный старт для разработки)
+dev: ## Dev запуск: БД, Prisma generate, migrate deploy и dev-сервер
 	@echo "🚀 Запуск dev окружения..."
 	@mkdir -p uploads
 	@echo "📦 Поднимаю БД..."
 	@docker compose up -d postgres
 	@echo "⏳ Жду готовности БД..."
-	@sleep 2
+	@sleep 3
 	@echo "🔧 Генерирую Prisma Client..."
 	@pnpm prisma:generate
+	@echo "🗃️ Применяю миграции..."
+	@pnpm prisma:migrate
 	@echo "🎨 Запускаю dev-сервер на http://localhost:3000"
 	@pnpm dev
 
-install: ## Установить зависимости
-	pnpm install
-
-prisma-studio: ## Открыть Prisma Studio
-	pnpm prisma:studio
-
-prisma-generate: ## Сгенерировать Prisma Client
-	pnpm prisma:generate
-
-db-up: ## Поднять только БД
-	docker compose up -d postgres
-
-db-down: ## Остановить только БД
-	docker compose stop postgres
-
-backup: ## Создать полный бэкап (БД + uploads)
-	@chmod +x scripts/backup-all.sh
-	@bash scripts/backup-all.sh
+backup: ## Создать бэкап БД и uploads
+	@$(MAKE) backup-db
+	@$(MAKE) backup-uploads
 
 backup-db: ## Создать бэкап только базы данных
 	@chmod +x scripts/backup-db.sh
@@ -105,15 +52,5 @@ backup-uploads: ## Создать бэкап только uploads
 	@chmod +x scripts/backup-uploads.sh
 	@bash scripts/backup-uploads.sh
 
-backup-install: ## Установить автоматический бэкап (раз в сутки в 3:00)
-	@echo "Установка автоматического бэкапа..."
-	@mkdir -p ~/Library/LaunchAgents
-	@PROJECT_DIR="$$(pwd)" envsubst < scripts/com.otchet-admin.backup.plist.template > ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || \
-		sed "s|PROJECT_DIR|$$(pwd)|g" scripts/com.otchet-admin.backup.plist.template > ~/Library/LaunchAgents/com.otchet-admin.backup.plist
-	@launchctl load ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || launchctl bootstrap gui/$$(id -u) ~/Library/LaunchAgents/com.otchet-admin.backup.plist
-	@echo "✓ Автоматический бэкап установлен (запуск каждый день в 3:00)"
-
-backup-uninstall: ## Удалить автоматический бэкап
-	@launchctl unload ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || launchctl bootout gui/$$(id -u) ~/Library/LaunchAgents/com.otchet-admin.backup.plist 2>/dev/null || true
-	@rm -f ~/Library/LaunchAgents/com.otchet-admin.backup.plist
-	@echo "✓ Автоматический бэкап удален"
+typecheck: ## Проверить TypeScript без сборки
+	pnpm exec tsc --noEmit

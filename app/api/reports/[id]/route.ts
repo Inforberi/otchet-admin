@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { UpdateReportInput } from '@/lib/db-types';
+import { Prisma } from '@prisma/client';
 import { unlink, rm, readdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import {
+    getRequestUser,
+    isViewerRole,
+    requireEditorMiddleware,
+} from '@/lib/auth-helpers';
+import { canEditContent } from '@/lib/auth';
+import { canAccessGroupId } from '@/lib/group-access';
+import { getGroupAncestors } from '@/lib/group-service';
+import { buildPublishedReportResponse } from '@/lib/report-published-view';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
 // Получаем абсолютный путь к директории загрузок
 function getUploadDir(): string {
@@ -24,10 +34,21 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
+        const user = await getRequestUser(request);
+        const view = request.nextUrl.searchParams.get('view');
+        const forcePublished = user ? isViewerRole(user) : false;
 
         const report = await prisma.report.findUnique({
             where: { id },
             include: {
+                group: {
+                    select: {
+                        id: true,
+                        name: true,
+                        path: true,
+                        parentId: true,
+                    },
+                },
                 blocks: {
                     orderBy: { position: 'asc' },
                 },
@@ -41,7 +62,66 @@ export async function GET(
             );
         }
 
-        return NextResponse.json({ report }, { status: 200 });
+        if (user && !(await canAccessGroupId(user, report.groupId))) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
+        const ancestors = report.group?.parentId
+            ? await getGroupAncestors(report.group.parentId)
+            : [];
+
+        const usePublishedView =
+            forcePublished || view === 'published';
+
+        if (usePublishedView) {
+            const published = buildPublishedReportResponse(report);
+            if (!published) {
+                if (user && canEditContent(user)) {
+                    const hasUnpublishedChanges =
+                        Boolean(report.draftHash) &&
+                        Boolean(report.publishedHash) &&
+                        report.draftHash !== report.publishedHash;
+
+                    return NextResponse.json(
+                        {
+                            report,
+                            ancestors,
+                            hasUnpublishedChanges,
+                            isPublishedView: false,
+                        },
+                        { status: 200 }
+                    );
+                }
+
+                return NextResponse.json(
+                    { error: 'Report not found' },
+                    { status: 404 }
+                );
+            }
+
+            return NextResponse.json(
+                {
+                    report: published.report,
+                    ancestors,
+                    hasUnpublishedChanges: published.hasUnpublishedChanges,
+                    isPublishedView: published.isPublishedView,
+                },
+                { status: 200, headers: published.headers }
+            );
+        }
+
+        const hasUnpublishedChanges =
+            Boolean(report.draftHash) &&
+            Boolean(report.publishedHash) &&
+            report.draftHash !== report.publishedHash;
+
+        return NextResponse.json(
+            { report, ancestors, hasUnpublishedChanges, isPublishedView: false },
+            { status: 200 }
+        );
     } catch (error) {
         console.error('Error fetching report:', error);
         return NextResponse.json(
@@ -57,17 +137,28 @@ export async function PATCH(
     { params }: { params: Promise<{ id: string }> }
 ) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
         const { id } = await params;
         const body: Partial<UpdateReportInput> = await request.json();
+        const expectedVersion =
+            typeof body.expectedVersion === 'number'
+                ? body.expectedVersion
+                : Number(body.expectedVersion);
+
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+            return NextResponse.json(
+                { error: 'expectedVersion is required' },
+                { status: 400 }
+            );
+        }
 
         // Получаем текущий отчет для проверки groupId
         const currentReport = await prisma.report.findUnique({
             where: { id },
-            select: { groupId: true, title: true },
+            select: { groupId: true, title: true, version: true },
         });
 
         if (!currentReport) {
@@ -117,13 +208,58 @@ export async function PATCH(
             updateData.slug = slug;
         }
 
-        const report = await prisma.report.update({
+        const updateResult = await prisma.report.updateMany({
+            where: {
+                id,
+                version: expectedVersion,
+            },
+            data: {
+                ...updateData,
+                version: {
+                    increment: 1,
+                },
+            },
+        });
+
+        if (updateResult.count === 0) {
+            return NextResponse.json(
+                {
+                    error: 'Report has been modified by another user',
+                    code: VERSION_CONFLICT,
+                    currentVersion: currentReport.version,
+                },
+                { status: 409 }
+            );
+        }
+
+        const report = await prisma.report.findUnique({
             where: { id },
-            data: updateData,
+            include: {
+                group: {
+                    select: {
+                        id: true,
+                        name: true,
+                        path: true,
+                    },
+                },
+                blocks: {
+                    orderBy: { position: 'asc' },
+                },
+            },
         });
 
         return NextResponse.json({ report }, { status: 200 });
     } catch (error) {
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            return NextResponse.json(
+                { error: 'Report slug already exists in this group' },
+                { status: 409 }
+            );
+        }
+
         console.error('Error updating report:', error);
         return NextResponse.json(
             { error: 'Failed to update report' },
@@ -138,7 +274,7 @@ export async function DELETE(
     { params }: { params: Promise<{ id: string }> }
 ) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

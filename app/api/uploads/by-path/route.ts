@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { unlink } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import { requireEditorMiddleware } from '@/lib/auth-helpers';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 
@@ -18,7 +18,7 @@ function getUploadDir(): string {
 // DELETE /api/uploads/by-path?path=... - удалить загруженный файл по пути
 export async function DELETE(request: NextRequest) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

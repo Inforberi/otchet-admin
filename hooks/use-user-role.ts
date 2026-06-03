@@ -1,32 +1,60 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 
-export type UserRole = 'admin' | 'viewer' | null;
+export type CurrentUser = {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    appRoleId: string;
+    roleName: string;
+    canEditContent: boolean;
+    canManageUsers: boolean;
+    mustChangePassword: boolean;
+} | null;
 
 export function useUserRole() {
-  const [role, setRole] = useState<UserRole>(null);
-  const [loading, setLoading] = useState(true);
+    const router = useRouter();
+    const pathname = usePathname();
+    const [user, setUser] = useState<CurrentUser>(null);
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetch('/api/auth/me')
-      .then((res) => {
-        if (res.ok) {
-          return res.json();
+    useEffect(() => {
+        fetch('/api/auth/me')
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                setUser(data?.user || null);
+            })
+            .catch(() => setUser(null))
+            .finally(() => setLoading(false));
+    }, []);
+
+    useEffect(() => {
+        if (
+            !loading &&
+            user?.mustChangePassword &&
+            pathname !== '/change-password'
+        ) {
+            router.push('/change-password');
         }
-        return null;
-      })
-      .then((data) => {
-        setRole(data?.role || null);
-      })
-      .catch(() => {
-        setRole(null);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, []);
+    }, [loading, pathname, router, user]);
 
-  const isAdmin = role === 'admin';
-  const isViewer = role === 'viewer';
+    const isAuthenticated = Boolean(user);
+    const canEdit = user?.canEditContent ?? false;
+    const canManageUsers = user?.canManageUsers ?? false;
+    const isSuperAdmin = canManageUsers;
+    const isViewer = isAuthenticated && !canEdit;
 
-  return { role, loading, isAdmin, isViewer };
+    return {
+        user,
+        loading,
+        isAuthenticated,
+        roleName: user?.roleName ?? null,
+        canEdit,
+        canManageUsers,
+        isSuperAdmin,
+        isViewer,
+        isAdmin: canEdit,
+        mustChangePassword: user?.mustChangePassword ?? false,
+    };
 }

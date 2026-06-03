@@ -1,22 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { CreateReportInput } from '@/lib/db-types';
-import type { Prisma } from '@prisma/client';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import { Prisma } from '@prisma/client';
+import {
+    getRequestUser,
+    isViewerRole,
+    requireEditorMiddleware,
+} from '@/lib/auth-helpers';
+import { canAccessGroupId, getAccessibleGroupFilter } from '@/lib/group-access';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
+import { getCurrentMonthDateRange } from '@/lib/report-date-range';
 
 // GET /api/reports - список всех отчетов
 export async function GET(request: NextRequest) {
     try {
+        const user = await getRequestUser(request);
         const searchParams = request.nextUrl.searchParams;
         const search = searchParams.get('search');
-        const dateSearch = searchParams.get('date');
         const groupId = searchParams.get('groupId');
+        const dateFrom = searchParams.get('dateFrom');
+        const dateTo = searchParams.get('dateTo');
+        const allTime = searchParams.get('allTime') === '1';
 
         const where: Prisma.ReportWhereInput = {};
 
+        if (user && isViewerRole(user)) {
+            where.status = 'published';
+        }
+        const defaultRange = getCurrentMonthDateRange();
+        const effectiveDateFrom = allTime
+            ? null
+            : dateFrom || defaultRange.dateFrom;
+        const effectiveDateTo = allTime
+            ? null
+            : dateTo || defaultRange.dateTo;
+
         if (groupId) {
+            if (user && !(await canAccessGroupId(user, groupId))) {
+                return NextResponse.json({ reports: [] }, { status: 200 });
+            }
             where.groupId = groupId;
+        } else if (user && isViewerRole(user)) {
+            const groupFilter = await getAccessibleGroupFilter(user);
+            if (groupFilter) {
+                where.groupId = groupFilter.id;
+            }
         }
 
         if (search) {
@@ -26,14 +54,20 @@ export async function GET(request: NextRequest) {
             ];
         }
 
-        if (dateSearch) {
-            where.date = { contains: dateSearch, mode: 'insensitive' };
+        if (effectiveDateFrom || effectiveDateTo) {
+            where.date = {
+                ...(effectiveDateFrom && { gte: effectiveDateFrom }),
+                ...(effectiveDateTo && { lte: effectiveDateTo }),
+            };
         }
 
         const reports = await prisma.report.findMany({
             where: Object.keys(where).length > 0 ? where : undefined,
             orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
             include: {
+                group: {
+                    select: { id: true, name: true, path: true },
+                },
                 blocks: {
                     orderBy: { position: 'asc' },
                 },
@@ -69,7 +103,7 @@ export async function GET(request: NextRequest) {
 // POST /api/reports - создание нового отчета
 export async function POST(request: NextRequest) {
     // Проверка прав администратора
-    const adminCheck = requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
@@ -132,6 +166,16 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ report }, { status: 201 });
     } catch (error) {
+        if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2002'
+        ) {
+            return NextResponse.json(
+                { error: 'Report slug already exists in this group' },
+                { status: 409 }
+            );
+        }
+
         console.error('Error creating report:', error);
         return NextResponse.json(
             { error: 'Failed to create report' },

@@ -9,20 +9,75 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model AppRole {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  canEditContent  Boolean  @default(false) @map("can_edit_content")
+  canManageUsers  Boolean  @default(false) @map("can_manage_users")
+  isSystem        Boolean  @default(false) @map("is_system")
+  restrictGroups  Boolean  @default(false) @map("restrict_groups")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  groupAccess AppRoleGroup[]
+  users       User[]
+
+  @@map("app_roles")
+}
+
+model AppRoleGroup {
+  roleId  String @map("role_id")
+  groupId String @map("group_id")
+
+  role  AppRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  group ReportGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, groupId])
+  @@map("app_role_groups")
+  @@index([groupId])
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  firstName          String   @map("first_name")
+  lastName           String   @map("last_name")
+  appRoleId          String   @map("app_role_id")
+  passwordHash       String   @map("password_hash")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  isActive           Boolean  @default(true) @map("is_active")
+  lastLoginAt        DateTime? @map("last_login_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  appRole AppRole @relation(fields: [appRoleId], references: [id], onDelete: Restrict)
+
+  @@map("users")
+  @@index([appRoleId])
+  @@index([isActive])
+}
+
 // Группы отчетов
 model ReportGroup {
-  id          String   @id @default(uuid())
-  name        String   @unique // название группы (например, "Отчеты по сайту", "Документация")
-  slug        String   @unique // URL-friendly название (например, "otchety-po-sajtu")
-  description String?  // описание группы
-  order       Int      @default(0) // порядок отображения
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id          String        @id @default(uuid())
+  name        String        // название группы (например, "Отчеты по сайту", "Документация")
+  slug        String        // локальный URL-friendly slug в рамках родителя
+  path        String        @unique // полный путь группы, например "otchety/seo"
+  description String?       // описание группы
+  order       Int           @default(0) // порядок отображения
+  parentId    String?       @map("parent_id")
+  version     Int           @default(1)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
 
+  parent      ReportGroup?  @relation("ReportGroupTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    ReportGroup[] @relation("ReportGroupTree")
   reports     Report[]
   uploads     Upload[]
+  roleAccess  AppRoleGroup[]
 
   @@map("report_groups")
+  @@index([parentId])
   @@index([slug])
 }
 
@@ -39,6 +94,12 @@ model Report {
   descriptionFontSize String? @default("20") @map("description_font_size") // размер шрифта описания в px
   captionFontSize   String?  @default("16") @map("caption_font_size") // размер шрифта подписи к изображениям в px
   groupId           String   @map("group_id")
+  version           Int      @default(1)
+  draftHash         String?  @map("draft_hash")
+  publishedHash     String?  @map("published_hash")
+  publishedSnapshot Json?    @map("published_snapshot")
+  publishedAt       DateTime? @map("published_at")
+  draftUpdatedAt    DateTime? @map("draft_updated_at")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -52,18 +113,25 @@ model Report {
 
 // Блоки внутри отчета
 model ReportBlock {
-  id        String   @id @default(uuid())
-  reportId  String   @map("report_id")
-  type      String   // text | screenshot
-  position  Int      // порядок блока
-  data      Json     // содержимое блока (title, content, images, layout, etc.)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  reportId              String    @map("report_id")
+  type                  String    // text | screenshot | divider | task
+  position              Int       // порядок блока
+  data                  Json      // содержимое блока (title, content, images, layout, etc.)
+  version               Int       @default(1)
+  taskCompletedAt         DateTime? @map("task_completed_at")
+  taskCompletedByUserId   String?   @map("task_completed_by_user_id")
+  taskCompletionNotes     String?   @map("task_completion_notes")
+  taskCompletionImages    Json?     @map("task_completion_images")
+  taskCompletionLayout    String?   @map("task_completion_layout")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   @@map("report_blocks")
   @@index([reportId])
+  @@unique([reportId, position])
 }
 
 // Метаданные загруженных файлов (изображения)

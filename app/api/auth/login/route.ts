@@ -1,32 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyCredentials, createSession, setSession } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
+import {
+    createSession,
+    normalizeEmail,
+    setSession,
+    verifyPassword,
+} from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { username, password } = body;
+        const email = normalizeEmail(String(body.email || ''));
+        const password = String(body.password || '');
 
-        if (!username || !password) {
+        if (!email || !password) {
             return NextResponse.json(
-                { error: 'Логин и пароль обязательны' },
+                { error: 'Email и пароль обязательны' },
                 { status: 400 }
             );
         }
 
-        // Проверяем логин и пароль, получаем роль
-        const role = verifyCredentials(username, password);
-        if (!role) {
+        const user = await prisma.user.findUnique({
+            where: { email },
+            select: {
+                id: true,
+                appRoleId: true,
+                passwordHash: true,
+                mustChangePassword: true,
+                isActive: true,
+                appRole: {
+                    select: {
+                        name: true,
+                        canEditContent: true,
+                        canManageUsers: true,
+                    },
+                },
+            },
+        });
+
+        if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
             return NextResponse.json(
-                { error: 'Неверный логин или пароль' },
+                { error: 'Неверный email или пароль' },
                 { status: 401 }
             );
         }
 
-        // Создаем сессию с ролью
-        const sessionToken = await createSession(role);
+        const sessionToken = createSession(user.id, user.appRoleId);
         await setSession(sessionToken);
 
-        return NextResponse.json({ success: true, role }, { status: 200 });
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { lastLoginAt: new Date() },
+        });
+
+        return NextResponse.json(
+            {
+                success: true,
+                roleName: user.appRole.name,
+                canEdit: user.appRole.canEditContent,
+                canManageUsers: user.appRole.canManageUsers,
+                mustChangePassword: user.mustChangePassword,
+            },
+            { status: 200 }
+        );
     } catch (error) {
         console.error('Login error:', error);
         return NextResponse.json(
