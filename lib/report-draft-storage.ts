@@ -1,146 +1,183 @@
+import type { DraftMetadata } from '@/lib/draft-hash';
 import type { ReportBlockFromDB, ReportFromDB } from '@/lib/db-types';
-import type { DraftMetadataPatch } from '@/lib/draft-hash';
 
-const DB_NAME = 'otchet-admin-drafts';
-const STORE_NAME = 'drafts';
-const DB_VERSION = 1;
+const STORAGE_KEY_PREFIX = 'report-editor-draft:';
 
-export type StoredDraftDelta = {
+export type StoredDraftBlock = {
+    id: string;
+    type: ReportBlockFromDB['type'];
+    position: number;
+    data: ReportBlockFromDB['data'];
+};
+
+export type StoredDraftSnapshot = {
     reportId: string;
-    metadataPatch: DraftMetadataPatch;
-    blockPatches: Record<string, ReportBlockFromDB['data']>;
-    serverDraftHash: string | null;
+    baseVersion: number;
     savedAt: string;
+    report: DraftMetadata;
+    blocks: StoredDraftBlock[];
 };
 
-let dbPromise: Promise<IDBDatabase> | null = null;
+const getStorageKey = (reportId: string): string =>
+    `${STORAGE_KEY_PREFIX}${reportId}`;
 
-const openDb = (): Promise<IDBDatabase> => {
-    if (dbPromise) return dbPromise;
+const isBrowser = (): boolean => typeof window !== 'undefined';
 
-    dbPromise = new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
+const toDraftMetadata = (
+    report: Pick<
+        ReportFromDB,
+        | 'title'
+        | 'subtitle'
+        | 'client'
+        | 'date'
+        | 'titleFontSize'
+        | 'descriptionFontSize'
+        | 'captionFontSize'
+    >
+): DraftMetadata => ({
+    title: report.title,
+    subtitle: report.subtitle ?? null,
+    client: report.client ?? null,
+    date: report.date ?? null,
+    titleFontSize: report.titleFontSize ?? null,
+    descriptionFontSize: report.descriptionFontSize ?? null,
+    captionFontSize: report.captionFontSize ?? null,
+});
 
-        request.onupgradeneeded = () => {
-            const db = request.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: 'reportId' });
-            }
-        };
+export const buildStoredDraftSnapshot = (
+    reportId: string,
+    baseVersion: number,
+    report: Pick<
+        ReportFromDB,
+        | 'title'
+        | 'subtitle'
+        | 'client'
+        | 'date'
+        | 'titleFontSize'
+        | 'descriptionFontSize'
+        | 'captionFontSize'
+    >,
+    blocks: ReportBlockFromDB[]
+): StoredDraftSnapshot => ({
+    reportId,
+    baseVersion,
+    savedAt: new Date().toISOString(),
+    report: toDraftMetadata(report),
+    blocks: [...blocks]
+        .sort((a, b) => a.position - b.position)
+        .map((block) => ({
+            id: block.id,
+            type: block.type,
+            position: block.position,
+            data: block.data,
+        })),
+});
 
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB open failed'));
-    });
+export const saveStoredDraftSnapshot = (
+    snapshot: StoredDraftSnapshot
+): { ok: true } | { ok: false; error: Error } => {
+    if (!isBrowser()) return { ok: true };
 
-    return dbPromise;
-};
-
-const withStore = async <T>(
-    mode: IDBTransactionMode,
-    fn: (store: IDBObjectStore) => IDBRequest<T>
-): Promise<T> => {
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, mode);
-        const store = tx.objectStore(STORE_NAME);
-        const request = fn(store);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
-    });
-};
-
-export const loadDraftDelta = async (
-    reportId: string
-): Promise<StoredDraftDelta | null> => {
-    if (typeof indexedDB === 'undefined') return null;
     try {
-        return await withStore('readonly', (store) => store.get(reportId));
+        window.localStorage.setItem(
+            getStorageKey(snapshot.reportId),
+            JSON.stringify(snapshot)
+        );
+        return { ok: true };
+    } catch (error) {
+        return {
+            ok: false,
+            error: error instanceof Error ? error : new Error('Failed to save draft'),
+        };
+    }
+};
+
+export const loadStoredDraftSnapshot = (
+    reportId: string
+): StoredDraftSnapshot | null => {
+    if (!isBrowser()) return null;
+
+    try {
+        const raw = window.localStorage.getItem(getStorageKey(reportId));
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw) as Partial<StoredDraftSnapshot>;
+        if (
+            parsed.reportId !== reportId ||
+            typeof parsed.baseVersion !== 'number' ||
+            !parsed.report ||
+            !Array.isArray(parsed.blocks)
+        ) {
+            return null;
+        }
+
+        return {
+            reportId,
+            baseVersion: parsed.baseVersion,
+            savedAt:
+                typeof parsed.savedAt === 'string'
+                    ? parsed.savedAt
+                    : new Date().toISOString(),
+            report: {
+                title: parsed.report.title ?? '',
+                subtitle: parsed.report.subtitle ?? null,
+                client: parsed.report.client ?? null,
+                date: parsed.report.date ?? null,
+                titleFontSize: parsed.report.titleFontSize ?? null,
+                descriptionFontSize: parsed.report.descriptionFontSize ?? null,
+                captionFontSize: parsed.report.captionFontSize ?? null,
+            },
+            blocks: parsed.blocks.map((block, index) => ({
+                id: typeof block?.id === 'string' ? block.id : `invalid-${index}`,
+                type:
+                    block?.type === 'divider' ||
+                    block?.type === 'screenshot' ||
+                    block?.type === 'text'
+                        ? block.type
+                        : 'text',
+                position:
+                    typeof block?.position === 'number' ? block.position : index,
+                data: block?.data as ReportBlockFromDB['data'],
+            })),
+        };
     } catch {
         return null;
     }
 };
 
-export const saveDraftDelta = async (delta: StoredDraftDelta): Promise<void> => {
-    if (typeof indexedDB === 'undefined') return;
-    try {
-        await withStore('readwrite', (store) => store.put(delta));
-    } catch {
-        // fallback: server-only sync
-    }
+export const clearStoredDraftSnapshot = (reportId: string): void => {
+    if (!isBrowser()) return;
+    window.localStorage.removeItem(getStorageKey(reportId));
 };
 
-export const clearDraftDelta = async (reportId: string): Promise<void> => {
-    if (typeof indexedDB === 'undefined') return;
-    try {
-        await withStore('readwrite', (store) => store.delete(reportId));
-    } catch {
-        // ignore
-    }
-};
-
-export const applyDraftDelta = (
+export const applyStoredDraftSnapshot = (
     report: ReportFromDB,
     blocks: ReportBlockFromDB[],
-    delta: StoredDraftDelta | null
+    snapshot: StoredDraftSnapshot
 ): { report: ReportFromDB; blocks: ReportBlockFromDB[] } => {
-    if (!delta) {
-        return { report, blocks };
-    }
+    const blocksById = new Map(blocks.map((block) => [block.id, block]));
+    const savedAt = new Date(snapshot.savedAt);
 
-    const nextReport = { ...report, ...delta.metadataPatch };
-    const nextBlocks = blocks.map((block) => {
-        const patch = delta.blockPatches[block.id];
-        if (!patch) return block;
-        return { ...block, data: patch };
-    });
-
-    return { report: nextReport, blocks: nextBlocks };
-};
-
-export const mergeDraftDelta = (
-    current: StoredDraftDelta | null,
-    reportId: string,
-    patch: {
-        metadataPatch?: DraftMetadataPatch;
-        blockPatches?: Record<string, ReportBlockFromDB['data']>;
-        serverDraftHash?: string | null;
-    }
-): StoredDraftDelta => ({
-    reportId,
-    metadataPatch: {
-        ...(current?.metadataPatch ?? {}),
-        ...(patch.metadataPatch ?? {}),
-    },
-    blockPatches: {
-        ...(current?.blockPatches ?? {}),
-        ...(patch.blockPatches ?? {}),
-    },
-    serverDraftHash: patch.serverDraftHash ?? current?.serverDraftHash ?? null,
-    savedAt: new Date().toISOString(),
-});
-
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingDelta: StoredDraftDelta | null = null;
-
-export const scheduleDraftDeltaSave = (delta: StoredDraftDelta): void => {
-    pendingDelta = delta;
-    if (saveTimer) clearTimeout(saveTimer);
-
-    const write = () => {
-        if (!pendingDelta) return;
-        const payload = pendingDelta;
-        pendingDelta = null;
-
-        const run = () => {
-            void saveDraftDelta(payload);
-        };
-
-        if (typeof requestIdleCallback !== 'undefined') {
-            requestIdleCallback(run, { timeout: 1000 });
-        } else {
-            setTimeout(run, 0);
-        }
+    return {
+        report: {
+            ...report,
+            ...snapshot.report,
+        },
+        blocks: snapshot.blocks
+            .slice()
+            .sort((a, b) => a.position - b.position)
+            .map((block) => {
+                const existing = blocksById.get(block.id);
+                return {
+                    id: block.id,
+                    reportId: report.id,
+                    type: block.type,
+                    position: block.position,
+                    data: block.data,
+                    version: existing?.version ?? 1,
+                    createdAt: existing?.createdAt ?? savedAt,
+                    updatedAt: existing?.updatedAt ?? savedAt,
+                };
+            }),
     };
-
-    saveTimer = setTimeout(write, 300);
 };

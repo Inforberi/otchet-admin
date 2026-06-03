@@ -3,23 +3,26 @@ import { prisma } from '@/lib/prisma';
 import {
     buildDraftPayload,
     computeDraftHash,
-    type DraftMetadataPatch,
+    type DraftMetadata,
 } from '@/lib/draft-hash';
 import type { ReportBlockFromDB } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 
-type DraftBlockPatch = {
-    id: string;
-    data?: unknown;
-    position?: number;
+const VERSION_CONFLICT = 'VERSION_CONFLICT';
+
+type DraftBlockSnapshot = {
+    id?: string;
+    type: 'text' | 'screenshot' | 'divider';
+    position: number;
+    data: ReportBlockFromDB['data'];
 };
 
-type DraftPatchBody = {
-    draftHash?: string;
-    metadata?: DraftMetadataPatch;
-    blocks?: DraftBlockPatch[];
+type DraftSnapshotBody = {
+    expectedVersion?: number;
+    report?: DraftMetadata;
+    blocks?: DraftBlockSnapshot[];
 };
 
 const selectReportDraftFields = {
@@ -43,6 +46,23 @@ const selectReportDraftFields = {
     updatedAt: true,
 } as const;
 
+const getFullReport = async (id: string) =>
+    prisma.report.findUnique({
+        where: { id },
+        include: {
+            group: {
+                select: {
+                    id: true,
+                    name: true,
+                    path: true,
+                },
+            },
+            blocks: {
+                orderBy: { position: 'asc' },
+            },
+        },
+    });
+
 export const PATCH = async (
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
@@ -52,157 +72,229 @@ export const PATCH = async (
 
     try {
         const { id } = await params;
-        const body = (await request.json()) as DraftPatchBody;
+        const body = (await request.json()) as DraftSnapshotBody;
+        const expectedVersion =
+            typeof body.expectedVersion === 'number'
+                ? body.expectedVersion
+                : Number(body.expectedVersion);
 
-        const currentReport = await prisma.report.findUnique({
-            where: { id },
-            include: {
-                blocks: {
-                    orderBy: { position: 'asc' },
+        if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+            return NextResponse.json(
+                { error: 'expectedVersion is required' },
+                { status: 400 }
+            );
+        }
+
+        if (!body.report || !Array.isArray(body.blocks)) {
+            return NextResponse.json(
+                { error: 'report and blocks are required' },
+                { status: 400 }
+            );
+        }
+
+        const sortedBlocks = [...body.blocks].sort((a, b) => a.position - b.position);
+
+        await prisma.$transaction(async (tx) => {
+            const currentReport = await tx.report.findUnique({
+                where: { id },
+                include: {
+                    blocks: {
+                        orderBy: { position: 'asc' },
+                    },
                 },
-            },
-        });
+            });
 
-        if (!currentReport) {
-            return NextResponse.json({ error: 'Report not found' }, { status: 404 });
-        }
+            if (!currentReport) {
+                throw new Error('REPORT_NOT_FOUND');
+            }
 
-        const metadataPatch = body.metadata ?? {};
-        const blockPatches = body.blocks ?? [];
+            if (currentReport.version !== expectedVersion) {
+                throw new Error(VERSION_CONFLICT);
+            }
 
-        const nextReportState = {
-            title: metadataPatch.title ?? currentReport.title,
-            subtitle:
-                metadataPatch.subtitle !== undefined
-                    ? metadataPatch.subtitle
-                    : currentReport.subtitle,
-            client:
-                metadataPatch.client !== undefined
-                    ? metadataPatch.client
-                    : currentReport.client,
-            date:
-                metadataPatch.date !== undefined
-                    ? metadataPatch.date
-                    : currentReport.date,
-            titleFontSize:
-                metadataPatch.titleFontSize !== undefined
-                    ? metadataPatch.titleFontSize
-                    : currentReport.titleFontSize,
-            descriptionFontSize:
-                metadataPatch.descriptionFontSize !== undefined
-                    ? metadataPatch.descriptionFontSize
-                    : currentReport.descriptionFontSize,
-            captionFontSize:
-                metadataPatch.captionFontSize !== undefined
-                    ? metadataPatch.captionFontSize
-                    : currentReport.captionFontSize,
-        };
-
-        const nextBlocks = currentReport.blocks.map((block) => {
-            const patch = blockPatches.find((item) => item.id === block.id);
-            if (!patch) return block;
-            return {
-                ...block,
-                data: patch.data !== undefined ? patch.data : block.data,
-                position:
-                    patch.position !== undefined ? patch.position : block.position,
+            const nextReportState = {
+                title: body.report?.title ?? currentReport.title,
+                subtitle:
+                    body.report?.subtitle !== undefined
+                        ? body.report.subtitle
+                        : currentReport.subtitle,
+                client:
+                    body.report?.client !== undefined
+                        ? body.report.client
+                        : currentReport.client,
+                date:
+                    body.report?.date !== undefined
+                        ? body.report.date
+                        : currentReport.date,
+                titleFontSize:
+                    body.report?.titleFontSize !== undefined
+                        ? body.report.titleFontSize
+                        : currentReport.titleFontSize,
+                descriptionFontSize:
+                    body.report?.descriptionFontSize !== undefined
+                        ? body.report.descriptionFontSize
+                        : currentReport.descriptionFontSize,
+                captionFontSize:
+                    body.report?.captionFontSize !== undefined
+                        ? body.report.captionFontSize
+                        : currentReport.captionFontSize,
             };
-        });
 
-        const payload = buildDraftPayload(
-            nextReportState,
-            nextBlocks as ReportBlockFromDB[]
-        );
-        const nextDraftHash = await computeDraftHash(payload);
+            const nextBlocksForHash = sortedBlocks.map((block, index) => ({
+                id: block.id ?? `generated-${index}`,
+                reportId: currentReport.id,
+                type: block.type,
+                position: index,
+                data: block.data,
+                version: 1,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            })) as ReportBlockFromDB[];
 
-        if (currentReport.draftHash && currentReport.draftHash === nextDraftHash) {
-            return new NextResponse(null, { status: 204 });
-        }
+            const nextDraftHash = await computeDraftHash(
+                buildDraftPayload(nextReportState, nextBlocksForHash)
+            );
 
-        const updateData: Prisma.ReportUpdateInput = {
-            draftHash: nextDraftHash,
-            draftUpdatedAt: new Date(),
-            ...(metadataPatch.title !== undefined && { title: metadataPatch.title }),
-            ...(metadataPatch.subtitle !== undefined && {
-                subtitle: metadataPatch.subtitle,
-            }),
-            ...(metadataPatch.client !== undefined && { client: metadataPatch.client }),
-            ...(metadataPatch.date !== undefined && { date: metadataPatch.date }),
-            ...(metadataPatch.titleFontSize !== undefined && {
-                titleFontSize: metadataPatch.titleFontSize,
-            }),
-            ...(metadataPatch.descriptionFontSize !== undefined && {
-                descriptionFontSize: metadataPatch.descriptionFontSize,
-            }),
-            ...(metadataPatch.captionFontSize !== undefined && {
-                captionFontSize: metadataPatch.captionFontSize,
-            }),
-        };
+            if (
+                currentReport.draftHash &&
+                currentReport.draftHash === nextDraftHash
+            ) {
+                return;
+            }
 
-        if (
-            metadataPatch.title !== undefined &&
-            metadataPatch.title !== currentReport.title
-        ) {
-            const baseSlug = createSlug(metadataPatch.title);
-            updateData.slug = await generateUniqueSlug(baseSlug, async (slug) => {
-                const exists = await prisma.report.findUnique({
+            const existingBlocksById = new Map(
+                currentReport.blocks.map((block) => [block.id, block])
+            );
+            const incomingIds = new Set(
+                sortedBlocks.flatMap((block) => (block.id ? [block.id] : []))
+            );
+
+            const blocksToDelete = currentReport.blocks
+                .filter((block) => !incomingIds.has(block.id))
+                .map((block) => block.id);
+
+            if (blocksToDelete.length > 0) {
+                await tx.reportBlock.deleteMany({
                     where: {
-                        groupId_slug: {
-                            groupId: currentReport.groupId,
-                            slug,
+                        reportId: id,
+                        id: {
+                            in: blocksToDelete,
                         },
                     },
                 });
-                return !exists || exists.id === id;
-            });
-        }
+            }
 
-        const syncedBlockIds: string[] = [];
+            const blocksToOffset = currentReport.blocks
+                .filter((block) => incomingIds.has(block.id))
+                .map((block) => block.id);
 
-        await prisma.$transaction(async (tx) => {
+            if (blocksToOffset.length > 0) {
+                for (const blockId of blocksToOffset) {
+                    const existing = existingBlocksById.get(blockId);
+                    if (!existing) continue;
+
+                    await tx.reportBlock.update({
+                        where: { id: blockId },
+                        data: {
+                            position: existing.position + sortedBlocks.length + 1000,
+                            version: {
+                                increment: 1,
+                            },
+                        },
+                    });
+                }
+            }
+
+            for (let index = 0; index < sortedBlocks.length; index += 1) {
+                const block = sortedBlocks[index];
+                const existing = block.id ? existingBlocksById.get(block.id) : null;
+
+                if (existing) {
+                    await tx.reportBlock.update({
+                        where: { id: existing.id },
+                        data: {
+                            type: block.type,
+                            data: block.data as Prisma.InputJsonValue,
+                            position: index,
+                            version: {
+                                increment: 1,
+                            },
+                        },
+                    });
+                    continue;
+                }
+
+                await tx.reportBlock.create({
+                    data: {
+                        id: block.id,
+                        reportId: id,
+                        type: block.type,
+                        position: index,
+                        data: block.data as Prisma.InputJsonValue,
+                    },
+                });
+            }
+
+            const updateData: Prisma.ReportUpdateInput = {
+                title: nextReportState.title,
+                subtitle: nextReportState.subtitle,
+                client: nextReportState.client,
+                date: nextReportState.date,
+                titleFontSize: nextReportState.titleFontSize,
+                descriptionFontSize: nextReportState.descriptionFontSize,
+                captionFontSize: nextReportState.captionFontSize,
+                draftHash: nextDraftHash,
+                draftUpdatedAt: new Date(),
+                version: {
+                    increment: 1,
+                },
+            };
+
+            if (nextReportState.title !== currentReport.title) {
+                const baseSlug = createSlug(nextReportState.title);
+                updateData.slug = await generateUniqueSlug(baseSlug, async (slug) => {
+                    const exists = await tx.report.findUnique({
+                        where: {
+                            groupId_slug: {
+                                groupId: currentReport.groupId,
+                                slug,
+                            },
+                        },
+                    });
+
+                    return !exists || exists.id === id;
+                });
+            }
+
             await tx.report.update({
                 where: { id },
                 data: updateData,
             });
-
-            for (const patch of blockPatches) {
-                const existingBlock = currentReport.blocks.find(
-                    (block) => block.id === patch.id
-                );
-                if (!existingBlock) continue;
-
-                const blockUpdate: Prisma.ReportBlockUpdateInput = {};
-                if (patch.data !== undefined) {
-                    blockUpdate.data = patch.data as Prisma.InputJsonValue;
-                }
-                if (patch.position !== undefined) {
-                    blockUpdate.position = patch.position;
-                }
-
-                if (Object.keys(blockUpdate).length === 0) continue;
-
-                await tx.reportBlock.update({
-                    where: { id: patch.id },
-                    data: {
-                        ...blockUpdate,
-                        version: { increment: 1 },
-                    },
-                });
-                syncedBlockIds.push(patch.id);
-            }
         });
 
-        const draftUpdatedAt = new Date().toISOString();
+        const report = await getFullReport(id);
 
-        return NextResponse.json(
-            {
-                draftHash: nextDraftHash,
-                draftUpdatedAt,
-                syncedBlockIds,
-            },
-            { status: 200 }
-        );
+        return NextResponse.json({ report }, { status: 200 });
     } catch (error) {
+        if (error instanceof Error) {
+            if (error.message === VERSION_CONFLICT) {
+                return NextResponse.json(
+                    {
+                        error: 'Report has been modified by another user',
+                        code: VERSION_CONFLICT,
+                    },
+                    { status: 409 }
+                );
+            }
+
+            if (error.message === 'REPORT_NOT_FOUND') {
+                return NextResponse.json(
+                    { error: 'Report not found' },
+                    { status: 404 }
+                );
+            }
+        }
+
         console.error('Error syncing draft:', error);
         return NextResponse.json({ error: 'Failed to sync draft' }, { status: 500 });
     }

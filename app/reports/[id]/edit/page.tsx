@@ -1683,17 +1683,17 @@ export default function EditReportPage() {
     const {
         report,
         blocks,
-        setBlocks,
         loading,
         syncStatus,
         publishing,
+        hasLocalChanges,
+        hasUnpublishedChanges,
         loadReport,
         markBlockDirty,
         markMetadataDirty,
+        replaceBlocksLocally,
         flush,
         publish,
-        afterStructuralChange,
-        handleVersionConflict,
     } = useReportDraftSync(reportId);
 
     const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -1724,20 +1724,43 @@ export default function EditReportPage() {
     const syncStatusLabel = useMemo(() => {
         switch (syncStatus) {
             case 'local':
-                return '● Локально';
-            case 'syncing':
-                return '↻ Синхронизация...';
+                return '● Есть локальные изменения';
+            case 'autosaving':
+                return '↻ Автосохранение...';
+            case 'saving':
+                return '↻ Сохранение черновика...';
             case 'conflict':
                 return '⚠ Конфликт';
             case 'error':
                 return '⚠ Ошибка';
             default:
-                return '✓ Сохранено';
+                if (hasUnpublishedChanges) {
+                    return '● Есть неопубликованные изменения';
+                }
+                if (report?.publishedHash) {
+                    return '✓ Опубликовано';
+                }
+                return '✓ Черновик сохранён';
         }
-    }, [syncStatus]);
+    }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
+
+    const canPublish = useMemo(() => {
+        if (!report) return false;
+        return !publishing && syncStatus !== 'saving' && syncStatus !== 'autosaving' && (
+            hasLocalChanges ||
+            hasUnpublishedChanges ||
+            !report.publishedHash
+        );
+    }, [
+        hasLocalChanges,
+        hasUnpublishedChanges,
+        publishing,
+        report,
+        syncStatus,
+    ]);
 
     const handleSaveDraft = useCallback(async () => {
-        const ok = await flush({ force: true });
+        const ok = await flush({ reason: 'manual' });
         if (ok) alert('Черновик сохранён');
     }, [flush]);
 
@@ -1746,181 +1769,100 @@ export default function EditReportPage() {
         if (ok) alert('Отчёт опубликован');
     }, [publish]);
 
-    const handleDragEnd = useCallback(async (event: DragEndEvent) => {
-        if (!report) return;
+    const handleDragEnd = useCallback((event: DragEndEvent) => {
         const { active, over } = event;
         if (!over || active.id === over.id) return;
 
-        setBlocks((currentBlocks) => {
-            // Сохраняем текущий порядок для возможного отката
-            const previousBlocks = [...currentBlocks];
+        const currentSorted = [...blocks].sort((a, b) => a.position - b.position);
+        const oldIndex = currentSorted.findIndex((b) => b.id === active.id);
+        const newIndex = currentSorted.findIndex((b) => b.id === over.id);
 
-            const currentSorted = [...currentBlocks].sort((a, b) => a.position - b.position);
-            const oldIndex = currentSorted.findIndex((b) => b.id === active.id);
-            const newIndex = currentSorted.findIndex((b) => b.id === over.id);
+        if (oldIndex === -1 || newIndex === -1) return;
 
-            if (oldIndex === -1 || newIndex === -1) return currentBlocks;
+        const reorderedBlocks = arrayMove(currentSorted, oldIndex, newIndex);
+        replaceBlocksLocally(
+            reorderedBlocks.map((block, index) => ({
+                ...block,
+                position: index,
+            }))
+        );
+    }, [blocks, replaceBlocksLocally]);
 
-            const reorderedBlocks = arrayMove(currentSorted, oldIndex, newIndex);
-            const newBlocks = reorderedBlocks.map((b, i) => ({
-                ...b,
-                position: i,
+    const handleDeleteBlock = useCallback((id: string) => {
+        if (!confirm('Удалить блок?')) return;
+
+        const nextBlocks = blocks
+            .filter((block) => block.id !== id)
+            .sort((a, b) => a.position - b.position)
+            .map((block, index) => ({
+                ...block,
+                position: index,
             }));
 
-            // Асинхронное сохранение
-            (async () => {
-                try {
-                    const res = await fetch(`/api/reports/${reportId}/blocks/reorder`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            blockIds: newBlocks.map((b) => b.id),
-                            expectedReportVersion: report.version,
-                        }),
-                    });
-                    if (res.status === 409) {
-                        await handleVersionConflict();
-                        return;
-                    }
-                    if (!res.ok) {
-                        throw new Error('Failed to save order');
-                    }
-                    const data = await res.json();
-                    const nextBlocks = (data.blocks || newBlocks) as ReportBlockFromDB[];
-                    if (report) {
-                        afterStructuralChange(
-                            { ...report, version: data.reportVersion },
-                            nextBlocks
-                        );
-                    }
-                } catch (error) {
-                    console.error(error);
-                    // В случае ошибки возвращаем старый порядок
-                    setBlocks(() => previousBlocks);
-                    alert('Ошибка сохранения порядка блоков');
-                }
-            })();
+        replaceBlocksLocally(nextBlocks);
+        setSelectedBlockId((currentSelectedId) =>
+            currentSelectedId === id ? nextBlocks[0]?.id || null : currentSelectedId
+        );
+    }, [blocks, replaceBlocksLocally]);
 
-            return newBlocks;
-        });
-    }, [report, reportId, handleVersionConflict, afterStructuralChange]);
-
-    const handleDeleteBlock = useCallback(async (id: string) => {
-        if (!report) return;
-        if (!confirm('Удалить блок?')) return;
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks/${id}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    expectedReportVersion: report.version,
-                }),
-            });
-            if (res.status === 409) {
-                await handleVersionConflict();
-                return;
-            }
-            if (!res.ok) throw new Error('Failed to delete');
-            const data = await res.json();
-            const nextBlocks = (data.blocks || []) as ReportBlockFromDB[];
-            if (report) {
-                afterStructuralChange(
-                    { ...report, version: data.reportVersion },
-                    nextBlocks
-                );
-            }
-            setSelectedBlockId((currentSelectedId) =>
-                currentSelectedId === id
-                    ? nextBlocks[0]?.id || null
-                    : currentSelectedId
-            );
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка удаления блока');
-        }
-    }, [report, reportId, handleVersionConflict, afterStructuralChange]);
-
-    const handleDuplicateBlock = useCallback(async (id: string) => {
-        if (!report) return;
+    const handleDuplicateBlock = useCallback((id: string) => {
         const blockToDup = blocks.find((b) => b.id === id);
         if (!blockToDup) return;
 
-        try {
-            const sorted = [...blocks].sort((a, b) => a.position - b.position);
-            const res = await fetch(`/api/reports/${reportId}/blocks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: blockToDup.type,
-                    position: sorted.length,
-                    data: blockToDup.data,
-                    expectedReportVersion: report.version,
-                }),
-            });
-            if (res.status === 409) {
-                await handleVersionConflict();
-                return;
-            }
-            if (!res.ok) throw new Error('Failed to duplicate');
-            const { block: newBlock, reportVersion } = await res.json();
-            if (report) {
-                afterStructuralChange(
-                    { ...report, version: reportVersion },
-                    [...blocks, newBlock]
-                );
-            }
-            setSelectedBlockId(newBlock.id);
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка дублирования блока');
-        }
-    }, [report, reportId, blocks, handleVersionConflict, afterStructuralChange]);
+        const duplicatedBlock: ReportBlockFromDB = {
+            ...blockToDup,
+            id: crypto.randomUUID(),
+            position: blocks.length,
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            data: JSON.parse(JSON.stringify(blockToDup.data)) as ReportBlockFromDB['data'],
+        };
 
-    const handleAddBlock = useCallback(async (type: 'text' | 'screenshot' | 'divider') => {
+        replaceBlocksLocally(
+            [...blocks, duplicatedBlock].map((block, index) => ({
+                ...block,
+                position: index,
+            }))
+        );
+        setSelectedBlockId(duplicatedBlock.id);
+    }, [blocks, replaceBlocksLocally]);
+
+    const handleAddBlock = useCallback((type: 'text' | 'screenshot' | 'divider') => {
         if (!reportId || !report) return;
-        try {
-            const sorted = [...blocks].sort((a, b) => a.position - b.position);
-            const res = await fetch(`/api/reports/${reportId}/blocks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type,
-                    position: sorted.length,
-                    data:
-                        type === 'text'
-                            ? {
-                                title: '',
-                                content: '',
-                            }
-                            : type === 'divider'
-                                ? {}
-                                : {
-                                    title: '',
-                                    description: '',
-                                    images: [],
-                                    layout: 'full-width',
-                                },
-                    expectedReportVersion: report.version,
-                }),
-            });
-            if (res.status === 409) {
-                await handleVersionConflict();
-                return;
-            }
-            if (!res.ok) throw new Error('Failed to create block');
-            const { block: newBlock, reportVersion } = await res.json();
-            if (report) {
-                afterStructuralChange(
-                    { ...report, version: reportVersion },
-                    [...blocks, newBlock]
-                );
-            }
-            setSelectedBlockId(newBlock.id);
-        } catch (error) {
-            console.error(error);
-            alert('Ошибка создания блока');
-        }
-    }, [report, reportId, blocks, handleVersionConflict, afterStructuralChange]);
+
+        const newBlock: ReportBlockFromDB = {
+            id: crypto.randomUUID(),
+            reportId,
+            type,
+            position: blocks.length,
+            version: 1,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            data:
+                type === 'text'
+                    ? {
+                          title: '',
+                          content: '',
+                      }
+                    : type === 'divider'
+                      ? {}
+                      : {
+                            title: '',
+                            description: '',
+                            images: [],
+                            layout: 'full-width',
+                        },
+        };
+
+        replaceBlocksLocally(
+            [...blocks, newBlock].map((block, index) => ({
+                ...block,
+                position: index,
+            }))
+        );
+        setSelectedBlockId(newBlock.id);
+    }, [blocks, report, reportId, replaceBlocksLocally]);
 
     const handleSelectBlock = useCallback((id: string) => {
         setSelectedBlockId(id);
@@ -2012,18 +1954,22 @@ export default function EditReportPage() {
                     </button>
                     <button
                         onClick={handleSaveDraft}
-                        disabled={syncStatus === 'syncing'}
+                        disabled={syncStatus === 'saving' || syncStatus === 'autosaving'}
                         className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     >
                         <Save className="w-4 h-4" />
-                        {syncStatus === 'syncing' ? 'Сохранение...' : 'Сохранить'}
+                        {syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить черновик'}
                     </button>
                     <button
                         onClick={handlePublish}
-                        disabled={publishing || syncStatus === 'syncing'}
+                        disabled={!canPublish}
                         className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 flex items-center gap-2 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     >
-                        {publishing ? 'Публикация...' : 'Опубликовать'}
+                        {publishing
+                            ? 'Публикация...'
+                            : canPublish
+                              ? 'Опубликовать'
+                              : 'Уже опубликовано'}
                     </button>
                     <button
                         onClick={() => router.push(`/reports/${reportId}`)}
