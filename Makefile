@@ -6,7 +6,7 @@ help: ## Показать эту справку
 
 up: ## Поднять docker compose без пересборки
 	@echo "📦 Поднимаю PostgreSQL..."
-	@mkdir -p uploads
+	@mkdir -p uploads && chmod 777 uploads
 	@docker compose up -d postgres
 	@echo "🗃️  Применяю миграции..."
 	@docker compose run --rm migrate
@@ -28,7 +28,7 @@ logs: ## Показать логи всех сервисов
 # ─────────────────────────────────────────────
 prod:
 	@echo "🚀 Deploy..."
-	@mkdir -p uploads
+	@mkdir -p uploads && chmod 777 uploads
 	@docker compose up -d --build
 	@docker compose run --rm migrate
 	@docker compose up -d
@@ -41,7 +41,7 @@ prod:
 prod-rebuild: ## Полная пересборка без кеша (медленно, только при необходимости)
 	@echo "⚠️  Полная пересборка без кеша..."
 	@test -f .env || (echo "❌ Не найден .env. Скопируй .env.template в .env и заполни значения." && exit 1)
-	@mkdir -p uploads
+	@mkdir -p uploads && chmod 777 uploads
 	@docker compose build --no-cache
 	@echo "📦 Поднимаю PostgreSQL..."
 	@docker compose up -d postgres
@@ -61,7 +61,7 @@ clean: ## Очистить Docker (образы, volumes, etc)
 # ─────────────────────────────────────────────
 dev: ## Dev запуск: БД, Prisma generate, migrate deploy и dev-сервер
 	@echo "🚀 Запуск dev окружения..."
-	@mkdir -p uploads
+	@mkdir -p uploads && chmod 777 uploads
 	@echo "📦 Поднимаю БД..."
 	@docker compose up -d postgres
 	@echo "⏳ Жду готовности БД..."
