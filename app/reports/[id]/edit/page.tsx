@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
 import { useUserRole } from '@/hooks/use-user-role';
 import type {
@@ -23,9 +24,6 @@ import {
     Upload,
     X,
     Save,
-    Bold,
-    Italic,
-    Palette,
     AlignCenter,
     AlignLeft,
     AlignRight,
@@ -49,6 +47,19 @@ import {
     useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
+const FormattedTextEditor = dynamic(
+    () => import('@/components/editor/rich-text-editor'),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="space-y-2">
+                <div className="h-12 rounded-t border border-zinc-700 bg-zinc-800" />
+                <div className="rounded-b border border-t-0 border-zinc-700 bg-zinc-800 min-h-[120px]" />
+            </div>
+        ),
+    }
+);
 
 // Компактная карточка блока в sidebar
 const SortableBlockCard = memo(function SortableBlockCard({
@@ -479,6 +490,7 @@ function BlockEditor({
                                     Заголовок (опционально)
                                 </label>
                                 <FormattedTextEditor
+                                    editorId={`${block.id}:text-title`}
                                     value={
                                         (localData as TextBlockData).title || ''
                                     }
@@ -491,6 +503,7 @@ function BlockEditor({
                                     placeholder="Заголовок раздела..."
                                     minHeight="60px"
                                     defaultFontSize="40"
+                                    mode="inline"
                                 />
                             </div>
                             <div>
@@ -498,6 +511,7 @@ function BlockEditor({
                                     Описание (опционально)
                                 </label>
                                 <FormattedTextEditor
+                                    editorId={`${block.id}:text-content`}
                                     value={
                                         (localData as TextBlockData).content ||
                                         ''
@@ -511,6 +525,7 @@ function BlockEditor({
                                     placeholder="Основной текст..."
                                     minHeight="200px"
                                     defaultFontSize="20"
+                                    mode="block"
                                 />
                             </div>
                         </>
@@ -521,6 +536,7 @@ function BlockEditor({
                                     Заголовок (опционально)
                                 </label>
                                 <FormattedTextEditor
+                                    editorId={`${block.id}:screenshot-title`}
                                     value={
                                         (localData as ScreenshotBlockData)
                                             .title || ''
@@ -534,6 +550,7 @@ function BlockEditor({
                                     placeholder="Заголовок блока..."
                                     minHeight="60px"
                                     defaultFontSize="40"
+                                    mode="inline"
                                 />
                             </div>
                             <div>
@@ -541,6 +558,7 @@ function BlockEditor({
                                     Описание (опционально)
                                 </label>
                                 <FormattedTextEditor
+                                    editorId={`${block.id}:screenshot-description`}
                                     value={
                                         (localData as ScreenshotBlockData)
                                             .description || ''
@@ -554,6 +572,7 @@ function BlockEditor({
                                     placeholder="Описание..."
                                     minHeight="200px"
                                     defaultFontSize="20"
+                                    mode="block"
                                 />
                             </div>
 
@@ -731,948 +750,6 @@ function BlockEditor({
         </div>
     );
 }
-
-// Компонент для форматированного текстового редактора
-const FormattedTextEditor = memo(function FormattedTextEditor({
-    value,
-    onChange,
-    placeholder,
-    minHeight = '200px',
-    defaultFontSize = '20',
-}: {
-    value: string;
-    onChange: (value: string) => void;
-    placeholder?: string;
-    minHeight?: string;
-    defaultFontSize?: string;
-}) {
-    const editorRef = useRef<HTMLDivElement>(null);
-    const [showColorPicker, setShowColorPicker] = useState(false);
-    const [customColor, setCustomColor] = useState('#ffffff');
-    const colorPickerRef = useRef<HTMLDivElement>(null);
-    const [isBold, setIsBold] = useState(false);
-    const [isItalic, setIsItalic] = useState(false);
-    const [isCentered, setIsCentered] = useState(false);
-    const [currentColor, setCurrentColor] = useState('#ffffff');
-    const [hasCustomColor, setHasCustomColor] = useState(false);
-    const savedSelectionRef = useRef<Range | null>(null);
-    const isEditingRef = useRef(false);
-    const onChangeDebounceRef = useRef<NodeJS.Timeout | null>(null);
-
-    // Цвета сайта
-    const siteColors = useMemo(() => [
-        { name: 'Primary', value: '#3b82f6' },
-        { name: 'Grayscale-2', value: '#f5f5f5' },
-        { name: 'Grayscale-3', value: '#e8e8e8' },
-        { name: 'Grayscale-4', value: '#d4d4d4' },
-        { name: 'Grayscale-5', value: '#a3a3a3' },
-        { name: 'Grayscale-6', value: '#737373' },
-        { name: 'Белый', value: '#ffffff' },
-    ], []);
-
-    // Получаем последние выбранные цвета из localStorage
-    const getRecentColors = (): string[] => {
-        if (typeof window === 'undefined') return [];
-        try {
-            const stored = localStorage.getItem('formattedTextEditor_recentColors');
-            return stored ? JSON.parse(stored) : [];
-        } catch {
-            return [];
-        }
-    };
-
-    // Сохраняем цвет в последние
-    const saveRecentColor = (color: string) => {
-        if (typeof window === 'undefined') return;
-        try {
-            const recent = getRecentColors();
-            // Удаляем если уже есть
-            const filtered = recent.filter((c) => c !== color);
-            // Добавляем в начало
-            const updated = [color, ...filtered].slice(0, 8); // Максимум 8 последних
-            localStorage.setItem('formattedTextEditor_recentColors', JSON.stringify(updated));
-        } catch {
-            // Игнорируем ошибки
-        }
-    };
-
-    const [recentColors, setRecentColors] = useState<string[]>(getRecentColors());
-
-    // Функция для конвертации текста с переносами строк в HTML
-    const convertTextToHtml = (text: string): string => {
-        if (!text || text.trim() === '') return '';
-        // Если текст уже содержит HTML теги, возвращаем как есть
-        if (text.includes('<') && text.includes('>')) {
-            return text;
-        }
-        // Иначе конвертируем переносы строк в <br>
-        const lines = text.split('\n');
-        if (lines.length === 1) {
-            return lines[0] || '';
-        }
-        return lines
-            .map((line, index) => {
-                if (index === lines.length - 1 && line === '') {
-                    // Последняя пустая строка - не добавляем br
-                    return '';
-                }
-                return line || '<br>';
-            })
-            .join('<br>');
-    };
-
-    // Эффект для очистки стилей при монтировании и изменениях
-    useEffect(() => {
-        if (editorRef.current) {
-            const cleanupStyles = () => {
-                if (!editorRef.current) return;
-
-                // Убираем отступы у самого редактора
-                editorRef.current.style.margin = '0';
-                editorRef.current.style.textIndent = '0';
-                editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-
-                // Убираем отступы у всех дочерних элементов, но сохраняем fontSize в style (для HTML)
-                const allElements = editorRef.current.querySelectorAll('*');
-                allElements.forEach((el) => {
-                    const htmlEl = el as HTMLElement;
-                    const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
-                    htmlEl.style.margin = '0';
-                    htmlEl.style.marginLeft = '0';
-                    htmlEl.style.marginRight = '0';
-                    htmlEl.style.marginTop = '0';
-                    htmlEl.style.marginBottom = '0';
-                    htmlEl.style.paddingLeft = '0';
-                    htmlEl.style.paddingRight = '0';
-                    htmlEl.style.textIndent = '0';
-                    // fontSize сохраняем в style для HTML, но визуально он будет переопределен через CSS
-                    if (fontSize) {
-                        htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
-                    }
-                });
-            };
-
-            cleanupStyles();
-
-            // Наблюдаем за изменениями DOM
-            const observer = new MutationObserver(() => {
-                cleanupStyles();
-            });
-            observer.observe(editorRef.current, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['style']
-            });
-
-            return () => {
-                observer.disconnect();
-            };
-        }
-    }, []);
-
-    useEffect(() => {
-        if (editorRef.current && !isEditingRef.current) {
-            const htmlValue = convertTextToHtml(value || '');
-            // Не обновляем если редактор в фокусе и содержимое не изменилось
-            const isFocused = document.activeElement === editorRef.current;
-            if (isFocused && editorRef.current.innerHTML === htmlValue) {
-                return;
-            }
-
-            // Сохраняем позицию курсора перед обновлением
-            const selection = window.getSelection();
-            let savedRange: Range | null = null;
-            let savedOffset = 0;
-
-            if (selection && selection.rangeCount > 0 && editorRef.current.contains(selection.anchorNode)) {
-                const range = selection.getRangeAt(0);
-                savedRange = range.cloneRange();
-                // Сохраняем смещение от начала контейнера
-                try {
-                    const preRange = range.cloneRange();
-                    preRange.selectNodeContents(editorRef.current);
-                    preRange.setEnd(range.startContainer, range.startOffset);
-                    savedOffset = preRange.toString().length;
-                } catch {
-                    // Если не удалось вычислить смещение, используем range
-                }
-            }
-
-            // Обновляем содержимое
-            editorRef.current.innerHTML = htmlValue;
-
-            // Убираем лишние отступы после обновления, но сохраняем fontSize в HTML
-            const allElements = editorRef.current.querySelectorAll('*');
-            allElements.forEach((el) => {
-                const htmlEl = el as HTMLElement;
-                const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
-                htmlEl.style.margin = '0';
-                htmlEl.style.marginLeft = '0';
-                htmlEl.style.marginRight = '0';
-                htmlEl.style.marginTop = '0';
-                htmlEl.style.marginBottom = '0';
-                htmlEl.style.paddingLeft = '0';
-                htmlEl.style.paddingRight = '0';
-                htmlEl.style.textIndent = '0';
-                // fontSize сохраняем в style для HTML, визуально переопределяется через CSS
-                if (fontSize) {
-                    htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
-                }
-            });
-            editorRef.current.style.margin = '0';
-            editorRef.current.style.textIndent = '0';
-            editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-
-            // Восстанавливаем позицию курсора после обновления
-            if (editorRef.current) {
-                try {
-                    const newSelection = window.getSelection();
-                    if (newSelection) {
-                        // Пытаемся восстановить по сохраненному range
-                        if (savedRange && editorRef.current.contains(savedRange.startContainer)) {
-                            newSelection.removeAllRanges();
-                            newSelection.addRange(savedRange);
-                        } else if (savedOffset > 0) {
-                            // Пытаемся восстановить по смещению
-                            const textContent = editorRef.current.textContent || '';
-                            const targetOffset = Math.min(savedOffset, textContent.length);
-                            const range = document.createRange();
-                            const walker = document.createTreeWalker(
-                                editorRef.current,
-                                NodeFilter.SHOW_TEXT,
-                                null
-                            );
-
-                            let currentOffset = 0;
-                            let targetNode: Node | null = null;
-                            let targetNodeOffset = 0;
-
-                            while (walker.nextNode()) {
-                                const node = walker.currentNode;
-                                const nodeLength = node.textContent?.length || 0;
-                                if (currentOffset + nodeLength >= targetOffset) {
-                                    targetNode = node;
-                                    targetNodeOffset = targetOffset - currentOffset;
-                                    break;
-                                }
-                                currentOffset += nodeLength;
-                            }
-
-                            if (targetNode) {
-                                range.setStart(targetNode, targetNodeOffset);
-                                range.collapse(true);
-                                newSelection.removeAllRanges();
-                                newSelection.addRange(range);
-                            } else {
-                                // Fallback: ставим курсор в конец
-                                const range = document.createRange();
-                                range.selectNodeContents(editorRef.current);
-                                range.collapse(false);
-                                newSelection.removeAllRanges();
-                                newSelection.addRange(range);
-                            }
-                        } else if (isFocused) {
-                            // Если был в фокусе, ставим курсор в конец
-                            const range = document.createRange();
-                            range.selectNodeContents(editorRef.current);
-                            range.collapse(false);
-                            newSelection.removeAllRanges();
-                            newSelection.addRange(range);
-                        }
-                    }
-                } catch (e) {
-                    // Если не удалось восстановить, ставим курсор в конец только если был в фокусе
-                    if (isFocused) {
-                        const newSelection = window.getSelection();
-                        if (newSelection && editorRef.current) {
-                            const range = document.createRange();
-                            range.selectNodeContents(editorRef.current);
-                            range.collapse(false);
-                            newSelection.removeAllRanges();
-                            newSelection.addRange(range);
-                        }
-                    }
-                }
-            }
-        }
-    }, [value]);
-
-    // Функция для проверки активных стилей выделенного текста
-    const checkActiveStyles = () => {
-        if (!editorRef.current) return;
-
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0) {
-            setIsBold(false);
-            setIsItalic(false);
-            setIsCentered(false);
-            setCurrentColor('#ffffff');
-            setHasCustomColor(false);
-            return;
-        }
-
-        const range = selection.getRangeAt(0);
-        if (!editorRef.current.contains(range.commonAncestorContainer)) {
-            setIsBold(false);
-            setIsItalic(false);
-            setIsCentered(false);
-            setCurrentColor('#ffffff');
-            setHasCustomColor(false);
-            return;
-        }
-
-        // Проверяем bold
-        const isBoldActive = document.queryCommandState('bold');
-        setIsBold(isBoldActive);
-
-        // Проверяем italic
-        const isItalicActive = document.queryCommandState('italic');
-        setIsItalic(isItalicActive);
-
-        // Проверяем выравнивание по центру
-        const isCenteredActive = document.queryCommandState('justifyCenter');
-        setIsCentered(isCenteredActive);
-
-        // Проверяем цвет через computed style выделенного элемента
-        try {
-            let colorFound = false;
-            if (range && !range.collapsed) {
-                const container = range.commonAncestorContainer;
-                const element =
-                    container.nodeType === Node.TEXT_NODE
-                        ? container.parentElement
-                        : (container as Element);
-
-                if (element) {
-                    const computedStyle = window.getComputedStyle(element);
-                    const color = computedStyle.color;
-
-                    if (
-                        color &&
-                        color !== 'rgb(0, 0, 0)' &&
-                        color !== 'rgb(255, 255, 255)' &&
-                        color !== 'rgb(228, 228, 231)' // дефолтный цвет текста в редакторе (zinc-200)
-                    ) {
-                        // Конвертируем rgb в hex
-                        let hexColor = color;
-                        if (color.startsWith('rgb')) {
-                            const rgb = color.match(/\d+/g);
-                            if (rgb && rgb.length >= 3) {
-                                hexColor =
-                                    '#' +
-                                    rgb
-                                        .slice(0, 3)
-                                        .map((x) => {
-                                            const hex =
-                                                parseInt(x).toString(16);
-                                            return hex.length === 1
-                                                ? '0' + hex
-                                                : hex;
-                                        })
-                                        .join('');
-                            }
-                        }
-                        setCurrentColor(hexColor);
-                        setCustomColor(hexColor);
-                        setHasCustomColor(true);
-                        colorFound = true;
-                    } else {
-                        setHasCustomColor(false);
-                    }
-                }
-            }
-
-            // Fallback на queryCommandValue если не нашли через computed style
-            if (!colorFound) {
-                const color = document.queryCommandValue('foreColor');
-                if (
-                    color &&
-                    color !== 'rgb(0, 0, 0)' &&
-                    color !== '#000000' &&
-                    color !== 'rgb(255, 255, 255)' &&
-                    color !== '#ffffff'
-                ) {
-                    let hexColor = color;
-                    if (color.startsWith('rgb')) {
-                        const rgb = color.match(/\d+/g);
-                        if (rgb && rgb.length >= 3) {
-                            hexColor =
-                                '#' +
-                                rgb
-                                    .slice(0, 3)
-                                    .map((x) => {
-                                        const hex = parseInt(x).toString(16);
-                                        return hex.length === 1
-                                            ? '0' + hex
-                                            : hex;
-                                    })
-                                    .join('');
-                        }
-                    }
-                    // Проверяем что это не дефолтный цвет редактора
-                    if (hexColor !== '#e4e4e7') {
-                        setCurrentColor(hexColor);
-                        setCustomColor(hexColor);
-                        setHasCustomColor(true);
-                    } else {
-                        setHasCustomColor(false);
-                    }
-                } else {
-                    setCurrentColor('#ffffff');
-                    setHasCustomColor(false);
-                }
-            }
-        } catch {
-            setCurrentColor('#ffffff');
-            setHasCustomColor(false);
-        }
-    };
-
-    // Отслеживание изменений выделения
-    useEffect(() => {
-        const editor = editorRef.current;
-        if (!editor) return;
-
-        const handleSelectionChange = () => {
-            checkActiveStyles();
-        };
-
-        const handleMouseUp = () => {
-            setTimeout(checkActiveStyles, 10);
-        };
-
-        const handleKeyUp = () => {
-            setTimeout(checkActiveStyles, 10);
-        };
-
-        document.addEventListener('selectionchange', handleSelectionChange);
-        editor.addEventListener('mouseup', handleMouseUp);
-        editor.addEventListener('keyup', handleKeyUp);
-
-        return () => {
-            document.removeEventListener(
-                'selectionchange',
-                handleSelectionChange
-            );
-            editor.removeEventListener('mouseup', handleMouseUp);
-            editor.removeEventListener('keyup', handleKeyUp);
-        };
-    }, []);
-
-    // Инициализация последних цветов при монтировании
-    useEffect(() => {
-        setRecentColors(getRecentColors());
-    }, []);
-
-    // Cleanup debounce таймера при размонтировании
-    useEffect(() => {
-        return () => {
-            if (onChangeDebounceRef.current) {
-                clearTimeout(onChangeDebounceRef.current);
-            }
-        };
-    }, []);
-
-    // Сохранение выделения при открытии color picker
-    const handleColorPickerToggle = () => {
-        if (!showColorPicker) {
-            // Сохраняем выделение перед открытием
-            const selection = window.getSelection();
-            if (selection && selection.rangeCount > 0 && editorRef.current) {
-                const range = selection.getRangeAt(0);
-                if (editorRef.current.contains(range.commonAncestorContainer)) {
-                    savedSelectionRef.current = range.cloneRange();
-                }
-            }
-        }
-        setShowColorPicker(!showColorPicker);
-    };
-
-    // Закрытие color picker при клике вне его
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (
-                colorPickerRef.current &&
-                !colorPickerRef.current.contains(event.target as Node)
-            ) {
-                setShowColorPicker(false);
-            }
-        };
-
-        if (showColorPicker) {
-            document.addEventListener('mousedown', handleClickOutside);
-            return () =>
-                document.removeEventListener('mousedown', handleClickOutside);
-        }
-    }, [showColorPicker]);
-
-    const handleInput = () => {
-        if (editorRef.current) {
-            isEditingRef.current = true;
-
-            // Убираем лишние отступы при каждом изменении, но сохраняем fontSize в HTML
-            const allElements = editorRef.current.querySelectorAll('*');
-            allElements.forEach((el) => {
-                const htmlEl = el as HTMLElement;
-                const fontSize = htmlEl.style.fontSize; // Сохраняем размер шрифта
-                htmlEl.style.margin = '0';
-                htmlEl.style.marginLeft = '0';
-                htmlEl.style.marginRight = '0';
-                htmlEl.style.marginTop = '0';
-                htmlEl.style.marginBottom = '0';
-                htmlEl.style.paddingLeft = '0';
-                htmlEl.style.paddingRight = '0';
-                htmlEl.style.textIndent = '0';
-                // fontSize сохраняем в style для HTML, визуально переопределяется через CSS
-                if (fontSize) {
-                    htmlEl.style.fontSize = fontSize; // Сохраняем в HTML
-                }
-            });
-            editorRef.current.style.margin = '0';
-            editorRef.current.style.textIndent = '0';
-            editorRef.current.style.fontSize = ''; // Убираем fontSize у самого редактора
-
-            const html = editorRef.current.innerHTML.trim();
-            // Если содержимое пустое или только пробелы/br, сохраняем пустую строку
-            const finalValue = (!html ||
-                html === '<br>' ||
-                html === '<div><br></div>' ||
-                html === '<br><br>' ||
-                html.replace(/<br\s*\/?>/gi, '').trim() === '') ? '' : html;
-
-            // Используем debounce для onChange, чтобы не вызывать его слишком часто
-            if (onChangeDebounceRef.current) {
-                clearTimeout(onChangeDebounceRef.current);
-            }
-
-            onChangeDebounceRef.current = setTimeout(() => {
-                onChange(finalValue);
-                // Сбрасываем флаг редактирования после небольшой задержки
-                setTimeout(() => {
-                    isEditingRef.current = false;
-                }, 50);
-            }, 100);
-        }
-    };
-
-    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-        e.preventDefault();
-
-        // Получаем только текст из буфера обмена, без форматирования
-        const text = e.clipboardData.getData('text/plain');
-
-        if (!editorRef.current || !text) return;
-
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0) return;
-
-        const range = selection.getRangeAt(0);
-
-        // Удаляем выделенный текст, если есть
-        range.deleteContents();
-
-        // Разбиваем текст на строки и вставляем с сохранением переносов
-        const lines = text.split('\n');
-
-        lines.forEach((line, index) => {
-            if (line.trim() || line === '') {
-                // Вставляем текстовый узел для каждой строки (включая пустые)
-                const textNode = document.createTextNode(line);
-                range.insertNode(textNode);
-                // Перемещаем курсор после вставленного текста
-                range.setStartAfter(textNode);
-            }
-
-            // Добавляем <br> для переноса строки (кроме последней строки)
-            if (index < lines.length - 1) {
-                const br = document.createElement('br');
-                range.insertNode(br);
-                range.setStartAfter(br);
-            }
-        });
-
-        // Перемещаем курсор в конец вставленного текста
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
-
-        // Обновляем состояние
-        handleInput();
-    };
-
-    const formatText = (command: string, value?: string) => {
-        if (!editorRef.current) return;
-
-        // Используем сохраненное выделение или текущее
-        let savedRange: Range | null = savedSelectionRef.current;
-        const selection = window.getSelection();
-
-        // Если есть сохраненное выделение, используем его, иначе текущее
-        if (!savedRange && selection && selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            if (editorRef.current.contains(range.commonAncestorContainer)) {
-                savedRange = range.cloneRange();
-                savedSelectionRef.current = savedRange;
-            }
-        }
-
-        if (savedRange && editorRef.current.contains(savedRange.startContainer)) {
-            // Фокусируемся на редакторе
-            editorRef.current.focus();
-
-            // Восстанавливаем выделение перед применением команды
-            if (selection) {
-                selection.removeAllRanges();
-                selection.addRange(savedRange);
-            }
-
-            // Применяем форматирование
-            document.execCommand(command, false, value);
-
-            // Восстанавливаем выделение после применения
-            setTimeout(() => {
-                const newSelection = window.getSelection();
-                if (newSelection && savedRange && editorRef.current) {
-                    try {
-                        // Пытаемся восстановить выделение
-                        if (editorRef.current.contains(savedRange.startContainer)) {
-                            newSelection.removeAllRanges();
-                            newSelection.addRange(savedRange);
-                        } else {
-                            // Если не удалось, просто фокусируемся
-                            editorRef.current.focus();
-                        }
-                    } catch (e) {
-                        // Если не удалось, просто фокусируемся
-                        editorRef.current.focus();
-                    }
-                }
-                checkActiveStyles();
-            }, 0);
-
-            handleInput();
-        }
-    };
-
-    const handleColorChange = (color: string) => {
-        formatText('foreColor', color);
-        setCurrentColor(color);
-        setCustomColor(color);
-        setHasCustomColor(true);
-
-        // Сохраняем цвет в последние
-        saveRecentColor(color);
-        setRecentColors(getRecentColors());
-
-        setShowColorPicker(false);
-    };
-
-    const handleCustomColorChange = (
-        e: React.ChangeEvent<HTMLInputElement>
-    ) => {
-        const color = e.target.value;
-        setCustomColor(color);
-        if (/^#[0-9A-F]{6}$/i.test(color)) {
-            formatText('foreColor', color);
-            setCurrentColor(color);
-            setHasCustomColor(true);
-
-            // Сохраняем цвет в последние
-            saveRecentColor(color);
-            setRecentColors(getRecentColors());
-        }
-    };
-
-    const applyFontSize = (size: string) => {
-        if (!editorRef.current) return;
-
-        const selection = window.getSelection();
-        if (!selection) return;
-
-        if (selection.rangeCount === 0 || selection.isCollapsed) {
-            // Если нет выделения или курсор без выделения, применяем ко всему содержимому
-            editorRef.current.focus();
-
-            // Выделяем весь текст
-            const range = document.createRange();
-            range.selectNodeContents(editorRef.current);
-            selection.removeAllRanges();
-            selection.addRange(range);
-
-            // Применяем размер через execCommand
-            document.execCommand('fontSize', false, '7');
-
-            // Находим все созданные font элементы и заменяем их на span с нужным размером
-            const fontElements = editorRef.current.querySelectorAll('font[size="7"]');
-            fontElements.forEach((fontEl) => {
-                const span = document.createElement('span');
-                span.style.fontSize = `${size}px`; // Сохраняем в HTML
-                span.style.display = 'inline';
-
-                // Переносим все дочерние элементы
-                while (fontEl.firstChild) {
-                    span.appendChild(fontEl.firstChild);
-                }
-
-                // Заменяем font на span
-                fontEl.parentNode?.replaceChild(span, fontEl);
-            });
-
-            // Убираем выделение
-            selection.removeAllRanges();
-            handleInput();
-            return;
-        }
-
-        const range = selection.getRangeAt(0);
-        if (!editorRef.current.contains(range.commonAncestorContainer)) return;
-
-        // Сохраняем выделение
-        const savedRange = range.cloneRange();
-
-        // Применяем размер через execCommand
-        editorRef.current.focus();
-        if (selection) {
-            selection.removeAllRanges();
-            selection.addRange(savedRange);
-
-            document.execCommand('fontSize', false, '7');
-
-            // Находим все созданные font элементы в выделенной области и заменяем их
-            const fontElements = editorRef.current.querySelectorAll('font[size="7"]');
-            fontElements.forEach((fontEl) => {
-                const span = document.createElement('span');
-                span.style.fontSize = `${size}px`; // Сохраняем в HTML
-                span.style.display = 'inline';
-
-                while (fontEl.firstChild) {
-                    span.appendChild(fontEl.firstChild);
-                }
-
-                fontEl.parentNode?.replaceChild(span, fontEl);
-            });
-
-            // Восстанавливаем выделение
-            try {
-                selection.removeAllRanges();
-                selection.addRange(savedRange);
-            } catch (e) {
-                // Игнорируем ошибки восстановления
-            }
-        }
-
-        handleInput();
-    };
-
-    return (
-        <div className="space-y-2">
-            {/* Панель инструментов */}
-            <div className="flex items-center gap-2 p-2 bg-zinc-800 border border-zinc-700 rounded-t">
-                <button
-                    type="button"
-                    onClick={() => formatText('bold')}
-                    className={`p-1.5 rounded transition-colors cursor-pointer ${isBold
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'hover:bg-zinc-700 text-zinc-300'
-                        }`}
-                    title="Жирный (Ctrl+B)"
-                >
-                    <Bold className="w-4 h-4" />
-                </button>
-                <button
-                    type="button"
-                    onClick={() => formatText('italic')}
-                    className={`p-1.5 rounded transition-colors cursor-pointer ${isItalic
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'hover:bg-zinc-700 text-zinc-300'
-                        }`}
-                    title="Курсив (Ctrl+I)"
-                >
-                    <Italic className="w-4 h-4" />
-                </button>
-                <button
-                    type="button"
-                    onClick={() => formatText('justifyCenter')}
-                    className={`p-1.5 rounded transition-colors cursor-pointer ${isCentered
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'hover:bg-zinc-700 text-zinc-300'
-                        }`}
-                    title="Выровнять по центру"
-                >
-                    <AlignCenter className="w-4 h-4" />
-                </button>
-                <div className="relative" ref={colorPickerRef}>
-                    <button
-                        type="button"
-                        onClick={handleColorPickerToggle}
-                        className={`p-1.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${showColorPicker
-                            ? 'bg-zinc-700'
-                            : 'hover:bg-zinc-700 text-zinc-300'
-                            }`}
-                        title="Цвет текста"
-                    >
-                        <Palette className="w-4 h-4" />
-                        {hasCustomColor && (
-                            <div
-                                className="w-3 h-3 rounded border border-zinc-500"
-                                style={{ backgroundColor: currentColor }}
-                            />
-                        )}
-                    </button>
-                    {showColorPicker && (
-                        <div className="absolute left-0 top-full mt-1 bg-zinc-800 border border-zinc-700 rounded p-3 shadow-lg z-50 min-w-[200px]">
-                            {/* Последние выбранные цвета */}
-                            {recentColors.length > 0 && (
-                                <div className="mb-3">
-                                    <label className="block text-xs text-zinc-400 mb-1">
-                                        Последние
-                                    </label>
-                                    <div className="grid grid-cols-4 gap-1">
-                                        {recentColors.map((color) => (
-                                            <button
-                                                key={color}
-                                                type="button"
-                                                onClick={() =>
-                                                    handleColorChange(color)
-                                                }
-                                                className="w-6 h-6 rounded border border-zinc-600 hover:scale-110 transition-transform cursor-pointer"
-                                                style={{
-                                                    backgroundColor: color,
-                                                }}
-                                                title={color}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Цвета сайта */}
-                            <div className={recentColors.length > 0 ? "mb-3" : "mb-2"}>
-                                <label className="block text-xs text-zinc-400 mb-1">
-                                    {recentColors.length > 0 ? "Цвета сайта" : "Быстрые цвета"}
-                                </label>
-                                <div className="grid grid-cols-4 gap-1">
-                                    {siteColors.map((color) => (
-                                        <button
-                                            key={color.value}
-                                            type="button"
-                                            onClick={() =>
-                                                handleColorChange(color.value)
-                                            }
-                                            className="w-6 h-6 rounded border border-zinc-600 hover:scale-110 transition-transform cursor-pointer"
-                                            style={{
-                                                backgroundColor: color.value,
-                                            }}
-                                            title={color.name}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="pt-2 border-t border-zinc-700">
-                                <label className="block text-xs text-zinc-400 mb-1">
-                                    Выбрать цвет
-                                </label>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="color"
-                                        value={customColor}
-                                        onChange={handleCustomColorChange}
-                                        aria-label="Выбрать цвет"
-                                        className="w-10 h-8 rounded border border-zinc-600 cursor-pointer"
-                                    />
-                                    <input
-                                        type="text"
-                                        value={customColor}
-                                        placeholder="#000000"
-                                        onChange={(e) => {
-                                            const input = e.currentTarget;
-                                            const cursorPosition = input.selectionStart || 0;
-                                            const color = e.target.value;
-                                            setCustomColor(color);
-                                            if (/^#[0-9A-F]{6}$/i.test(color)) {
-                                                formatText('foreColor', color);
-                                                setCurrentColor(color);
-                                                setHasCustomColor(true);
-                                            }
-                                            setTimeout(() => {
-                                                input.setSelectionRange(cursorPosition, cursorPosition);
-                                            }, 0);
-                                        }}
-                                        className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-                {/* Размер шрифта */}
-                <div className="flex items-center gap-1.5 pl-2 border-l border-zinc-700">
-                    <span className="text-xs text-zinc-400 whitespace-nowrap">Размер:</span>
-                    <input
-                        type="number"
-                        min="8"
-                        max="200"
-                        placeholder={defaultFontSize}
-                        className="w-14 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                const input = e.currentTarget;
-                                const size = input.value;
-                                if (size && parseInt(size) >= 8 && parseInt(size) <= 200) {
-                                    applyFontSize(size);
-                                    input.blur();
-                                }
-                            }
-                        }}
-                        onBlur={(e) => {
-                            const size = e.target.value;
-                            if (size && parseInt(size) >= 8 && parseInt(size) <= 200) {
-                                applyFontSize(size);
-                            }
-                        }}
-                    />
-                    <span className="text-xs text-zinc-400">px</span>
-                </div>
-            </div>
-            {/* Редактор */}
-            <div
-                ref={editorRef}
-                contentEditable
-                onInput={handleInput}
-                onPaste={handlePaste}
-                onFocus={(e) => {
-                    // Убираем placeholder при фокусе
-                    const el = e.currentTarget;
-                    if (el.textContent?.trim() === '' && el.innerHTML === '<br>') {
-                        el.innerHTML = '';
-                    }
-                }}
-                onBlur={(e) => {
-                    // Добавляем <br> если редактор пустой, чтобы placeholder работал
-                    const el = e.currentTarget;
-                    if (!el.textContent?.trim()) {
-                        el.innerHTML = '<br>';
-                    }
-                }}
-                className="w-full bg-zinc-800 border border-zinc-700 border-t-0 rounded-b px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none relative"
-                style={{
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    minHeight,
-                    color: 'rgb(228, 228, 231)', // zinc-200 - убеждаемся что текст виден
-                    margin: 0,
-                    textIndent: 0,
-                    textAlign: 'left',
-                    fontSize: 'inherit' // Используем стандартный размер шрифта в редакторе
-                }}
-                data-placeholder={placeholder}
-                suppressContentEditableWarning
-            />
-        </div>
-    );
-});
 
 export default function EditReportPage() {
     const router = useRouter();
@@ -1996,12 +1073,15 @@ export default function EditReportPage() {
                                         Название отчёта *
                                     </label>
                                     <FormattedTextEditor
+                                        editorId="report:title"
                                         value={report.title}
                                         onChange={(value) =>
                                             markMetadataDirty({ title: value })
                                         }
                                         placeholder="Отчёт по аудиту сайта"
                                         minHeight="60px"
+                                        defaultFontSize="40"
+                                        mode="inline"
                                     />
                                 </div>
                                 <div>
@@ -2009,11 +1089,13 @@ export default function EditReportPage() {
                                         Описание (опционально)
                                     </label>
                                     <FormattedTextEditor
+                                        editorId="report:subtitle"
                                         value={report.subtitle || ''}
                                         onChange={(value) =>
                                             markMetadataDirty({ subtitle: value })
                                         }
                                         placeholder="Анализ производительности и SEO"
+                                        mode="block"
                                     />
                                 </div>
                                 <div>

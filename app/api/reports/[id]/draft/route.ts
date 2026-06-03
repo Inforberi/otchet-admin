@@ -9,6 +9,7 @@ import type { ReportBlockFromDB } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
 import { requireAdminMiddleware } from '@/lib/auth-helpers';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
+import { sanitizeRichTextHtml } from '@/lib/rich-text-sanitize';
 
 const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
@@ -63,6 +64,58 @@ const getFullReport = async (id: string) =>
         },
     });
 
+const sanitizeDraftMetadata = (report: DraftMetadata): DraftMetadata => ({
+    title: sanitizeRichTextHtml(report.title),
+    subtitle:
+        report.subtitle === null
+            ? null
+            : sanitizeRichTextHtml(report.subtitle),
+    client: report.client,
+    date: report.date,
+    titleFontSize: report.titleFontSize,
+    descriptionFontSize: report.descriptionFontSize,
+    captionFontSize: report.captionFontSize,
+});
+
+const sanitizeDraftBlocks = (
+    blocks: DraftBlockSnapshot[]
+): DraftBlockSnapshot[] =>
+    blocks.map((block) => {
+        if (block.type === 'text') {
+            const data = block.data as Extract<
+                ReportBlockFromDB['data'],
+                { content: string }
+            >;
+
+            return {
+                ...block,
+                data: {
+                    ...data,
+                    title: sanitizeRichTextHtml(data.title ?? ''),
+                    content: sanitizeRichTextHtml(data.content ?? ''),
+                } as Extract<ReportBlockFromDB['data'], { content: string }>,
+            };
+        }
+
+        if (block.type === 'screenshot') {
+            const data = block.data as Extract<
+                ReportBlockFromDB['data'],
+                { images: unknown[] }
+            >;
+
+            return {
+                ...block,
+                data: {
+                    ...data,
+                    title: sanitizeRichTextHtml(data.title ?? ''),
+                    description: sanitizeRichTextHtml(data.description ?? ''),
+                } as Extract<ReportBlockFromDB['data'], { images: unknown[] }>,
+            };
+        }
+
+        return block;
+    });
+
 export const PATCH = async (
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
@@ -92,7 +145,10 @@ export const PATCH = async (
             );
         }
 
-        const sortedBlocks = [...body.blocks].sort((a, b) => a.position - b.position);
+        const sanitizedReport = sanitizeDraftMetadata(body.report);
+        const sortedBlocks = sanitizeDraftBlocks(body.blocks).sort(
+            (a, b) => a.position - b.position
+        );
 
         await prisma.$transaction(async (tx) => {
             const currentReport = await tx.report.findUnique({
@@ -113,30 +169,30 @@ export const PATCH = async (
             }
 
             const nextReportState = {
-                title: body.report?.title ?? currentReport.title,
+                title: sanitizedReport.title ?? currentReport.title,
                 subtitle:
-                    body.report?.subtitle !== undefined
-                        ? body.report.subtitle
+                    sanitizedReport.subtitle !== undefined
+                        ? sanitizedReport.subtitle
                         : currentReport.subtitle,
                 client:
-                    body.report?.client !== undefined
-                        ? body.report.client
+                    sanitizedReport.client !== undefined
+                        ? sanitizedReport.client
                         : currentReport.client,
                 date:
-                    body.report?.date !== undefined
-                        ? body.report.date
+                    sanitizedReport.date !== undefined
+                        ? sanitizedReport.date
                         : currentReport.date,
                 titleFontSize:
-                    body.report?.titleFontSize !== undefined
-                        ? body.report.titleFontSize
+                    sanitizedReport.titleFontSize !== undefined
+                        ? sanitizedReport.titleFontSize
                         : currentReport.titleFontSize,
                 descriptionFontSize:
-                    body.report?.descriptionFontSize !== undefined
-                        ? body.report.descriptionFontSize
+                    sanitizedReport.descriptionFontSize !== undefined
+                        ? sanitizedReport.descriptionFontSize
                         : currentReport.descriptionFontSize,
                 captionFontSize:
-                    body.report?.captionFontSize !== undefined
-                        ? body.report.captionFontSize
+                    sanitizedReport.captionFontSize !== undefined
+                        ? sanitizedReport.captionFontSize
                         : currentReport.captionFontSize,
             };
 
