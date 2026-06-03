@@ -7,6 +7,7 @@ import type {
     DividerBlockData,
     ScreenshotBlockData,
     TextBlockData,
+    TaskBlockData,
 } from '@/lib/db-types';
 import {
     applyStoredDraftSnapshot,
@@ -24,7 +25,7 @@ export type SyncStatus =
     | 'conflict'
     | 'error';
 
-type BlockData = TextBlockData | ScreenshotBlockData | DividerBlockData;
+type BlockData = TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData;
 type FlushReason = 'manual' | 'autosave' | 'publish' | 'hidden';
 
 type DraftSaveResponse = {

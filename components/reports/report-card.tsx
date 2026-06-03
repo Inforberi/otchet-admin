@@ -3,6 +3,10 @@
 import { Calendar, Edit, Eye, FileText, Trash2, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { ReportFromDB } from '@/lib/db-types';
+import {
+    getReportEditPublicPath,
+    getReportPublicPath,
+} from '@/lib/report-paths';
 
 interface ReportCardProps {
     report: ReportFromDB;
@@ -95,7 +99,7 @@ export const ReportCard = ({
 
             <div className="mt-4 flex flex-shrink-0 items-center gap-2">
                 <button
-                    onClick={() => router.push(`/reports/${report.id}`)}
+                    onClick={() => router.push(getReportPublicPath(report))}
                     className="flex flex-1 items-center justify-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-3 py-2 text-sm text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
                 >
                     <Eye className="h-4 w-4" />
@@ -103,7 +107,7 @@ export const ReportCard = ({
                 </button>
                 {isAdmin && (
                     <button
-                        onClick={() => router.push(`/reports/${report.id}/edit`)}
+                        onClick={() => router.push(getReportEditPublicPath(report))}
                         className="flex flex-1 items-center justify-center gap-2 rounded-md bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
                     >
                         <Edit className="h-4 w-4" />

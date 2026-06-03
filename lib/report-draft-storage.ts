@@ -1,5 +1,5 @@
 import type { DraftMetadata } from '@/lib/draft-hash';
-import type { ReportBlockFromDB, ReportFromDB } from '@/lib/db-types';
+import type { ImageData, PhotoBlockLayout, ReportBlockFromDB, ReportFromDB } from '@/lib/db-types';
 
 const STORAGE_KEY_PREFIX = 'report-editor-draft:';
 
@@ -8,6 +8,11 @@ export type StoredDraftBlock = {
     type: ReportBlockFromDB['type'];
     position: number;
     data: ReportBlockFromDB['data'];
+    taskCompletedAt?: string | null;
+    taskCompletedByUserId?: string | null;
+    taskCompletionNotes?: string | null;
+    taskCompletionImages?: ImageData[] | null;
+    taskCompletionLayout?: PhotoBlockLayout | null;
 };
 
 export type StoredDraftSnapshot = {
@@ -70,6 +75,17 @@ export const buildStoredDraftSnapshot = (
             type: block.type,
             position: block.position,
             data: block.data,
+            ...(block.type === 'task'
+                ? {
+                      taskCompletedAt: block.taskCompletedAt
+                          ? String(block.taskCompletedAt)
+                          : null,
+                      taskCompletedByUserId: block.taskCompletedByUserId ?? null,
+                      taskCompletionNotes: block.taskCompletionNotes ?? null,
+                      taskCompletionImages: block.taskCompletionImages ?? null,
+                      taskCompletionLayout: block.taskCompletionLayout ?? null,
+                  }
+                : {}),
         })),
 });
 
@@ -132,12 +148,35 @@ export const loadStoredDraftSnapshot = (
                 type:
                     block?.type === 'divider' ||
                     block?.type === 'screenshot' ||
-                    block?.type === 'text'
+                    block?.type === 'text' ||
+                    block?.type === 'task'
                         ? block.type
                         : 'text',
                 position:
                     typeof block?.position === 'number' ? block.position : index,
                 data: block?.data as ReportBlockFromDB['data'],
+                taskCompletedAt:
+                    typeof block?.taskCompletedAt === 'string'
+                        ? block.taskCompletedAt
+                        : null,
+                taskCompletedByUserId:
+                    typeof block?.taskCompletedByUserId === 'string'
+                        ? block.taskCompletedByUserId
+                        : null,
+                taskCompletionNotes:
+                    typeof block?.taskCompletionNotes === 'string'
+                        ? block.taskCompletionNotes
+                        : null,
+                taskCompletionImages: Array.isArray(block?.taskCompletionImages)
+                    ? (block.taskCompletionImages as ImageData[])
+                    : null,
+                taskCompletionLayout:
+                    block?.taskCompletionLayout === 'full-width' ||
+                    block?.taskCompletionLayout === 'two-column' ||
+                    block?.taskCompletionLayout === 'sidebar' ||
+                    block?.taskCompletionLayout === 'sidebar-reverse'
+                        ? block.taskCompletionLayout
+                        : null,
             })),
         };
     } catch {
@@ -177,6 +216,26 @@ export const applyStoredDraftSnapshot = (
                     version: existing?.version ?? 1,
                     createdAt: existing?.createdAt ?? savedAt,
                     updatedAt: existing?.updatedAt ?? savedAt,
+                    taskCompletedAt:
+                        block.taskCompletedAt ??
+                        existing?.taskCompletedAt ??
+                        null,
+                    taskCompletedByUserId:
+                        block.taskCompletedByUserId ??
+                        existing?.taskCompletedByUserId ??
+                        null,
+                    taskCompletionNotes:
+                        block.taskCompletionNotes ??
+                        existing?.taskCompletionNotes ??
+                        null,
+                    taskCompletionImages:
+                        block.taskCompletionImages ??
+                        existing?.taskCompletionImages ??
+                        null,
+                    taskCompletionLayout:
+                        block.taskCompletionLayout ??
+                        existing?.taskCompletionLayout ??
+                        null,
                 };
             }),
     };

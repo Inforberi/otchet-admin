@@ -35,11 +35,13 @@ export interface ImageData {
     center?: boolean;
 }
 
+export type PhotoBlockLayout = 'full-width' | 'sidebar' | 'sidebar-reverse' | 'two-column';
+
 // Данные скриншот-блока в БД
 export interface ScreenshotBlockData extends BaseBlockData {
     description?: string;
     images: ImageData[];
-    layout?: 'full-width' | 'sidebar' | 'sidebar-reverse' | 'two-column'; // добавили sidebar-reverse и two-column
+    layout?: PhotoBlockLayout;
     imageSize?: 'small' | 'medium' | 'large';
     customWidth?: string;
     spacing?: 'small' | 'medium' | 'large'; // отступы между изображениями
@@ -50,14 +52,32 @@ export interface DividerBlockData {
     [key: string]: never;
 }
 
+// Данные блока-задачи
+export interface TaskBlockData {
+    title: string;
+    description: string;
+    images: ImageData[];
+    layout?: PhotoBlockLayout;
+    createdAt: string; // ISO date, auto-set when block is added
+    startDate: string | null; // дата начала (manual if no assignee)
+    deadline: string | null; // крайний срок
+    assigneeId: string | null;
+    assigneeName: string | null;
+}
+
 // Тип блока из БД (с id, type, position)
 export interface ReportBlockFromDB {
     id: string;
     reportId: string;
-    type: 'text' | 'screenshot' | 'divider';
+    type: 'text' | 'screenshot' | 'divider' | 'task';
     position: number;
     version: number;
-    data: TextBlockData | ScreenshotBlockData | DividerBlockData;
+    data: TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData;
+    taskCompletedAt?: Date | string | null;
+    taskCompletedByUserId?: string | null;
+    taskCompletionNotes?: string | null;
+    taskCompletionImages?: ImageData[] | null;
+    taskCompletionLayout?: PhotoBlockLayout | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -112,14 +132,14 @@ export interface UpdateReportInput extends Partial<CreateReportInput> {
 
 export interface CreateBlockInput {
     reportId: string;
-    type: 'text' | 'screenshot' | 'divider';
+    type: 'text' | 'screenshot' | 'divider' | 'task';
     position: number;
-    data: TextBlockData | ScreenshotBlockData | DividerBlockData;
+    data: TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData;
 }
 
 export interface UpdateBlockInput {
     id: string;
-    data?: TextBlockData | ScreenshotBlockData | DividerBlockData;
+    data?: TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData;
     position?: number;
     expectedReportVersion?: number;
 }

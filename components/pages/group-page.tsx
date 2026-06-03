@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Calendar, FileText, FolderOpen, Plus, Search, Settings, X } from 'lucide-react';
 import { AppPageHeader } from '@/components/layout/app-page-header';
 import type { ReportFromDB } from '@/lib/db-types';
@@ -16,6 +16,7 @@ import {
     getEmptyPeriodText,
     getPeriodSummary,
 } from '@/lib/report-date-range';
+import { getReportEditPublicPath } from '@/lib/report-paths';
 
 interface GroupBreadcrumbItem {
     id: string;
@@ -51,14 +52,12 @@ interface ReportGroup {
     children: GroupChild[];
 }
 
-export default function GroupReportsPage() {
+interface GroupPageProps {
+    groupPath: string[];
+}
+
+export default function GroupPage({ groupPath }: GroupPageProps) {
     const router = useRouter();
-    const params = useParams();
-    const rawGroupPath = params.groupPath;
-    const groupPath = useMemo(() => {
-        if (Array.isArray(rawGroupPath)) return rawGroupPath;
-        return rawGroupPath ? [rawGroupPath] : [];
-    }, [rawGroupPath]);
     const groupPathString = useMemo(() => groupPath.join('/'), [groupPath]);
     const defaultDateRange = getCurrentMonthDateRange();
     const { canEdit } = useUserRole();
@@ -111,6 +110,7 @@ export default function GroupReportsPage() {
 
     useEffect(() => {
         loadGroup();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [groupPathString]);
 
     useEffect(() => {
@@ -146,6 +146,7 @@ export default function GroupReportsPage() {
             }
             abortController.abort();
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [group?.id, search, dateFrom, dateTo, allTime]);
 
     useEffect(() => {
@@ -616,7 +617,12 @@ export default function GroupReportsPage() {
                         groupName={group.name}
                         onCreated={async (report) => {
                             await loadReports();
-                            router.push(`/reports/${report.id}/edit`);
+                            router.push(
+                                getReportEditPublicPath({
+                                    slug: report.slug,
+                                    group: { path: group.path },
+                                })
+                            );
                         }}
                     />
                 </>

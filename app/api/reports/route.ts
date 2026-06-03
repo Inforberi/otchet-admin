@@ -65,6 +65,9 @@ export async function GET(request: NextRequest) {
             where: Object.keys(where).length > 0 ? where : undefined,
             orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
             include: {
+                group: {
+                    select: { id: true, name: true, path: true },
+                },
                 blocks: {
                     orderBy: { position: 'asc' },
                 },

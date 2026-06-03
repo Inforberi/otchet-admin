@@ -14,6 +14,7 @@ import { formatDateInputValue } from '@/lib/report-date-range';
 interface CreatedReport {
     id: string;
     title: string;
+    slug?: string | null;
 }
 
 interface CreateReportDialogProps {

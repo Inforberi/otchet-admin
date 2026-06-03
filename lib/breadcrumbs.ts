@@ -1,3 +1,5 @@
+import { getReportPublicPath, getReportEditPublicPath, type ReportPublicPathInput } from '@/lib/report-paths';
+
 export type BreadcrumbItem = {
     label: string;
     href?: string;
@@ -8,6 +10,8 @@ export type GroupAncestor = {
     name: string;
     path: string;
 };
+
+export type ReportBreadcrumbPath = ReportPublicPathInput;
 
 export const ROOT_GROUPS_CRUMB: BreadcrumbItem = {
     label: 'Группы',
@@ -31,26 +35,11 @@ export const buildGroupBreadcrumbs = (
     return items;
 };
 
-export const buildReportEditBreadcrumbs = (
-    ancestors: GroupAncestor[],
-    group: { name: string; path: string } | null | undefined,
-    reportTitle: string,
-    reportId: string
-): BreadcrumbItem[] => {
-    const items = buildReportViewBreadcrumbs(ancestors, group, reportTitle);
-    const last = items[items.length - 1];
-    if (last) {
-        last.href = `/reports/${reportId}`;
-        last.label = stripHtml(last.label) || 'Отчёт';
-    }
-    items.push({ label: 'Редактор' });
-    return items;
-};
-
 export const buildReportViewBreadcrumbs = (
     ancestors: GroupAncestor[],
     group: { name: string; path: string } | null | undefined,
-    reportTitle: string
+    reportTitle: string,
+    reportPath?: ReportBreadcrumbPath | null
 ): BreadcrumbItem[] => {
     if (!group) {
         return [{ label: stripHtml(reportTitle) || 'Отчёт' }];
@@ -61,7 +50,28 @@ export const buildReportViewBreadcrumbs = (
     if (last && !last.href) {
         last.href = `/${group.path}`;
     }
-    items.push({ label: stripHtml(reportTitle) || 'Отчёт' });
+
+    const href = reportPath ? getReportPublicPath(reportPath) : undefined;
+    items.push({ label: stripHtml(reportTitle) || 'Отчёт', href });
+    return items;
+};
+
+export const buildReportEditBreadcrumbs = (
+    ancestors: GroupAncestor[],
+    group: { name: string; path: string } | null | undefined,
+    reportTitle: string,
+    reportPath?: ReportBreadcrumbPath | null
+): BreadcrumbItem[] => {
+    const items = buildReportViewBreadcrumbs(ancestors, group, reportTitle, reportPath);
+    const last = items[items.length - 1];
+    if (last) {
+        if (reportPath) {
+            last.href = getReportPublicPath(reportPath);
+        }
+        last.label = stripHtml(last.label) || 'Отчёт';
+    }
+    const editHref = reportPath ? getReportEditPublicPath(reportPath) : undefined;
+    items.push({ label: 'Редактор', href: editHref });
     return items;
 };
 

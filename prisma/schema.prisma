@@ -113,14 +113,19 @@ model Report {
 
 // Блоки внутри отчета
 model ReportBlock {
-  id        String   @id @default(uuid())
-  reportId  String   @map("report_id")
-  type      String   // text | screenshot
-  position  Int      // порядок блока
-  data      Json     // содержимое блока (title, content, images, layout, etc.)
-  version   Int      @default(1)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  reportId              String    @map("report_id")
+  type                  String    // text | screenshot | divider | task
+  position              Int       // порядок блока
+  data                  Json      // содержимое блока (title, content, images, layout, etc.)
+  version               Int       @default(1)
+  taskCompletedAt         DateTime? @map("task_completed_at")
+  taskCompletedByUserId   String?   @map("task_completed_by_user_id")
+  taskCompletionNotes     String?   @map("task_completion_notes")
+  taskCompletionImages    Json?     @map("task_completion_images")
+  taskCompletionLayout    String?   @map("task_completion_layout")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
 

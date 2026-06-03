@@ -19,7 +19,7 @@ const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
 type DraftBlockSnapshot = {
     id?: string;
-    type: 'text' | 'screenshot' | 'divider';
+    type: 'text' | 'screenshot' | 'divider' | 'task';
     position: number;
     data: ReportBlockFromDB['data'];
 };
@@ -114,6 +114,22 @@ const sanitizeDraftBlocks = (
                     title: sanitizeRichTextHtml(data.title ?? ''),
                     description: sanitizeRichTextHtml(data.description ?? ''),
                 } as Extract<ReportBlockFromDB['data'], { images: unknown[] }>,
+            };
+        }
+
+        if (block.type === 'task') {
+            const data = block.data as Extract<
+                ReportBlockFromDB['data'],
+                { createdAt: string }
+            >;
+
+            return {
+                ...block,
+                data: {
+                    ...data,
+                    title: sanitizeRichTextHtml(data.title ?? ''),
+                    description: sanitizeRichTextHtml(data.description ?? ''),
+                } as Extract<ReportBlockFromDB['data'], { createdAt: string }>,
             };
         }
 
