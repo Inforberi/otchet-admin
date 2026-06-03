@@ -38,6 +38,7 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { TaskBlockCard } from '@/components/report/task-block-card';
+import { generateClientId } from '@/lib/generate-id';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
 import {
     buildByPathReportApiUrl,
@@ -757,7 +758,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
             const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
             const duplicatedBlock: ReportBlockFromDB = {
                 ...blockToDup,
-                id: crypto.randomUUID(),
+                id: generateClientId(),
                 position: 0,
                 version: 1,
                 createdAt: new Date(),
@@ -796,7 +797,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
             };
             const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
             const newBlock: ReportBlockFromDB = {
-                id: crypto.randomUUID(),
+                id: generateClientId(),
                 reportId,
                 type,
                 position: 0,

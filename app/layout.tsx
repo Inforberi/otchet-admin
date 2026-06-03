@@ -18,6 +18,10 @@ export const metadata: Metadata = {
     },
 };
 
+const enableVercelAnalytics =
+    process.env.VERCEL === '1' ||
+    process.env.NEXT_PUBLIC_ENABLE_VERCEL_ANALYTICS === 'true';
+
 export default function RootLayout({
     children,
 }: Readonly<{
@@ -27,7 +31,7 @@ export default function RootLayout({
         <html lang="ru">
             <body className={`font-sans antialiased`}>
                 {children}
-                <Analytics />
+                {enableVercelAnalytics ? <Analytics /> : null}
             </body>
         </html>
     );
