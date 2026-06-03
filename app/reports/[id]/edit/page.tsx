@@ -61,6 +61,43 @@ const FormattedTextEditor = dynamic(
     }
 );
 
+const stripHtml = (value: string | null | undefined): string =>
+    (value ?? '')
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const truncateText = (value: string, maxLength = 48): string =>
+    value.length <= maxLength ? value : `${value.slice(0, maxLength).trim()}...`;
+
+const getBlockPreview = (block: ReportBlockFromDB | { type: ReportBlockFromDB['type']; data: ReportBlockFromDB['data'] }): string => {
+    if (block.type === 'text') {
+        const data = block.data as TextBlockData;
+        const title = stripHtml(data.title);
+        if (title) return title;
+
+        const content = stripHtml(data.content);
+        if (content) return content;
+
+        return 'Текстовый блок';
+    }
+
+    if (block.type === 'screenshot') {
+        const data = block.data as ScreenshotBlockData;
+        const title = stripHtml(data.title);
+        if (title) return title;
+
+        const description = stripHtml(data.description);
+        if (description) return description;
+
+        return `Фото (${data.images?.length || 0})`;
+    }
+
+    return 'Разделитель';
+};
+
 // Компактная карточка блока в sidebar
 const SortableBlockCard = memo(function SortableBlockCard({
     block,
@@ -90,20 +127,10 @@ const SortableBlockCard = memo(function SortableBlockCard({
         opacity: isDragging ? 0.5 : 1,
     }), [transform, transition, isDragging]);
 
-    const blockTitle = useMemo(() => {
-        if (block.type === 'text') {
-            const data = block.data as TextBlockData;
-            if (data.title) return data.title.substring(0, 30);
-            if (data.content) return data.content.substring(0, 30);
-            return 'Текстовый блок';
-        } else if (block.type === 'screenshot') {
-            const data = block.data as ScreenshotBlockData;
-            if (data.title) return data.title.substring(0, 30);
-            return `Фото (${data.images?.length || 0})`;
-        } else {
-            return 'Разделитель';
-        }
-    }, [block.type, block.data]);
+    const blockTitle = useMemo(
+        () => truncateText(getBlockPreview(block), 30),
+        [block]
+    );
 
     const handleSelect = useCallback(() => {
         onSelect(block.id);
@@ -221,6 +248,20 @@ function BlockEditor({
         }, 100);
         return () => clearTimeout(debounce);
     }, [localData, block.id, onLocalChange]);
+
+    const blockPreview = useMemo(
+        () =>
+            block.type === 'divider'
+                ? 'Разделительная линия'
+                : truncateText(
+                      getBlockPreview({
+                          type: block.type,
+                          data: localData as ReportBlockFromDB['data'],
+                      }),
+                      72
+                  ),
+        [block.type, localData]
+    );
 
     const processFiles = useCallback(async (files: FileList | File[]) => {
         if (!files || files.length === 0) return;
@@ -459,14 +500,19 @@ function BlockEditor({
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-zinc-800">
                 <div className="flex items-center gap-3">
-                    <span
-                        className={`px-2.5 py-1 text-xs font-medium rounded ${block.type === 'text'
+                    <div className="flex items-center gap-4">
+                        <span
+                            className={`px-2.5 py-1 text-xs font-medium rounded ${block.type === 'text'
                             ? 'bg-green-600 text-white'
                             : 'bg-blue-600 text-white'
-                            }`}
-                    >
-                        {block.type === 'text' ? 'Текст' : 'Фото'}
-                    </span>
+                                }`}
+                        >
+                            {block.type === 'text' ? 'Текст' : 'Фото'}
+                        </span>
+                        <p className="text-lg font-medium text-zinc-200">
+                            {blockPreview}
+                        </p>
+                    </div>
                 </div>
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
