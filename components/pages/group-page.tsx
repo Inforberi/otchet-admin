@@ -65,7 +65,8 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     const [group, setGroup] = useState<ReportGroup | null>(null);
     const [breadcrumbs, setBreadcrumbs] = useState<GroupBreadcrumbItem[]>([]);
     const [reports, setReports] = useState<ReportFromDB[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [groupLoading, setGroupLoading] = useState(true);
+    const [reportsLoading, setReportsLoading] = useState(false);
     const [search, setSearch] = useState('');
     const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom);
     const [dateTo, setDateTo] = useState(defaultDateRange.dateTo);
@@ -164,7 +165,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
 
     const loadGroup = async () => {
         try {
-            setLoading(true);
+            setGroupLoading(true);
             const response = await fetch(`/api/groups/by-path/${groupPathString}`);
 
             if (!response.ok) {
@@ -181,7 +182,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
             setGroup(null);
             setBreadcrumbs([]);
         } finally {
-            setLoading(false);
+            setGroupLoading(false);
         }
     };
 
@@ -189,7 +190,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
         if (!group?.id) return;
 
         try {
-            setLoading(true);
+            setReportsLoading(true);
 
             const params = new URLSearchParams();
             params.append('groupId', group.id);
@@ -216,7 +217,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
             }
             console.error('Error loading reports:', error);
         } finally {
-            setLoading(false);
+            setReportsLoading(false);
         }
     };
 
@@ -314,7 +315,13 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
         }
     };
 
-    if (loading && !group) {
+    const hasSubgroups = (group?.children.length ?? 0) > 0;
+    const showLargeEmpty =
+        !reportsLoading && reports.length === 0 && !hasSubgroups;
+    const showCompactNoReports =
+        !reportsLoading && reports.length === 0 && hasSubgroups;
+
+    if (groupLoading && !group) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-[var(--color-grayscale-16)]">
                 <div className="text-[var(--color-grayscale-6)]">Загрузка...</div>
@@ -322,7 +329,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
         );
     }
 
-    if (!loading && !group) {
+    if (!groupLoading && !group) {
         return (
             <div className="min-h-screen bg-[var(--color-grayscale-16)]">
                 <AppPageHeader
@@ -505,91 +512,83 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                     </section>
                 )}
 
-                {loading ? (
-                    <section>
-                        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                            <div>
-                                <h2 className="text-xl font-semibold text-[var(--color-grayscale-2)]">
-                                    Отчёты
-                                </h2>
-                                <p className="text-sm text-[var(--color-grayscale-6)]">
-                                    {group._count.reports} отчетов в текущей группе
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="mb-6 flex flex-col gap-4 sm:flex-row">
-                            <div className="relative flex-1">
-                                <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-grayscale-6)]" />
-                                <input
-                                    type="text"
-                                    placeholder="Поиск по названию или клиенту..."
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    className="w-full rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-10 py-2 text-[var(--color-grayscale-2)] placeholder-[var(--color-grayscale-6)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="py-12 text-center text-[var(--color-grayscale-6)]">
-                            Загрузка...
-                        </div>
-                    </section>
-                ) : reports.length > 0 ? (
-                    <section>
-                        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                            <div>
-                                <h2 className="text-xl font-semibold text-[var(--color-grayscale-2)]">
-                                    Отчёты
-                                </h2>
-                                <p className="text-sm text-[var(--color-grayscale-6)]">
-                                    {group._count.reports} отчетов в текущей группе
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="mb-6">
-                            <div className="relative flex-1">
-                                <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-grayscale-6)]" />
-                                <input
-                                    type="text"
-                                    placeholder="Поиск по названию или клиенту..."
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    className="w-full rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-10 py-2 text-[var(--color-grayscale-2)] placeholder-[var(--color-grayscale-6)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                            {reports.map((report) => (
-                                <ReportCard
-                                    key={report.id}
-                                    report={report}
-                                    isAdmin={canEdit}
-                                    deleteConfirmId={deleteConfirm}
-                                    onAskDelete={setDeleteConfirm}
-                                    onCancelDelete={() => setDeleteConfirm(null)}
-                                    onDelete={handleDelete}
-                                />
-                            ))}
-                        </div>
-                    </section>
-                ) : (
-                    <section>
-                        <div className="rounded-2xl border border-dashed border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-6 py-14 text-center">
-                            <FileText className="mx-auto h-12 w-12 text-[var(--color-grayscale-6)]" />
-                            <h2 className="mt-5 text-2xl font-semibold text-[var(--color-grayscale-2)]">
-                                Отчётов пока нет
+                <section>
+                    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                            <h2 className="text-xl font-semibold text-[var(--color-grayscale-2)]">
+                                Отчёты
                             </h2>
-                            <p className="mt-3 text-[var(--color-grayscale-6)]">
-                                {search
-                                    ? `По текущему поиску и периоду результатов нет. ${emptyPeriodText}`
-                                    : emptyPeriodText}
+                            <p className="text-sm text-[var(--color-grayscale-6)]">
+                                {group._count.reports} отчетов в текущей группе
                             </p>
                         </div>
-                    </section>
-                )}
+                    </div>
+
+                    <div className="mb-6">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-grayscale-6)]" />
+                            <input
+                                type="text"
+                                placeholder="Поиск по названию или клиенту..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="w-full rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-10 py-2 text-[var(--color-grayscale-2)] placeholder-[var(--color-grayscale-6)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="min-h-[200px]">
+                        {reportsLoading ? (
+                            <div className="py-12 text-center text-[var(--color-grayscale-6)]">
+                                Загрузка...
+                            </div>
+                        ) : reports.length > 0 ? (
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                {reports.map((report) => (
+                                    <ReportCard
+                                        key={report.id}
+                                        report={report}
+                                        isAdmin={canEdit}
+                                        deleteConfirmId={deleteConfirm}
+                                        onAskDelete={setDeleteConfirm}
+                                        onCancelDelete={() =>
+                                            setDeleteConfirm(null)
+                                        }
+                                        onDelete={handleDelete}
+                                    />
+                                ))}
+                            </div>
+                        ) : showCompactNoReports ? (
+                            <p className="text-sm text-[var(--color-grayscale-6)]">
+                                {search
+                                    ? 'По текущему поиску и периоду в этой папке отчётов нет. Откройте подгруппу выше.'
+                                    : 'В этой папке за выбранный период отчётов нет. Откройте подгруппу выше.'}
+                            </p>
+                        ) : showLargeEmpty ? (
+                            <div className="rounded-2xl border border-dashed border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-6 py-14 text-center">
+                                <FileText className="mx-auto h-12 w-12 text-[var(--color-grayscale-6)]" />
+                                <h3 className="mt-5 text-2xl font-semibold text-[var(--color-grayscale-2)]">
+                                    Отчётов пока нет
+                                </h3>
+                                <p className="mt-3 text-[var(--color-grayscale-6)]">
+                                    {search
+                                        ? `По текущему поиску и периоду результатов нет. ${emptyPeriodText}`
+                                        : emptyPeriodText}
+                                </p>
+                                {canEdit && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCreateReportOpen(true)}
+                                        className="mt-6 inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
+                                    >
+                                        <Plus className="h-4 w-4" />
+                                        Создать отчёт
+                                    </button>
+                                )}
+                            </div>
+                        ) : null}
+                    </div>
+                </section>
             </main>
 
             {canEdit && (

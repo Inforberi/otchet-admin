@@ -30,6 +30,20 @@ interface EditGroupDialogProps {
 
 type FlatGroup = GroupRecord & { depth: number };
 
+const formatGroupApiError = (
+    message: string | undefined,
+    fallback: string
+): string => {
+    if (!message) return fallback;
+    if (
+        message.includes('Cannot delete non-empty group') ||
+        message.toLowerCase().includes('non-empty group')
+    ) {
+        return 'Нельзя удалить папку: в ней есть подпапки или отчёты. Сначала удалите подгруппы и отчёты.';
+    }
+    return message;
+};
+
 const buildFlatGroups = (groups: GroupRecord[]): FlatGroup[] => {
     const childrenByParent = new Map<string | null, GroupRecord[]>();
 
@@ -140,7 +154,7 @@ export const EditGroupDialog = ({
         if (!group) return;
         if (
             !confirm(
-                'Удалить папку? Доступно только для пустых папок без подпапок и отчётов.'
+                'Удалить папку? Сначала удалите все подпапки и отчёты — пустые папки удаляются без восстановления.'
             )
         ) {
             return;
@@ -156,7 +170,12 @@ export const EditGroupDialog = ({
 
             if (!response.ok) {
                 const data = await response.json();
-                alert(data.error || 'Ошибка удаления группы');
+                alert(
+                    formatGroupApiError(
+                        typeof data.error === 'string' ? data.error : undefined,
+                        'Ошибка удаления группы'
+                    )
+                );
                 return;
             }
 
