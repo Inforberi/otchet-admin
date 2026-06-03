@@ -67,6 +67,8 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     const [reports, setReports] = useState<ReportFromDB[]>([]);
     const [groupLoading, setGroupLoading] = useState(true);
     const [reportsLoading, setReportsLoading] = useState(false);
+    const [reportsInitialized, setReportsInitialized] = useState(false);
+    const [filtersReady, setFiltersReady] = useState(false);
     const [search, setSearch] = useState('');
     const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom);
     const [dateTo, setDateTo] = useState(defaultDateRange.dateTo);
@@ -79,11 +81,14 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const hasLoadedRef = useRef(false);
-    const filtersReadyRef = useRef(false);
-
     useEffect(() => {
+        hasLoadedRef.current = false;
+        setReportsInitialized(false);
+        setReports([]);
+        setFiltersReady(false);
+
         if (typeof window === 'undefined') {
-            filtersReadyRef.current = true;
+            setFiltersReady(true);
             return;
         }
 
@@ -105,7 +110,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
         } catch (error) {
             console.error('Error restoring group filters:', error);
         } finally {
-            filtersReadyRef.current = true;
+            setFiltersReady(true);
         }
     }, [defaultDateRange.dateFrom, defaultDateRange.dateTo, groupPathString]);
 
@@ -115,7 +120,16 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     }, [groupPathString]);
 
     useEffect(() => {
-        if (!filtersReadyRef.current) return;
+        if (!filtersReady || !group) return;
+
+        const hasReportsInGroup = group._count.reports > 0;
+        const showReportsUi = hasReportsInGroup || group.children.length === 0;
+        if (!showReportsUi) {
+            setReports([]);
+            setReportsLoading(false);
+            setReportsInitialized(true);
+            return;
+        }
 
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -148,10 +162,19 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
             abortController.abort();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [group?.id, search, dateFrom, dateTo, allTime]);
+    }, [
+        group?.id,
+        group?._count.reports,
+        group?.children.length,
+        search,
+        dateFrom,
+        dateTo,
+        allTime,
+        filtersReady,
+    ]);
 
     useEffect(() => {
-        if (!filtersReadyRef.current || typeof window === 'undefined') return;
+        if (!filtersReady || typeof window === 'undefined') return;
 
         sessionStorage.setItem(
             `group-report-filters:${groupPathString}`,
@@ -211,11 +234,13 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
 
             const data = await response.json();
             setReports(data.reports || []);
+            setReportsInitialized(true);
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
                 return;
             }
             console.error('Error loading reports:', error);
+            setReportsInitialized(true);
         } finally {
             setReportsLoading(false);
         }
@@ -315,12 +340,6 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
         }
     };
 
-    const hasSubgroups = (group?.children.length ?? 0) > 0;
-    const showLargeEmpty =
-        !reportsLoading && reports.length === 0 && !hasSubgroups;
-    const showCompactNoReports =
-        !reportsLoading && reports.length === 0 && hasSubgroups;
-
     if (groupLoading && !group) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-[var(--color-grayscale-16)]">
@@ -349,6 +368,26 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     }
 
     if (!group) return null;
+
+    const hasSubgroups = group.children.length > 0;
+    const hasReportsInGroup = group._count.reports > 0;
+    const showReportsUi = hasReportsInGroup || !hasSubgroups;
+    const showReportsLoader =
+        showReportsUi &&
+        filtersReady &&
+        (!reportsInitialized || reportsLoading);
+    const showLargeEmpty =
+        showReportsUi &&
+        reportsInitialized &&
+        !reportsLoading &&
+        reports.length === 0 &&
+        !hasSubgroups;
+    const showCompactNoReports =
+        showReportsUi &&
+        reportsInitialized &&
+        !reportsLoading &&
+        reports.length === 0 &&
+        hasSubgroups;
 
     return (
         <div className="min-h-screen bg-[var(--color-grayscale-16)]">
@@ -395,6 +434,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
             />
 
             <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+                {showReportsUi && filtersReady && (
                 <section className="mb-8 rounded-xl border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-5">
                     <div className="flex flex-col gap-5">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -465,6 +505,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                         </div>
                     </div>
                 </section>
+                )}
 
                 {group.children.length > 0 && (
                     <section className="mb-8">
@@ -512,6 +553,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                     </section>
                 )}
 
+                {showReportsUi && filtersReady && (
                 <section>
                     <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                         <div>
@@ -538,7 +580,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                     </div>
 
                     <div className="min-h-[200px]">
-                        {reportsLoading ? (
+                        {showReportsLoader ? (
                             <div className="py-12 text-center text-[var(--color-grayscale-6)]">
                                 Загрузка...
                             </div>
@@ -589,6 +631,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                         ) : null}
                     </div>
                 </section>
+                )}
             </main>
 
             {canEdit && (
