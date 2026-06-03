@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
+    attachSessionCookie,
     createSession,
     getCurrentUserFromRequest,
     hashPassword,
-    setSession,
     verifyPassword,
 } from '@/lib/auth';
 
@@ -71,9 +71,13 @@ export async function POST(request: NextRequest) {
             },
         });
 
-        await setSession(createSession(user.id, user.appRoleId));
+        const sessionToken = createSession(user.id, user.appRoleId);
 
-        return NextResponse.json({ success: true }, { status: 200 });
+        return attachSessionCookie(
+            NextResponse.json({ success: true }, { status: 200 }),
+            sessionToken,
+            request
+        );
     } catch (error) {
         console.error('Change password error:', error);
         return NextResponse.json(

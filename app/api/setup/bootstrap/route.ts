@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import {
+    attachSessionCookie,
     createSession,
     hashPassword,
     normalizeEmail,
-    setSession,
 } from '@/lib/auth';
 import { SYSTEM_SUPER_ADMIN_ROLE_ID } from '@/lib/role-constants';
 
@@ -66,9 +66,13 @@ export async function POST(request: NextRequest) {
             select: { id: true, appRoleId: true },
         });
 
-        await setSession(createSession(user.id, user.appRoleId));
+        const sessionToken = createSession(user.id, user.appRoleId);
 
-        return NextResponse.json({ success: true }, { status: 201 });
+        return attachSessionCookie(
+            NextResponse.json({ success: true }, { status: 201 }),
+            sessionToken,
+            request
+        );
     } catch (error) {
         if (
             error instanceof Prisma.PrismaClientKnownRequestError &&

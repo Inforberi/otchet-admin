@@ -1,12 +1,45 @@
 import { cookies } from 'next/headers';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { SYSTEM_SUPER_ADMIN_ROLE_ID } from '@/lib/role-constants';
 
-const SESSION_COOKIE_NAME = 'admin_session';
+export const SESSION_COOKIE_NAME = 'admin_session';
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
+
+export const resolveCookieSecure = (request?: NextRequest): boolean => {
+    if (process.env.COOKIE_SECURE === 'true') return true;
+    if (process.env.COOKIE_SECURE === 'false') return false;
+
+    const forwarded = request?.headers.get('x-forwarded-proto');
+    if (forwarded) {
+        return forwarded.split(',')[0]?.trim() === 'https';
+    }
+
+    return process.env.NODE_ENV === 'production';
+};
+
+export const getSessionCookieOptions = (request?: NextRequest) => ({
+    httpOnly: true as const,
+    secure: resolveCookieSecure(request),
+    sameSite: 'lax' as const,
+    maxAge: SESSION_MAX_AGE_SECONDS,
+    path: '/',
+});
+
+export const attachSessionCookie = (
+    response: NextResponse,
+    sessionToken: string,
+    request?: NextRequest
+): NextResponse => {
+    response.cookies.set(
+        SESSION_COOKIE_NAME,
+        sessionToken,
+        getSessionCookieOptions(request)
+    );
+    return response;
+};
 
 export type AuthenticatedUser = {
     id: string;
@@ -192,15 +225,16 @@ export const getSession = async (): Promise<string | null> => {
     return session?.value || null;
 };
 
-export const setSession = async (sessionToken: string): Promise<void> => {
+export const setSession = async (
+    sessionToken: string,
+    request?: NextRequest
+): Promise<void> => {
     const cookieStore = await cookies();
-    cookieStore.set(SESSION_COOKIE_NAME, sessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: SESSION_MAX_AGE_SECONDS,
-        path: '/',
-    });
+    cookieStore.set(
+        SESSION_COOKIE_NAME,
+        sessionToken,
+        getSessionCookieOptions(request)
+    );
 };
 
 export const deleteSession = async (): Promise<void> => {
