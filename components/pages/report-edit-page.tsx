@@ -3,12 +3,9 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { AppPageHeader } from '@/components/layout/app-page-header';
-import {
-    buildReportEditBreadcrumbs,
-    stripHtml as stripHtmlLabel,
-    type GroupAncestor,
-} from '@/lib/breadcrumbs';
+import { stripHtml as stripHtmlLabel, type GroupAncestor } from '@/lib/breadcrumbs';
 import { useUserRole } from '@/hooks/use-user-role';
 import type {
     ReportFromDB,
@@ -32,6 +29,13 @@ import {
     AlignCenter,
     AlignLeft,
     AlignRight,
+    ArrowLeft,
+    FileText,
+    Image,
+    ClipboardList,
+    Minus,
+    LayoutGrid,
+    type LucideIcon,
 } from 'lucide-react';
 import { TaskBlockCard } from '@/components/report/task-block-card';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
@@ -82,6 +86,48 @@ const stripHtml = (value: string | null | undefined): string =>
 
 const truncateText = (value: string, maxLength = 48): string =>
     value.length <= maxLength ? value : `${value.slice(0, maxLength).trim()}...`;
+
+const EDITOR_PANE_HEIGHT = 'calc(100vh - 6.75rem)';
+const EDITOR_CONTENT_MAX = 'max-w-7xl';
+
+type BlockTypeKey = ReportBlockFromDB['type'];
+
+const BLOCK_TYPE_META: Record<
+    BlockTypeKey,
+    { label: string; Icon: LucideIcon; accent: string; iconBg: string }
+> = {
+    text: {
+        label: 'Текст',
+        Icon: FileText,
+        accent: 'border-l-green-500',
+        iconBg: 'bg-green-500/15 text-green-400',
+    },
+    screenshot: {
+        label: 'Фото',
+        Icon: Image,
+        accent: 'border-l-blue-500',
+        iconBg: 'bg-blue-500/15 text-blue-400',
+    },
+    task: {
+        label: 'Задача',
+        Icon: ClipboardList,
+        accent: 'border-l-purple-500',
+        iconBg: 'bg-purple-500/15 text-purple-400',
+    },
+    divider: {
+        label: 'HR',
+        Icon: Minus,
+        accent: 'border-l-zinc-500',
+        iconBg: 'bg-zinc-500/15 text-zinc-400',
+    },
+};
+
+const ADD_BLOCK_BUTTONS: { type: BlockTypeKey; label: string; Icon: LucideIcon; ring: string }[] = [
+    { type: 'text', label: 'Текст', Icon: FileText, ring: 'hover:ring-green-500/40' },
+    { type: 'screenshot', label: 'Фото', Icon: Image, ring: 'hover:ring-blue-500/40' },
+    { type: 'task', label: 'Задача', Icon: ClipboardList, ring: 'hover:ring-purple-500/40' },
+    { type: 'divider', label: 'HR', Icon: Minus, ring: 'hover:ring-zinc-500/40' },
+];
 
 const splitBlocks = (blocks: ReportBlockFromDB[]) => {
     const sorted = [...blocks].sort((a, b) => a.position - b.position);
@@ -163,7 +209,9 @@ const SortableBlockCard = memo(function SortableBlockCard({
         opacity: isDragging ? 0.5 : 1,
     }), [transform, transition, isDragging]);
 
-    const blockTitle = useMemo(() => truncateText(getBlockPreview(block), 30), [block]);
+    const blockTitle = useMemo(() => truncateText(getBlockPreview(block), 42), [block]);
+    const meta = BLOCK_TYPE_META[block.type];
+    const TypeIcon = meta.Icon;
     const handleSelect = useCallback(() => onSelect(block.id), [onSelect, block.id]);
     const handleDuplicate = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDuplicate(block.id); }, [onDuplicate, block.id]);
     const handleDelete = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(block.id); }, [onDelete, block.id]);
@@ -174,24 +222,45 @@ const SortableBlockCard = memo(function SortableBlockCard({
             ref={setNodeRef}
             style={style}
             onClick={handleSelect}
-            className={`rounded border mb-2 p-3 hover:border-zinc-600 transition-colors cursor-pointer ${isSelected ? 'bg-zinc-700 border-blue-500' : 'bg-zinc-800 border-zinc-700'}`}
+            className={`group mb-1.5 cursor-pointer rounded-lg border border-l-[3px] bg-zinc-800/80 p-2.5 transition-all hover:bg-zinc-800 ${meta.accent} ${
+                isSelected
+                    ? 'ring-1 ring-zinc-500 border-zinc-600'
+                    : 'border-zinc-700/80 hover:border-zinc-600'
+            }`}
         >
             <div className="flex items-center gap-2">
-                <button {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-1 hover:bg-zinc-700 rounded flex-shrink-0" onClick={handleStopPropagation}>
-                    <GripVertical className="w-4 h-4 text-zinc-400" />
+                <button
+                    {...attributes}
+                    {...listeners}
+                    className="cursor-grab rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-300 active:cursor-grabbing flex-shrink-0"
+                    onClick={handleStopPropagation}
+                    aria-label="Перетащить блок"
+                >
+                    <GripVertical className="h-4 w-4" />
                 </button>
-                <div className="flex-1 min-w-0">
-                    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded mb-1 ${block.type === 'text' ? 'bg-green-600 text-white' : block.type === 'divider' ? 'bg-gray-600 text-white' : block.type === 'task' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white'}`}>
-                        {block.type === 'text' ? 'Текст' : block.type === 'divider' ? 'HR' : block.type === 'task' ? 'Задача' : 'Фото'}
-                    </span>
-                    <p className="text-xs text-zinc-300 truncate">{blockTitle}</p>
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${meta.iconBg}`}>
+                    <TypeIcon className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{meta.label}</p>
+                    <p className="truncate text-sm text-zinc-200">{blockTitle}</p>
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                    <button onClick={handleDuplicate} className="p-1 hover:bg-zinc-700 rounded text-zinc-400 cursor-pointer" title="Дублировать">
-                        <Copy className="w-3.5 h-3.5" />
+                <div className="flex shrink-0 items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <button
+                        type="button"
+                        onClick={handleDuplicate}
+                        className="rounded p-1 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200 cursor-pointer"
+                        title="Дублировать"
+                    >
+                        <Copy className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={handleDelete} className="p-1 hover:bg-red-900 rounded text-red-400 cursor-pointer" title="Удалить">
-                        <Trash2 className="w-3.5 h-3.5" />
+                    <button
+                        type="button"
+                        onClick={handleDelete}
+                        className="rounded p-1 text-zinc-400 transition-colors hover:bg-red-950 hover:text-red-400 cursor-pointer"
+                        title="Удалить"
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
                     </button>
                 </div>
             </div>
@@ -429,7 +498,7 @@ function BlockEditor({
                                     {(localData as ScreenshotBlockData).images?.map((img, idx) => (
                                         <div key={img.uploadId || `img-${idx}-${img.url}`} className="border border-zinc-700 rounded p-3 bg-zinc-800">
                                             <div className="flex gap-3">
-                                                <img src={img.url} alt={img.alt} className="w-24 h-24 object-cover rounded" />
+                                                <img src={img.url} alt={img.alt} className="h-36 w-36 shrink-0 rounded object-cover" />
                                                 <div className="flex-1 space-y-2">
                                                     <input
                                                         type="text"
@@ -569,15 +638,8 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
             .catch(() => setAncestors([]));
     }, [reportApiUrl]);
 
-    const headerBreadcrumbs = useMemo(() => {
-        if (!report) return [{ label: 'Группы', href: '/' }, { label: 'Редактор' }];
-        return buildReportEditBreadcrumbs(
-            ancestors,
-            report.group,
-            report.title || 'Отчёт',
-            { slug: report.slug ?? reportSlug, group: report.group }
-        );
-    }, [ancestors, report, reportSlug]);
+    const groupBackHref = groupPathStr ? `/${groupPathStr}` : '/';
+    const groupBackLabel = report?.group?.name ?? ancestors.at(-1)?.name ?? 'К группе';
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -610,6 +672,25 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 return '✓ Черновик сохранён';
         }
     }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
+
+    const syncStatusBadge = useMemo(() => {
+        const base = 'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium';
+        switch (syncStatus) {
+            case 'local':
+                return { className: `${base} bg-amber-500/15 text-amber-300`, text: syncStatusLabel };
+            case 'autosaving':
+            case 'saving':
+                return { className: `${base} bg-blue-500/15 text-blue-300`, text: syncStatusLabel };
+            case 'conflict':
+            case 'error':
+                return { className: `${base} bg-red-500/15 text-red-300`, text: syncStatusLabel };
+            default:
+                if (hasUnpublishedChanges) {
+                    return { className: `${base} bg-amber-500/15 text-amber-300`, text: syncStatusLabel };
+                }
+                return { className: `${base} bg-zinc-700/80 text-zinc-400`, text: syncStatusLabel };
+        }
+    }, [syncStatus, syncStatusLabel, hasUnpublishedChanges]);
 
     const canPublish = useMemo(() => {
         if (!report) return false;
@@ -805,21 +886,40 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
             <div className="flex flex-col border-b border-zinc-800 bg-zinc-900">
                 <AppPageHeader
                     variant="editor"
+                    showBreadcrumbs={false}
                     onLogout={handleLogout}
-                    breadcrumbs={headerBreadcrumbs}
-                    title="Конструктор отчёта"
-                    description={stripHtmlLabel(report.title || '') || undefined}
+                    breadcrumbs={[]}
+                    title={
+                        <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-4">
+                            <Link
+                                href={groupBackHref}
+                                className="inline-flex w-fit items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+                            >
+                                <ArrowLeft className="h-4 w-4 shrink-0" />
+                                {groupBackLabel}
+                            </Link>
+                            <div className="hidden h-4 w-px bg-zinc-700 sm:block" aria-hidden />
+                            <div className="min-w-0">
+                                <p className="text-lg font-semibold text-white">Конструктор отчёта</p>
+                                {stripHtmlLabel(report.title || '') && (
+                                    <p className="truncate text-sm text-zinc-400">
+                                        {stripHtmlLabel(report.title || '')}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    }
                     actions={
-                        <div className="flex flex-wrap items-center gap-3">
-                            <span className="text-sm text-zinc-400 px-1 py-2">{syncStatusLabel}</span>
-                            <button type="button" onClick={handleSaveDraft} disabled={syncStatus === 'saving' || syncStatus === 'autosaving'}
-                                className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed">
-                                <Save className="w-4 h-4" />
-                                {syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить черновик'}
-                            </button>
-                            <button type="button" onClick={handlePublish} disabled={!canPublish}
-                                className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 flex items-center gap-2 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed">
-                                {publishing ? 'Публикация...' : canPublish ? 'Опубликовать' : 'Уже опубликовано'}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className={syncStatusBadge.className}>{syncStatusBadge.text}</span>
+                            <button
+                                type="button"
+                                onClick={handleSaveDraft}
+                                disabled={syncStatus === 'saving' || syncStatus === 'autosaving'}
+                                className="inline-flex items-center gap-2 rounded-lg border border-zinc-600 bg-transparent px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                                <Save className="h-4 w-4" />
+                                {syncStatus === 'saving' ? 'Сохранение...' : 'Черновик'}
                             </button>
                             <button
                                 type="button"
@@ -833,9 +933,18 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                         })
                                     )
                                 }
-                                className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 cursor-pointer">
-                                <Eye className="w-4 h-4" />
+                                className="inline-flex items-center gap-2 rounded-lg border border-zinc-600 bg-transparent px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
+                            >
+                                <Eye className="h-4 w-4" />
                                 Просмотр
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handlePublish}
+                                disabled={!canPublish}
+                                className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                                {publishing ? 'Публикация...' : canPublish ? 'Опубликовать' : 'Опубликовано'}
                             </button>
                         </div>
                     }
@@ -844,8 +953,11 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
 
             <div className="flex-1 flex">
                 {/* Main editing lane */}
-                <div className="flex-1 overflow-y-auto p-6 h-[calc(100vh-120px)]">
-                    <div className="max-w-4xl mx-auto space-y-6">
+                <div
+                    className="scrollbar-thin flex-1 overflow-y-auto p-6"
+                    style={{ height: EDITOR_PANE_HEIGHT }}
+                >
+                    <div className={`${EDITOR_CONTENT_MAX} mx-auto w-full space-y-6`}>
                         {/* Metadata */}
                         <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
                             <h2 className="text-lg font-semibold text-white mb-4">Метаданные отчёта</h2>
@@ -862,22 +974,35 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                     <label className="block text-sm font-medium text-zinc-300 mb-1.5">Дата</label>
                                     <input type="date" aria-label="Дата отчета" value={report.date || new Date().toISOString().split('T')[0]} onChange={(e) => markMetadataDirty({ date: e.target.value })} className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent [color-scheme:dark]" />
                                 </div>
-                                <div className="mt-6 pt-6 border-t border-zinc-700">
-                                    <h3 className="text-sm font-semibold text-zinc-300 mb-4">Размеры шрифта</h3>
-                                    <div className="space-y-4">
+                                <div className="pt-4">
+                                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                                        Размеры шрифта
+                                    </p>
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                                         {[
                                             { label: 'Заголовок', field: 'titleFontSize' as const, default: '40' },
                                             { label: 'Описание', field: 'descriptionFontSize' as const, default: '20' },
-                                            { label: 'Текст под изображением', field: 'captionFontSize' as const, default: '16' },
+                                            { label: 'Подпись', field: 'captionFontSize' as const, default: '16' },
                                         ].map(({ label, field, default: def }) => (
                                             <div key={field}>
-                                                <label className="block text-sm font-medium text-zinc-300 mb-1.5">{label}</label>
-                                                <div className="flex items-center gap-2">
-                                                    <input type="number" value={report[field] || def}
-                                                        onChange={(e) => { const input = e.currentTarget; const pos = input.selectionStart || 0; markMetadataDirty({ [field]: e.target.value || null }); setTimeout(() => input.setSelectionRange(pos, pos), 0); }}
-                                                        className="w-20 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                                        placeholder={def} min="8" max="200" />
-                                                    <span className="text-sm text-zinc-400">px</span>
+                                                <label className="mb-1 block text-xs font-medium text-zinc-400">{label}</label>
+                                                <div className="flex items-center gap-1.5">
+                                                    <input
+                                                        type="number"
+                                                        aria-label={`${label}, px`}
+                                                        value={report[field] || def}
+                                                        onChange={(e) => {
+                                                            const input = e.currentTarget;
+                                                            const pos = input.selectionStart || 0;
+                                                            markMetadataDirty({ [field]: e.target.value || null });
+                                                            setTimeout(() => input.setSelectionRange(pos, pos), 0);
+                                                        }}
+                                                        className="w-full max-w-[5rem] rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-sm text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                                                        placeholder={def}
+                                                        min="8"
+                                                        max="200"
+                                                    />
+                                                    <span className="text-xs text-zinc-500">px</span>
                                                 </div>
                                             </div>
                                         ))}
@@ -896,7 +1021,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                 {taskBlocks.length > 0 && (
                                     <div className="space-y-4">
                                         {contentBlocks.length > 0 && (
-                                            <h2 className="text-sm font-semibold uppercase tracking-widest text-purple-400">
+                                            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-purple-400">
                                                 Задачи ({taskBlocks.length})
                                             </h2>
                                         )}
@@ -931,7 +1056,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                 {contentBlocks.length > 0 && (
                                     <div className={`space-y-4 ${taskBlocks.length > 0 ? 'pt-2' : ''}`}>
                                         {taskBlocks.length > 0 && (
-                                            <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-500">
+                                            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-zinc-500">
                                                 Блоки ({contentBlocks.length})
                                             </h2>
                                         )}
@@ -957,19 +1082,32 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 </div>
 
                 {/* Right sidebar */}
-                <div className="w-80 border-l border-zinc-800 bg-zinc-900 flex flex-col min-h-[calc(100vh-120px)]">
-                    <div className="p-4 border-b border-zinc-800">
+                <div
+                    className="flex w-96 shrink-0 flex-col border-l border-zinc-800 bg-zinc-900/95"
+                    style={{ minHeight: EDITOR_PANE_HEIGHT }}
+                >
+                    <div className="border-b border-zinc-800 p-4">
+                        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                            Добавить блок
+                        </p>
                         <div className="grid grid-cols-2 gap-2">
-                            <button onClick={() => handleAddBlock('text')} className="px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-medium cursor-pointer">+ Текст</button>
-                            <button onClick={() => handleAddBlock('screenshot')} className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium cursor-pointer">+ Фото</button>
-                            <button onClick={() => handleAddBlock('task')} className="px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 text-xs font-medium cursor-pointer">+ Задача</button>
-                            <button onClick={() => handleAddBlock('divider')} className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 text-xs font-medium cursor-pointer">+ HR</button>
+                            {ADD_BLOCK_BUTTONS.map(({ type, label, Icon, ring }) => (
+                                <button
+                                    key={type}
+                                    type="button"
+                                    onClick={() => handleAddBlock(type)}
+                                    className={`flex flex-col items-center gap-1.5 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-2 py-2.5 text-xs font-medium text-zinc-300 transition-all hover:bg-zinc-800 hover:ring-1 ${ring} cursor-pointer`}
+                                >
+                                    <Icon className="h-4 w-4" aria-hidden />
+                                    {label}
+                                </button>
+                            ))}
                         </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-4">
+                    <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
                         {taskBlocks.length > 0 && (
                             <>
-                                <p className="text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2 px-1">
+                                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-purple-400/90">
                                     Задачи ({taskBlocks.length})
                                 </p>
                                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTaskDragEnd}>
@@ -985,9 +1123,9 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         {contentBlocks.length > 0 && (
                             <>
                                 {taskBlocks.length > 0 && (
-                                    <div className="my-3 border-t border-zinc-700/50" />
+                                    <div className="my-4 border-t border-zinc-700/50" />
                                 )}
-                                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2 px-1">
+                                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                                     Блоки ({contentBlocks.length})
                                 </p>
                                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleContentDragEnd}>
@@ -1001,7 +1139,10 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         )}
 
                         {!hasBlocks && (
-                            <div className="text-center py-12 text-zinc-500"><p className="text-sm">Нет блоков</p></div>
+                            <div className="flex flex-col items-center px-2 py-12 text-center text-zinc-500">
+                                <LayoutGrid className="mb-3 h-8 w-8 text-zinc-600" aria-hidden />
+                                <p className="text-sm text-zinc-400">Добавьте блок кнопками выше</p>
+                            </div>
                         )}
                     </div>
                 </div>

@@ -171,7 +171,7 @@ function TaskImageListEditor({
             {images.map((img, idx) => (
                 <div key={img.uploadId || `img-${idx}-${img.url}`} className="border border-zinc-700 rounded p-3 bg-zinc-800">
                     <div className="flex gap-3">
-                        <img src={img.url} alt={img.alt} className="w-24 h-24 object-cover rounded" />
+                        <img src={img.url} alt={img.alt} className="h-36 w-36 shrink-0 rounded object-cover" />
                         <div className="flex-1 space-y-2">
                             <input
                                 type="text"

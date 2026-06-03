@@ -12,6 +12,8 @@ type AppPageHeaderProps = {
     description?: ReactNode;
     actions?: ReactNode;
     variant?: 'default' | 'editor';
+    /** По умолчанию true; false — только в конструкторе отчёта */
+    showBreadcrumbs?: boolean;
 };
 
 export function AppPageHeader({
@@ -21,6 +23,7 @@ export function AppPageHeader({
     description,
     actions,
     variant = 'default',
+    showBreadcrumbs = true,
 }: AppPageHeaderProps) {
     const isEditor = variant === 'editor';
 
@@ -44,14 +47,20 @@ export function AppPageHeader({
                 <div
                     className={
                         isEditor
-                            ? 'px-4 pb-4'
+                            ? 'px-4 pb-3'
                             : 'pb-6'
                     }
                 >
-                    <AppBreadcrumbs items={breadcrumbs} variant={variant} />
+                    {showBreadcrumbs && (
+                        <AppBreadcrumbs items={breadcrumbs} variant={variant} />
+                    )}
 
                     {(title || actions) && (
-                        <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div
+                            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
+                                showBreadcrumbs ? 'mt-2' : 'mt-0'
+                            }`}
+                        >
                             {(title || description) && (
                                 <div className="min-w-0 flex-1">
                                     {title && (
