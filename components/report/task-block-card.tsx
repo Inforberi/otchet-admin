@@ -378,6 +378,7 @@ export function TaskBlockCard({
     const [localData, setLocalData] = useState<TaskBlockData>(data);
     const [users, setUsers] = useState<UserOption[]>([]);
     const [loadingUsers, setLoadingUsers] = useState(false);
+    const [usersLoadError, setUsersLoadError] = useState(false);
     const [taskUploading, setTaskUploading] = useState(false);
     const [isTaskDragOver, setIsTaskDragOver] = useState(false);
     const taskFileRef = useRef<HTMLInputElement>(null);
@@ -411,10 +412,22 @@ export function TaskBlockCard({
     useEffect(() => {
         if (!isEditable) return;
         setLoadingUsers(true);
-        fetch('/api/users?limit=200')
-            .then((r) => (r.ok ? r.json() : { users: [] }))
-            .then((d) => setUsers((d as { users: UserOption[] }).users ?? []))
-            .catch(() => setUsers([]))
+        setUsersLoadError(false);
+        fetch('/api/users/assignees')
+            .then((r) => {
+                if (!r.ok) {
+                    console.warn('Failed to load assignees:', r.status);
+                    setUsersLoadError(true);
+                    return { users: [] as UserOption[] };
+                }
+                return r.json() as Promise<{ users: UserOption[] }>;
+            })
+            .then((d) => setUsers(d.users ?? []))
+            .catch((err) => {
+                console.warn('Failed to load assignees:', err);
+                setUsers([]);
+                setUsersLoadError(true);
+            })
             .finally(() => setLoadingUsers(false));
     }, [isEditable]);
 
@@ -772,6 +785,7 @@ export function TaskBlockCard({
                             {loadingUsers ? (
                                 <div className="text-xs text-zinc-500 py-2">Загрузка пользователей...</div>
                             ) : (
+                                <>
                                 <select
                                     value={localData.assigneeId || ''}
                                     onChange={(e) => {
@@ -793,6 +807,12 @@ export function TaskBlockCard({
                                         </option>
                                     ))}
                                 </select>
+                                {usersLoadError && (
+                                    <p className="mt-1 text-xs text-amber-400/90">
+                                        Не удалось загрузить список пользователей
+                                    </p>
+                                )}
+                                </>
                             )}
                         </div>
 
