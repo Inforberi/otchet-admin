@@ -149,6 +149,8 @@ export const useReportDraftSync = (reportId: string) => {
         (nextReport: ReportFromDB) => {
             const nextBlocks = sortBlocks((nextReport.blocks || []) as ReportBlockFromDB[]);
             baseVersionRef.current = nextReport.version;
+            reportRef.current = nextReport;
+            blocksRef.current = nextBlocks;
             setReport(nextReport);
             setBlocks(nextBlocks);
             setHasLocalChanges(false);
@@ -364,13 +366,14 @@ export const useReportDraftSync = (reportId: string) => {
             const saved = await flush({ reason: 'publish' });
             if (!saved) return false;
 
-            const latestReport = reportRef.current;
-            if (!latestReport) return false;
+            const versionToPublish =
+                baseVersionRef.current ?? reportRef.current?.version;
+            if (!versionToPublish) return false;
 
             const response = await fetch(`/api/reports/${reportId}/publish`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ expectedVersion: latestReport.version }),
+                body: JSON.stringify({ expectedVersion: versionToPublish }),
             });
 
             if (response.status === 409) {

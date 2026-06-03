@@ -17,6 +17,35 @@ const ALLOWED_TYPES = [
     'image/gif',
 ];
 
+const ALLOWED_EXTENSIONS = new Set([
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+    '.gif',
+]);
+
+const resolveMimeType = (file: File): string | null => {
+    if (file.type && ALLOWED_TYPES.includes(file.type)) {
+        return file.type;
+    }
+
+    const ext = path.extname(file.name).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+        return null;
+    }
+
+    const byExt: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+    };
+
+    return byExt[ext] ?? null;
+};
+
 // Получаем абсолютный путь к директории загрузок
 function getUploadDir(): string {
     if (path.isAbsolute(UPLOAD_DIR)) {
@@ -230,8 +259,8 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Валидация типа
-        if (!ALLOWED_TYPES.includes(file.type)) {
+        const mimeType = resolveMimeType(file);
+        if (!mimeType) {
             return NextResponse.json(
                 {
                     error: `Invalid file type. Allowed: ${ALLOWED_TYPES.join(
@@ -316,7 +345,7 @@ export async function POST(request: NextRequest) {
                 groupId: groupId,
                 filename: file.name,
                 path: relativePath,
-                mimeType: file.type,
+                mimeType,
                 size: file.size,
             },
         });
@@ -330,8 +359,34 @@ export async function POST(request: NextRequest) {
         );
     } catch (error) {
         console.error('Error uploading file:', error);
+
+        const message =
+            error instanceof Error ? error.message : 'Failed to upload file';
+        const isPrisma =
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            typeof (error as { code: string }).code === 'string';
+
+        if (isPrisma && (error as { code: string }).code === 'P2003') {
+            return NextResponse.json(
+                { error: 'Группа или отчёт не найдены' },
+                { status: 400 }
+            );
+        }
+
+        if (isPrisma && (error as { code: string }).code === 'P2002') {
+            return NextResponse.json(
+                { error: 'Файл с таким путём уже существует, повторите загрузку' },
+                { status: 409 }
+            );
+        }
+
         return NextResponse.json(
-            { error: 'Failed to upload file' },
+            {
+                error: 'Failed to upload file',
+                details: process.env.NODE_ENV === 'production' ? undefined : message,
+            },
             { status: 500 }
         );
     }
