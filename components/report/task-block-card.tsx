@@ -404,7 +404,7 @@ export function TaskBlockCard({
             onDataChangeRef.current?.(localData);
         }, 150);
         return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [localData]);
 
     // Load users list for assignee select
@@ -483,7 +483,7 @@ export function TaskBlockCard({
     const removeTaskImage = useCallback((idx: number) => {
         const img = localData.images?.[idx];
         if (img?.uploadId) {
-            void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => {});
+            void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => { });
         }
         setLocalData((prev) => ({ ...prev, images: (prev.images ?? []).filter((_, i) => i !== idx) }));
     }, [localData.images]);
@@ -532,7 +532,7 @@ export function TaskBlockCard({
     const removeFormImage = useCallback((idx: number) => {
         const img = formImages[idx];
         if (img?.uploadId) {
-            void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => {});
+            void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => { });
         }
         setFormImages((prev) => prev.filter((_, i) => i !== idx));
     }, [formImages]);
@@ -650,13 +650,12 @@ export function TaskBlockCard({
     };
 
     return (
-        <div className={`rounded-xl border overflow-hidden transition-all ${
-            isCompleted
+        <div className={`rounded-xl border overflow-hidden transition-all ${isCompleted
                 ? 'border-green-700/30 bg-zinc-900/70'
                 : dlStatus === 'overdue'
                     ? 'border-red-700/40 bg-zinc-900'
                     : 'border-purple-800/30 bg-zinc-900'
-        }`}>
+            }`}>
             {/* Header — status + badges */}
             <div className="flex items-start gap-3 px-5 pt-5 pb-3">
                 <div className="mt-0.5">{statusIcon}</div>
@@ -857,11 +856,10 @@ export function TaskBlockCard({
             </div>
 
             {/* Zone 2 — Completion report */}
-            <div className={`mx-4 mb-4 rounded-lg border px-4 py-3 ${
-                isCompleted
+            <div className={`mx-4 mb-4 rounded-lg border px-4 py-3 ${isCompleted
                     ? 'border-green-700/30 bg-green-950/20'
                     : 'border-zinc-700/40 bg-zinc-800/20'
-            }`}>
+                }`}>
                 <div className="flex items-center justify-between mb-2.5">
                     <div className="flex items-center gap-1.5">
                         <ClipboardCheck className={`w-3.5 h-3.5 ${isCompleted ? 'text-green-400' : 'text-zinc-600'}`} />
