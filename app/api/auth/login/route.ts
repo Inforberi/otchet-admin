@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import {
+    attachSessionCookie,
     createSession,
     normalizeEmail,
-    setSession,
     verifyPassword,
 } from '@/lib/auth';
 
@@ -46,22 +46,25 @@ export async function POST(request: NextRequest) {
         }
 
         const sessionToken = createSession(user.id, user.appRoleId);
-        await setSession(sessionToken);
 
         await prisma.user.update({
             where: { id: user.id },
             data: { lastLoginAt: new Date() },
         });
 
-        return NextResponse.json(
-            {
-                success: true,
-                roleName: user.appRole.name,
-                canEdit: user.appRole.canEditContent,
-                canManageUsers: user.appRole.canManageUsers,
-                mustChangePassword: user.mustChangePassword,
-            },
-            { status: 200 }
+        return attachSessionCookie(
+            NextResponse.json(
+                {
+                    success: true,
+                    roleName: user.appRole.name,
+                    canEdit: user.appRole.canEditContent,
+                    canManageUsers: user.appRole.canManageUsers,
+                    mustChangePassword: user.mustChangePassword,
+                },
+                { status: 200 }
+            ),
+            sessionToken,
+            request
         );
     } catch (error) {
         console.error('Login error:', error);
