@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { hashPassword } from '@/lib/auth';
 import { requireSuperAdminMiddleware } from '@/lib/auth-helpers';
+
+const RECOVERY_PHRASE = process.env.RECOVERY_PHRASE || '';
+
+const verifyRecoveryPhrase = (phrase: string): boolean => {
+    if (!RECOVERY_PHRASE) return false;
+    const expected = Buffer.from(RECOVERY_PHRASE);
+    const actual = Buffer.from(phrase);
+    if (expected.length !== actual.length) return false;
+    return timingSafeEqual(expected, actual);
+};
 
 export async function POST(
     request: NextRequest,
@@ -14,30 +25,38 @@ export async function POST(
         const { id } = await params;
         const body = await request.json();
         const temporaryPassword = String(body.temporaryPassword || '');
+        const recoveryPhrase = String(body.recoveryPhrase || '');
 
-        if (!temporaryPassword.trim()) {
+        if (!RECOVERY_PHRASE) {
             return NextResponse.json(
-                { error: 'Временный пароль обязателен' },
+                { error: 'RECOVERY_PHRASE не настроен' },
+                { status: 500 }
+            );
+        }
+
+        if (!recoveryPhrase || !verifyRecoveryPhrase(recoveryPhrase)) {
+            return NextResponse.json(
+                { error: 'Неверная ключевая фраза' },
+                { status: 401 }
+            );
+        }
+
+        if (!temporaryPassword.trim() || temporaryPassword.length < 8) {
+            return NextResponse.json(
+                { error: 'Временный пароль должен быть не короче 8 символов' },
                 { status: 400 }
             );
         }
 
         const currentUser = await prisma.user.findUnique({
             where: { id },
-            select: { role: true },
+            select: { id: true },
         });
 
         if (!currentUser) {
             return NextResponse.json(
                 { error: 'Пользователь не найден' },
                 { status: 404 }
-            );
-        }
-
-        if (currentUser.role === 'super_admin') {
-            return NextResponse.json(
-                { error: 'Пароль super_admin сбрасывается только вручную' },
-                { status: 400 }
             );
         }
 

@@ -85,6 +85,10 @@ export default async function proxy(request: NextRequest) {
         return NextResponse.redirect(loginUrl);
     }
 
+    if (pathname === '/groups/manage' || pathname.startsWith('/groups/manage/')) {
+        return NextResponse.redirect(new URL('/', request.url));
+    }
+
     return NextResponse.next();
 }
 

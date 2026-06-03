@@ -3,6 +3,12 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useParams } from 'next/navigation';
+import { AppPageHeader } from '@/components/layout/app-page-header';
+import {
+    buildReportEditBreadcrumbs,
+    stripHtml as stripHtmlLabel,
+    type GroupAncestor,
+} from '@/lib/breadcrumbs';
 import { useUserRole } from '@/hooks/use-user-role';
 import type {
     ReportFromDB,
@@ -17,7 +23,6 @@ import {
     Trash2,
     Plus,
     Eye,
-    Home,
     ChevronDown,
     ChevronUp,
     Copy,
@@ -27,7 +32,6 @@ import {
     AlignCenter,
     AlignLeft,
     AlignRight,
-    LogOut,
 } from 'lucide-react';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
 import {
@@ -801,7 +805,7 @@ export default function EditReportPage() {
     const router = useRouter();
     const params = useParams();
     const reportId = params.id as string;
-    const { isAdmin, loading: roleLoading } = useUserRole();
+    const { canEdit, loading: roleLoading } = useUserRole();
 
     const {
         report,
@@ -820,7 +824,34 @@ export default function EditReportPage() {
     } = useReportDraftSync(reportId);
 
     const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-    const groupTarget = report?.group?.path ? `/${report.group.path}` : '/reports';
+    const [ancestors, setAncestors] = useState<GroupAncestor[]>([]);
+
+    useEffect(() => {
+        if (!reportId) return;
+        void fetch(`/api/reports/${reportId}`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                if (data?.ancestors) {
+                    setAncestors(data.ancestors);
+                }
+            })
+            .catch(() => setAncestors([]));
+    }, [reportId, report?.version]);
+
+    const headerBreadcrumbs = useMemo(() => {
+        if (!report) {
+            return [
+                { label: 'Группы', href: '/' },
+                { label: 'Редактор' },
+            ];
+        }
+        return buildReportEditBreadcrumbs(
+            ancestors,
+            report.group,
+            report.title || 'Отчёт',
+            reportId
+        );
+    }, [ancestors, report, reportId]);
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -992,18 +1023,18 @@ export default function EditReportPage() {
     }, []);
 
     useEffect(() => {
-        if (!roleLoading && !isAdmin) {
+        if (!roleLoading && !canEdit) {
             router.push(`/reports/${reportId}`);
             return;
         }
-        if (isAdmin && reportId) {
+        if (canEdit && reportId) {
             void loadReport().then((merged) => {
                 if (merged && merged.blocks.length > 0) {
                     setSelectedBlockId(merged.blocks[0].id);
                 }
             });
         }
-    }, [reportId, isAdmin, roleLoading, router, loadReport]);
+    }, [reportId, canEdit, roleLoading, router, loadReport]);
 
     useEffect(() => {
         if (report && !report.date) {
@@ -1029,7 +1060,7 @@ export default function EditReportPage() {
         );
     }
 
-    if (!isAdmin) {
+    if (!canEdit) {
         return null; // Редирект уже произошел
     }
 
@@ -1048,65 +1079,62 @@ export default function EditReportPage() {
 
     return (
         <div className="min-h-screen bg-zinc-950 flex flex-col">
-            <header className="bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between z-10">
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => router.push(groupTarget)}
-                        className="p-2 hover:bg-zinc-800 rounded text-zinc-400 cursor-pointer"
-                        title="К списку отчетов"
-                    >
-                        <Home className="w-5 h-5" />
-                    </button>
-                    <div>
-                        <h1 className="text-lg font-semibold text-white">
-                            Конструктор отчёта
-                        </h1>
-                        <p className="text-sm text-zinc-400">{report.title}</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-3">
-                    <span className="text-sm text-zinc-400 px-3 py-2">
-                        {syncStatusLabel}
-                    </span>
-                    <button
-                        onClick={handleLogout}
-                        className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded hover:bg-red-500/20 hover:border-red-500/30 flex items-center gap-2 text-red-400 hover:text-red-300 transition-all cursor-pointer"
-                        title="Выйти из системы"
-                    >
-                        <LogOut className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={handleSaveDraft}
-                        disabled={syncStatus === 'saving' || syncStatus === 'autosaving'}
-                        className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                    >
-                        <Save className="w-4 h-4" />
-                        {syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить черновик'}
-                    </button>
-                    <button
-                        onClick={handlePublish}
-                        disabled={!canPublish}
-                        className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 flex items-center gap-2 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                    >
-                        {publishing
-                            ? 'Публикация...'
-                            : canPublish
-                              ? 'Опубликовать'
-                              : 'Уже опубликовано'}
-                    </button>
-                    <button
-                        onClick={() => router.push(`/reports/${reportId}`)}
-                        className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 cursor-pointer"
-                    >
-                        <Eye className="w-4 h-4" />
-                        Открыть отчёт
-                    </button>
-                </div>
-            </header>
+            <div className="flex flex-col border-b border-zinc-800 bg-zinc-900">
+                <AppPageHeader
+                    variant="editor"
+                    onLogout={handleLogout}
+                    breadcrumbs={headerBreadcrumbs}
+                    title="Конструктор отчёта"
+                    description={stripHtmlLabel(report.title || '') || undefined}
+                    actions={
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-sm text-zinc-400 px-1 py-2">
+                                {syncStatusLabel}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={handleSaveDraft}
+                                disabled={
+                                    syncStatus === 'saving' ||
+                                    syncStatus === 'autosaving'
+                                }
+                                className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                                <Save className="w-4 h-4" />
+                                {syncStatus === 'saving'
+                                    ? 'Сохранение...'
+                                    : 'Сохранить черновик'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handlePublish}
+                                disabled={!canPublish}
+                                className="px-4 py-2 bg-green-600 rounded hover:bg-green-700 flex items-center gap-2 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                                {publishing
+                                    ? 'Публикация...'
+                                    : canPublish
+                                      ? 'Опубликовать'
+                                      : 'Уже опубликовано'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    router.push(`/reports/${reportId}`)
+                                }
+                                className="px-4 py-2 bg-zinc-800 rounded hover:bg-zinc-700 flex items-center gap-2 text-zinc-200 cursor-pointer"
+                            >
+                                <Eye className="w-4 h-4" />
+                                Просмотр
+                            </button>
+                        </div>
+                    }
+                />
+            </div>
 
             <div className="flex-1 flex">
                 {/* Левая колонка - Редактирование */}
-                <div className="flex-1 overflow-y-auto p-6 h-[calc(100vh-73px)]">
+                <div className="flex-1 overflow-y-auto p-6 h-[calc(100vh-120px)]">
                     <div className="max-w-4xl mx-auto space-y-6">
                         {/* Meta Section */}
                         <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
@@ -1304,7 +1332,7 @@ export default function EditReportPage() {
                 </div>
 
                 {/* Правая колонка - Список блоков */}
-                <div className="w-96 border-l border-zinc-800 bg-zinc-900 flex flex-col h-[calc(100vh-73px)] sticky top-[73px]">
+                <div className="w-96 border-l border-zinc-800 bg-zinc-900 flex flex-col min-h-[calc(100vh-120px)]">
                     <div className="p-4 border-b border-zinc-800">
                         <h2 className="text-lg font-semibold text-white mb-3">
                             Блоки ({sortedBlocks.length})

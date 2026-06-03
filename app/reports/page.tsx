@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, FileText, LogOut, Search, X } from 'lucide-react';
+import { Calendar, FileText, Search, X } from 'lucide-react';
+import { AppPageHeader } from '@/components/layout/app-page-header';
+import { ROOT_GROUPS_CRUMB } from '@/lib/breadcrumbs';
 import type { ReportFromDB } from '@/lib/db-types';
 import { useUserRole } from '@/hooks/use-user-role';
 import { ReportCard } from '@/components/reports/report-card';
@@ -10,7 +12,7 @@ import { getCurrentMonthDateRange } from '@/lib/report-date-range';
 
 export default function ReportsListPage() {
     const router = useRouter();
-    const { isAdmin } = useUserRole();
+    const { canEdit } = useUserRole();
     const defaultDateRange = getCurrentMonthDateRange();
 
     const [reports, setReports] = useState<ReportFromDB[]>([]);
@@ -188,28 +190,12 @@ export default function ReportsListPage() {
 
     return (
         <div className="min-h-screen bg-[var(--color-grayscale-16)]">
-            <header className="sticky top-0 z-40 border-b border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)]/95 backdrop-blur">
-                <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h1 className="text-3xl font-bold text-[var(--color-grayscale-2)]">
-                                Отчеты
-                            </h1>
-                            <p className="mt-1 text-sm text-[var(--color-grayscale-6)]">
-                                Только текущий месяц по умолчанию
-                            </p>
-                        </div>
-                        <button
-                            onClick={handleLogout}
-                            className="flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition-all hover:bg-red-500/20 hover:border-red-500/30 hover:text-red-300 cursor-pointer"
-                            title="Выйти из системы"
-                        >
-                            <LogOut className="h-4 w-4" />
-                            Выход
-                        </button>
-                    </div>
-                </div>
-            </header>
+            <AppPageHeader
+                onLogout={handleLogout}
+                breadcrumbs={[ROOT_GROUPS_CRUMB, { label: 'Все отчёты' }]}
+                title="Отчеты"
+                description="Только текущий месяц по умолчанию"
+            />
 
             <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -307,7 +293,7 @@ export default function ReportsListPage() {
                             <ReportCard
                                 key={report.id}
                                 report={report}
-                                isAdmin={isAdmin}
+                                isAdmin={canEdit}
                                 deleteConfirmId={deleteConfirm}
                                 onAskDelete={setDeleteConfirm}
                                 onCancelDelete={() => setDeleteConfirm(null)}

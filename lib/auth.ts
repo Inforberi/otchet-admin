@@ -2,28 +2,87 @@ import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { SYSTEM_SUPER_ADMIN_ROLE_ID } from '@/lib/role-constants';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
-
-export type UserRole = 'super_admin' | 'editor';
 
 export type AuthenticatedUser = {
     id: string;
     email: string;
     firstName: string;
     lastName: string;
-    role: UserRole;
+    appRoleId: string;
+    roleName: string;
+    canEditContent: boolean;
+    canManageUsers: boolean;
+    restrictGroups: boolean;
     mustChangePassword: boolean;
     isActive: boolean;
 };
 
 type SessionPayload = {
     sub: string;
-    role: UserRole;
+    roleId: string;
     iat: number;
     exp: number;
+};
+
+const userSelect = {
+    id: true,
+    email: true,
+    firstName: true,
+    lastName: true,
+    appRoleId: true,
+    mustChangePassword: true,
+    isActive: true,
+    appRole: {
+        select: {
+            id: true,
+            name: true,
+            canEditContent: true,
+            canManageUsers: true,
+            restrictGroups: true,
+        },
+    },
+} as const;
+
+const mapUser = (
+    user: {
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        appRoleId: string;
+        mustChangePassword: boolean;
+        isActive: boolean;
+        appRole: {
+            id: string;
+            name: string;
+            canEditContent: boolean;
+            canManageUsers: boolean;
+            restrictGroups: boolean;
+        };
+    } | null
+): AuthenticatedUser | null => {
+    if (!user || !user.isActive || !user.appRole) return null;
+
+    const isSuperAdmin = user.appRoleId === SYSTEM_SUPER_ADMIN_ROLE_ID;
+
+    return {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        appRoleId: user.appRoleId,
+        roleName: user.appRole.name,
+        canEditContent: isSuperAdmin ? true : user.appRole.canEditContent,
+        canManageUsers: isSuperAdmin ? true : user.appRole.canManageUsers,
+        restrictGroups: isSuperAdmin ? false : user.appRole.restrictGroups,
+        mustChangePassword: user.mustChangePassword,
+        isActive: user.isActive,
+    };
 };
 
 const encodeBase64Url = (value: string | Buffer): string =>
@@ -33,17 +92,12 @@ const decodeBase64Url = (value: string): string =>
     Buffer.from(value, 'base64url').toString('utf-8');
 
 const signJwt = (payload: SessionPayload): string => {
-    const header = {
-        alg: 'HS256',
-        typ: 'JWT',
-    };
-
+    const header = { alg: 'HS256', typ: 'JWT' };
     const encodedHeader = encodeBase64Url(JSON.stringify(header));
     const encodedPayload = encodeBase64Url(JSON.stringify(payload));
     const signature = createHmac('sha256', JWT_SECRET)
         .update(`${encodedHeader}.${encodedPayload}`)
         .digest('base64url');
-
     return `${encodedHeader}.${encodedPayload}.${signature}`;
 };
 
@@ -69,15 +123,11 @@ const verifyJwt = (token: string): SessionPayload | null => {
             decodeBase64Url(encodedPayload)
         ) as SessionPayload;
 
-        if (!payload.sub || !payload.role || !payload.exp || !payload.iat) {
+        if (!payload.sub || !payload.roleId || !payload.exp || !payload.iat) {
             return null;
         }
 
         if (payload.exp <= Math.floor(Date.now() / 1000)) {
-            return null;
-        }
-
-        if (payload.role !== 'super_admin' && payload.role !== 'editor') {
             return null;
         }
 
@@ -110,11 +160,11 @@ export const verifyPassword = (
     return timingSafeEqual(derived, expected);
 };
 
-export const createSession = (userId: string, role: UserRole): string => {
+export const createSession = (userId: string, appRoleId: string): string => {
     const now = Math.floor(Date.now() / 1000);
     return signJwt({
         sub: userId,
-        role,
+        roleId: appRoleId,
         iat: now,
         exp: now + SESSION_MAX_AGE_SECONDS,
     });
@@ -127,14 +177,14 @@ export const getSessionPayload = (
     return verifyJwt(sessionToken);
 };
 
-export const getSessionRole = (
-    sessionToken: string | undefined
-): UserRole | null => getSessionPayload(sessionToken)?.role ?? null;
+export const canEditContent = (user: AuthenticatedUser | null): boolean =>
+    Boolean(user?.canEditContent);
 
-export const isValidSession = (sessionToken: string | undefined): boolean =>
-    getSessionPayload(sessionToken) !== null;
+export const canManageUsers = (user: AuthenticatedUser | null): boolean =>
+    Boolean(user?.canManageUsers);
 
-export const requireAdmin = (role: UserRole | null): boolean => role !== null;
+export const isReadOnlyUser = (user: AuthenticatedUser | null): boolean =>
+    Boolean(user && !user.canEditContent);
 
 export const getSession = async (): Promise<string | null> => {
     const cookieStore = await cookies();
@@ -158,13 +208,6 @@ export const deleteSession = async (): Promise<void> => {
     cookieStore.delete(SESSION_COOKIE_NAME);
 };
 
-export const getRequestRole = async (
-    request: NextRequest
-): Promise<UserRole | null> => {
-    const currentUser = await getCurrentUserFromRequest(request);
-    return currentUser?.role ?? null;
-};
-
 export const getCurrentUserFromRequest = async (
     request: NextRequest
 ): Promise<AuthenticatedUser | null> => {
@@ -174,26 +217,14 @@ export const getCurrentUserFromRequest = async (
 
     const user = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-            mustChangePassword: true,
-            isActive: true,
-        },
+        select: userSelect,
     });
 
-    if (!user || !user.isActive) {
+    if (!user || user.appRoleId !== payload.roleId) {
         return null;
     }
 
-    if (user.role !== payload.role) {
-        return null;
-    }
-
-    return user as AuthenticatedUser;
+    return mapUser(user);
 };
 
 export const getCurrentUserFromSession = async (): Promise<AuthenticatedUser | null> => {
@@ -203,20 +234,12 @@ export const getCurrentUserFromSession = async (): Promise<AuthenticatedUser | n
 
     const user = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-            mustChangePassword: true,
-            isActive: true,
-        },
+        select: userSelect,
     });
 
-    if (!user || !user.isActive || user.role !== payload.role) {
+    if (!user || user.appRoleId !== payload.roleId) {
         return null;
     }
 
-    return user as AuthenticatedUser;
+    return mapUser(user);
 };

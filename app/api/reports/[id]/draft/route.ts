@@ -7,7 +7,11 @@ import {
 } from '@/lib/draft-hash';
 import type { ReportBlockFromDB } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import {
+    getRequestUser,
+    isViewerRole,
+    requireEditorMiddleware,
+} from '@/lib/auth-helpers';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 import { sanitizeRichTextHtml } from '@/lib/rich-text-sanitize';
 
@@ -120,7 +124,7 @@ export const PATCH = async (
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) => {
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
@@ -360,6 +364,11 @@ export const GET = async (
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) => {
+    const user = await getRequestUser(request);
+    if (!user || isViewerRole(user)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     try {
         const { id } = await params;
         const report = await prisma.report.findUnique({

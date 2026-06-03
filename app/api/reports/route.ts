@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { CreateReportInput } from '@/lib/db-types';
 import { Prisma } from '@prisma/client';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import {
+    getRequestUser,
+    isViewerRole,
+    requireEditorMiddleware,
+} from '@/lib/auth-helpers';
+import { canAccessGroupId, getAccessibleGroupFilter } from '@/lib/group-access';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 import { getCurrentMonthDateRange } from '@/lib/report-date-range';
 
 // GET /api/reports - список всех отчетов
 export async function GET(request: NextRequest) {
     try {
+        const user = await getRequestUser(request);
         const searchParams = request.nextUrl.searchParams;
         const search = searchParams.get('search');
         const groupId = searchParams.get('groupId');
@@ -17,6 +23,10 @@ export async function GET(request: NextRequest) {
         const allTime = searchParams.get('allTime') === '1';
 
         const where: Prisma.ReportWhereInput = {};
+
+        if (user && isViewerRole(user)) {
+            where.status = 'published';
+        }
         const defaultRange = getCurrentMonthDateRange();
         const effectiveDateFrom = allTime
             ? null
@@ -26,7 +36,15 @@ export async function GET(request: NextRequest) {
             : dateTo || defaultRange.dateTo;
 
         if (groupId) {
+            if (user && !(await canAccessGroupId(user, groupId))) {
+                return NextResponse.json({ reports: [] }, { status: 200 });
+            }
             where.groupId = groupId;
+        } else if (user && isViewerRole(user)) {
+            const groupFilter = await getAccessibleGroupFilter(user);
+            if (groupFilter) {
+                where.groupId = groupFilter.id;
+            }
         }
 
         if (search) {
@@ -82,7 +100,7 @@ export async function GET(request: NextRequest) {
 // POST /api/reports - создание нового отчета
 export async function POST(request: NextRequest) {
     // Проверка прав администратора
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

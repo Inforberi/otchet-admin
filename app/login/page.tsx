@@ -51,7 +51,7 @@ function LoginForm() {
             // Редирект на сохраненный путь или на главную
             const redirect = data.mustChangePassword
                 ? '/change-password'
-                : searchParams.get('redirect') || '/reports';
+                : searchParams.get('redirect') || '/';
             router.push(redirect);
             router.refresh();
         } catch (err) {

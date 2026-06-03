@@ -9,12 +9,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model AppRole {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  canEditContent  Boolean  @default(false) @map("can_edit_content")
+  canManageUsers  Boolean  @default(false) @map("can_manage_users")
+  isSystem        Boolean  @default(false) @map("is_system")
+  restrictGroups  Boolean  @default(false) @map("restrict_groups")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  groupAccess AppRoleGroup[]
+  users       User[]
+
+  @@map("app_roles")
+}
+
+model AppRoleGroup {
+  roleId  String @map("role_id")
+  groupId String @map("group_id")
+
+  role  AppRole     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  group ReportGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, groupId])
+  @@map("app_role_groups")
+  @@index([groupId])
+}
+
 model User {
   id                 String   @id @default(uuid())
   email              String   @unique
   firstName          String   @map("first_name")
   lastName           String   @map("last_name")
-  role               String
+  appRoleId          String   @map("app_role_id")
   passwordHash       String   @map("password_hash")
   mustChangePassword Boolean  @default(false) @map("must_change_password")
   isActive           Boolean  @default(true) @map("is_active")
@@ -22,8 +50,10 @@ model User {
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
+  appRole AppRole @relation(fields: [appRoleId], references: [id], onDelete: Restrict)
+
   @@map("users")
-  @@index([role])
+  @@index([appRoleId])
   @@index([isActive])
 }
 
@@ -44,6 +74,7 @@ model ReportGroup {
   children    ReportGroup[] @relation("ReportGroupTree")
   reports     Report[]
   uploads     Upload[]
+  roleAccess  AppRoleGroup[]
 
   @@map("report_groups")
   @@index([parentId])

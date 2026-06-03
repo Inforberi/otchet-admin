@@ -1,41 +1,32 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
-export type UserRole = 'super_admin' | 'editor' | null;
-
 export type CurrentUser = {
     id: string;
     email: string;
     firstName: string;
     lastName: string;
-    role: Exclude<UserRole, null>;
+    appRoleId: string;
+    roleName: string;
+    canEditContent: boolean;
+    canManageUsers: boolean;
     mustChangePassword: boolean;
 } | null;
 
 export function useUserRole() {
     const router = useRouter();
     const pathname = usePathname();
-    const [role, setRole] = useState<UserRole>(null);
     const [user, setUser] = useState<CurrentUser>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         fetch('/api/auth/me')
-            .then((res) => {
-                if (res.ok) return res.json();
-                return null;
-            })
+            .then((res) => (res.ok ? res.json() : null))
             .then((data) => {
-                setRole(data?.role || null);
                 setUser(data?.user || null);
             })
-            .catch(() => {
-                setRole(null);
-                setUser(null);
-            })
-            .finally(() => {
-                setLoading(false);
-            });
+            .catch(() => setUser(null))
+            .finally(() => setLoading(false));
     }, []);
 
     useEffect(() => {
@@ -48,17 +39,22 @@ export function useUserRole() {
         }
     }, [loading, pathname, router, user]);
 
-    const isAdmin = role !== null;
-    const isSuperAdmin = role === 'super_admin';
-    const isEditor = role === 'editor';
+    const isAuthenticated = Boolean(user);
+    const canEdit = user?.canEditContent ?? false;
+    const canManageUsers = user?.canManageUsers ?? false;
+    const isSuperAdmin = canManageUsers;
+    const isViewer = isAuthenticated && !canEdit;
 
     return {
-        role,
         user,
         loading,
-        isAdmin,
+        isAuthenticated,
+        roleName: user?.roleName ?? null,
+        canEdit,
+        canManageUsers,
         isSuperAdmin,
-        isEditor,
+        isViewer,
+        isAdmin: canEdit,
         mustChangePassword: user?.mustChangePassword ?? false,
     };
 }

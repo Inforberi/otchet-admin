@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import {
+    getRequestUser,
+    requireEditorMiddleware,
+} from '@/lib/auth-helpers';
+import { getAccessibleGroupFilter } from '@/lib/group-access';
 import { generateGroupSlugAndPath } from '@/lib/group-service';
 
 // GET /api/groups - список всех групп
 export async function GET(request: NextRequest) {
     try {
+        const user = await getRequestUser(request);
         const tree = request.nextUrl.searchParams.get('tree');
+        const groupFilter = await getAccessibleGroupFilter(user);
         const groups = await prisma.reportGroup.findMany({
-            where: tree === '1' ? undefined : { parentId: null },
+            where: {
+                ...(tree === '1' ? {} : { parentId: null }),
+                ...(groupFilter ?? {}),
+            },
             orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
             include: {
                 _count: {
@@ -33,7 +42,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/groups - создание новой группы
 export async function POST(request: NextRequest) {
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

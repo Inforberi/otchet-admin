@@ -7,13 +7,14 @@ import {
     normalizeEmail,
     setSession,
 } from '@/lib/auth';
+import { SYSTEM_SUPER_ADMIN_ROLE_ID } from '@/lib/role-constants';
 
 const SETUP_CODE = process.env.SETUP_CODE || '';
 
 export async function POST(request: NextRequest) {
     try {
         const existingSuperAdmin = await prisma.user.count({
-            where: { role: 'super_admin' },
+            where: { appRole: { canManageUsers: true } },
         });
 
         if (existingSuperAdmin > 0) {
@@ -56,19 +57,16 @@ export async function POST(request: NextRequest) {
                 firstName,
                 lastName,
                 email,
-                role: 'super_admin',
+                appRoleId: SYSTEM_SUPER_ADMIN_ROLE_ID,
                 passwordHash: hashPassword(password),
                 mustChangePassword: false,
                 isActive: true,
                 lastLoginAt: new Date(),
             },
-            select: {
-                id: true,
-                role: true,
-            },
+            select: { id: true, appRoleId: true },
         });
 
-        await setSession(createSession(user.id, 'super_admin'));
+        await setSession(createSession(user.id, user.appRoleId));
 
         return NextResponse.json({ success: true }, { status: 201 });
     } catch (error) {

@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Calendar, FileText, FolderOpen, LogOut, Plus, Search, X } from 'lucide-react';
+import { Calendar, FileText, FolderOpen, Plus, Search, Settings, X } from 'lucide-react';
+import { AppPageHeader } from '@/components/layout/app-page-header';
 import type { ReportFromDB } from '@/lib/db-types';
 import { useUserRole } from '@/hooks/use-user-role';
+import { buildGroupBreadcrumbs } from '@/lib/breadcrumbs';
 import { CreateGroupDialog } from '@/components/groups/create-group-dialog';
+import { EditGroupDialog } from '@/components/groups/edit-group-dialog';
 import { CreateReportDialog } from '@/components/reports/create-report-dialog';
 import { ReportCard } from '@/components/reports/report-card';
 import {
@@ -39,6 +42,8 @@ interface ReportGroup {
     path: string;
     slug: string;
     description: string | null;
+    parentId: string | null;
+    version: number;
     _count: {
         reports: number;
         children: number;
@@ -56,7 +61,7 @@ export default function GroupReportsPage() {
     }, [rawGroupPath]);
     const groupPathString = useMemo(() => groupPath.join('/'), [groupPath]);
     const defaultDateRange = getCurrentMonthDateRange();
-    const { isAdmin } = useUserRole();
+    const { canEdit } = useUserRole();
 
     const [group, setGroup] = useState<ReportGroup | null>(null);
     const [breadcrumbs, setBreadcrumbs] = useState<GroupBreadcrumbItem[]>([]);
@@ -68,6 +73,7 @@ export default function GroupReportsPage() {
     const [allTime, setAllTime] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+    const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
     const [isCreateReportOpen, setIsCreateReportOpen] = useState(false);
 
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -278,6 +284,35 @@ export default function GroupReportsPage() {
         }
     };
 
+    const headerBreadcrumbs = useMemo(() => {
+        if (!group) {
+            return [
+                { label: 'Группы', href: '/' },
+                { label: 'Группа не найдена' },
+            ];
+        }
+        return buildGroupBreadcrumbs(breadcrumbs, group.name);
+    }, [breadcrumbs, group]);
+
+    const handleGroupUpdated = async (updated: {
+        path: string;
+    }) => {
+        if (updated.path !== group?.path) {
+            router.replace(`/${updated.path}`);
+            return;
+        }
+        await loadGroup();
+    };
+
+    const handleGroupDeleted = () => {
+        const parent = breadcrumbs[breadcrumbs.length - 1];
+        if (parent) {
+            router.push(`/${parent.path}`);
+        } else {
+            router.push('/');
+        }
+    };
+
     if (loading && !group) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-[var(--color-grayscale-16)]">
@@ -289,33 +324,16 @@ export default function GroupReportsPage() {
     if (!loading && !group) {
         return (
             <div className="min-h-screen bg-[var(--color-grayscale-16)]">
-                <header className="sticky top-0 z-40 border-b border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)]/95 backdrop-blur">
-                    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => router.push('/')}
-                                className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
-                            >
-                                <ArrowLeft className="h-4 w-4" />
-                            </button>
-                            <h1 className="text-3xl font-bold text-[var(--color-grayscale-2)]">
-                                Группа не найдена
-                            </h1>
-                        </div>
-                    </div>
-                </header>
+                <AppPageHeader
+                    onLogout={handleLogout}
+                    breadcrumbs={headerBreadcrumbs}
+                    title="Группа не найдена"
+                />
                 <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
                     <div className="py-16 text-center">
-                        <p className="mb-4 text-lg text-[var(--color-grayscale-6)]">
+                        <p className="text-lg text-[var(--color-grayscale-6)]">
                             Группа отчетов не найдена
                         </p>
-                        <button
-                            onClick={() => router.push('/')}
-                            className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
-                        >
-                            <ArrowLeft className="h-4 w-4" />
-                            Вернуться к группам
-                        </button>
                     </div>
                 </main>
             </div>
@@ -326,89 +344,47 @@ export default function GroupReportsPage() {
 
     return (
         <div className="min-h-screen bg-[var(--color-grayscale-16)]">
-            <header className="sticky top-0 z-40 border-b border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)]/95 backdrop-blur">
-                <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-start gap-4">
+            <AppPageHeader
+                onLogout={handleLogout}
+                breadcrumbs={headerBreadcrumbs}
+                title={
+                    <span className="inline-flex items-center gap-2">
+                        <FolderOpen className="h-6 w-6 text-[var(--color-primary)]" />
+                        {group.name}
+                    </span>
+                }
+                description={group.description || undefined}
+                actions={
+                    canEdit ? (
+                        <>
                             <button
-                                onClick={() => router.push('/')}
-                                className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
-                                title="Назад к группам"
+                                type="button"
+                                onClick={() => setIsEditGroupOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-2 text-sm font-medium text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
                             >
-                                <ArrowLeft className="h-4 w-4" />
+                                <Settings className="h-4 w-4" />
+                                Настройки папки
                             </button>
-                            <div>
-                                <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-[var(--color-grayscale-6)]">
-                                    <button
-                                        onClick={() => router.push('/')}
-                                        className="transition-colors hover:text-[var(--color-grayscale-3)] cursor-pointer"
-                                    >
-                                        Группы
-                                    </button>
-                                    {breadcrumbs.map((item) => (
-                                        <div
-                                            key={item.id}
-                                            className="flex items-center gap-2"
-                                        >
-                                            <span>/</span>
-                                            <button
-                                                onClick={() => router.push(`/${item.path}`)}
-                                                className="transition-colors hover:text-[var(--color-grayscale-3)] cursor-pointer"
-                                            >
-                                                {item.name}
-                                            </button>
-                                        </div>
-                                    ))}
-                                    <div className="flex items-center gap-2">
-                                        <span>/</span>
-                                        <span className="text-[var(--color-grayscale-3)]">
-                                            {group.name}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="mb-1 flex items-center gap-2">
-                                    <FolderOpen className="h-5 w-5 text-[var(--color-primary)]" />
-                                    <h1 className="text-3xl font-bold text-[var(--color-grayscale-2)]">
-                                        {group.name}
-                                    </h1>
-                                </div>
-                                {group.description && (
-                                    <p className="text-sm text-[var(--color-grayscale-6)]">
-                                        {group.description}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            {isAdmin && (
-                                <>
-                                    <button
-                                        onClick={() => setIsCreateGroupOpen(true)}
-                                        className="inline-flex items-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-2 text-sm font-medium text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
-                                    >
-                                        <Plus className="h-4 w-4" />
-                                        Создать папку
-                                    </button>
-                                    <button
-                                        onClick={() => setIsCreateReportOpen(true)}
-                                        className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
-                                    >
-                                        <Plus className="h-4 w-4" />
-                                        Создать отчёт
-                                    </button>
-                                </>
-                            )}
                             <button
-                                onClick={handleLogout}
-                                className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 cursor-pointer"
+                                type="button"
+                                onClick={() => setIsCreateGroupOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-2 text-sm font-medium text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
                             >
-                                <LogOut className="h-4 w-4" />
-                                Выйти
+                                <Plus className="h-4 w-4" />
+                                Создать папку
                             </button>
-                        </div>
-                    </div>
-                </div>
-            </header>
+                            <button
+                                type="button"
+                                onClick={() => setIsCreateReportOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
+                            >
+                                <Plus className="h-4 w-4" />
+                                Создать отчёт
+                            </button>
+                        </>
+                    ) : undefined
+                }
+            />
 
             <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
                 <section className="mb-8 rounded-xl border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-5">
@@ -589,7 +565,7 @@ export default function GroupReportsPage() {
                                 <ReportCard
                                     key={report.id}
                                     report={report}
-                                    isAdmin={isAdmin}
+                                    isAdmin={canEdit}
                                     deleteConfirmId={deleteConfirm}
                                     onAskDelete={setDeleteConfirm}
                                     onCancelDelete={() => setDeleteConfirm(null)}
@@ -615,8 +591,15 @@ export default function GroupReportsPage() {
                 )}
             </main>
 
-            {isAdmin && (
+            {canEdit && (
                 <>
+                    <EditGroupDialog
+                        open={isEditGroupOpen}
+                        onOpenChange={setIsEditGroupOpen}
+                        group={group}
+                        onUpdated={handleGroupUpdated}
+                        onDeleted={handleGroupDeleted}
+                    />
                     <CreateGroupDialog
                         open={isCreateGroupOpen}
                         onOpenChange={setIsCreateGroupOpen}

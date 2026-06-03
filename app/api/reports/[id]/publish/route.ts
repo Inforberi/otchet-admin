@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { buildDraftPayload, computeDraftHash } from '@/lib/draft-hash';
 import type { ReportBlockFromDB } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import { requireEditorMiddleware } from '@/lib/auth-helpers';
 
 const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
@@ -11,7 +11,7 @@ export const POST = async (
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) => {
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

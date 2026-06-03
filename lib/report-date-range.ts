@@ -91,3 +91,32 @@ export const getEmptyPeriodText = ({
 
     return `За период ${formatDisplayDate(dateFrom)} — ${formatDisplayDate(dateTo)} отчётов пока нет`;
 };
+
+const MONTH_GENITIVE_RU = [
+    'января',
+    'февраля',
+    'марта',
+    'апреля',
+    'мая',
+    'июня',
+    'июля',
+    'августа',
+    'сентября',
+    'октября',
+    'ноября',
+    'декабря',
+] as const;
+
+/** Стабильное форматирование без locale — одинаково на сервере и клиенте */
+export const formatReportDateLabel = (
+    dateString: string | null | undefined
+): string => {
+    if (!dateString) return '';
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateString);
+    if (!match) return '';
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (month < 1 || month > 12 || day < 1) return '';
+    return `${day} ${MONTH_GENITIVE_RU[month - 1]} ${year} г.`;
+};

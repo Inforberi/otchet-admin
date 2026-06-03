@@ -6,7 +6,7 @@ import type { ReportFromDB } from '@/lib/db-types';
 
 interface ReportCardProps {
     report: ReportFromDB;
-    isAdmin: boolean;
+    isAdmin: boolean; // canEdit — показывать действия редактора
     deleteConfirmId: string | null;
     onAskDelete: (reportId: string) => void;
     onCancelDelete: () => void;

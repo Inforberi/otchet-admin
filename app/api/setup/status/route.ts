@@ -3,13 +3,10 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET() {
     const count = await prisma.user.count({
-        where: { role: 'super_admin' },
+        where: {
+            appRole: { canManageUsers: true },
+        },
     });
 
-    return NextResponse.json(
-        {
-            needsSetup: count === 0,
-        },
-        { status: 200 }
-    );
+    return NextResponse.json({ needsSetup: count === 0 }, { status: 200 });
 }

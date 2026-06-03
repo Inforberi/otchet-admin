@@ -1,35 +1,94 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, KeyRound, Save, Shield, UserPlus } from 'lucide-react';
+import {
+    ChevronDown,
+    ChevronRight,
+    KeyRound,
+    Save,
+    Shield,
+    Trash2,
+    UserPlus,
+} from 'lucide-react';
+import { AppPageHeader } from '@/components/layout/app-page-header';
+import { ROOT_GROUPS_CRUMB } from '@/lib/breadcrumbs';
+import { GroupAccessChecklist } from '@/components/users/group-access-checklist';
 import { useUserRole } from '@/hooks/use-user-role';
+import {
+    DEFAULT_EDITOR_ROLE_ID,
+    SYSTEM_SUPER_ADMIN_ROLE_ID,
+} from '@/lib/role-constants';
+
+type AppRole = {
+    id: string;
+    name: string;
+    canEditContent: boolean;
+    canManageUsers: boolean;
+    isSystem: boolean;
+    restrictGroups: boolean;
+    _count: { users: number; groupAccess: number };
+};
 
 type ManagedUser = {
     id: string;
     firstName: string;
     lastName: string;
     email: string;
-    role: 'super_admin' | 'editor';
+    appRoleId: string;
     isActive: boolean;
     mustChangePassword: boolean;
-    lastLoginAt: string | null;
-    createdAt: string;
+    appRole: {
+        id: string;
+        name: string;
+        canEditContent: boolean;
+        canManageUsers: boolean;
+    };
 };
+
+type ReportGroupOption = { id: string; name: string; path: string };
 
 export default function ManageUsersPage() {
     const router = useRouter();
-    const { isSuperAdmin, loading: roleLoading } = useUserRole();
+    const { canManageUsers, loading: roleLoading } = useUserRole();
     const [loading, setLoading] = useState(true);
+    const [roles, setRoles] = useState<AppRole[]>([]);
     const [users, setUsers] = useState<ManagedUser[]>([]);
+    const [groups, setGroups] = useState<ReportGroupOption[]>([]);
+    const [newRoleName, setNewRoleName] = useState('');
+    const [expandedRoleId, setExpandedRoleId] = useState<string | null>(null);
+    const [roleDrafts, setRoleDrafts] = useState<
+        Record<
+            string,
+            {
+                canEditContent: boolean;
+                restrictGroups: boolean;
+                groupIds: string[];
+            }
+        >
+    >({});
     const [newUser, setNewUser] = useState({
         firstName: '',
         lastName: '',
         email: '',
         temporaryPassword: '',
+        appRoleId: DEFAULT_EDITOR_ROLE_ID,
+    });
+    const [resetTargetId, setResetTargetId] = useState<string | null>(null);
+    const [resetForm, setResetForm] = useState({
+        temporaryPassword: '',
+        recoveryPhrase: '',
     });
 
-    const loadUsers = async () => {
+    const loadRoles = useCallback(async () => {
+        const response = await fetch('/api/roles');
+        if (response.ok) {
+            const data = await response.json();
+            setRoles(data.roles || []);
+        }
+    }, []);
+
+    const loadUsers = useCallback(async () => {
         try {
             setLoading(true);
             const response = await fetch('/api/users');
@@ -37,23 +96,143 @@ export default function ManageUsersPage() {
                 const data = await response.json();
                 setUsers(data.users || []);
             }
-        } catch (error) {
-            console.error('Error loading users:', error);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    const loadGroups = useCallback(async () => {
+        const response = await fetch('/api/groups?tree=1');
+        if (response.ok) {
+            const data = await response.json();
+            setGroups(
+                (data.groups || []).map((g: ReportGroupOption) => ({
+                    id: g.id,
+                    name: g.name,
+                    path: g.path,
+                }))
+            );
+        }
+    }, []);
 
     useEffect(() => {
-        if (!roleLoading && !isSuperAdmin) {
+        if (!roleLoading && !canManageUsers) {
             router.push('/');
             return;
         }
-
-        if (isSuperAdmin) {
+        if (canManageUsers) {
+            void loadRoles();
             void loadUsers();
+            void loadGroups();
         }
-    }, [isSuperAdmin, roleLoading, router]);
+    }, [canManageUsers, roleLoading, router, loadRoles, loadUsers, loadGroups]);
+
+    const loadRoleGroups = async (roleId: string) => {
+        const response = await fetch(`/api/roles/${roleId}/groups`);
+        const groupIds = response.ok
+            ? ((await response.json()).groupIds as string[])
+            : [];
+        const role = roles.find((r) => r.id === roleId);
+        if (!role) return;
+        setRoleDrafts((current) => ({
+            ...current,
+            [roleId]: {
+                canEditContent: role.canEditContent,
+                restrictGroups: role.restrictGroups,
+                groupIds,
+            },
+        }));
+    };
+
+    const toggleRoleExpand = async (roleId: string) => {
+        if (expandedRoleId === roleId) {
+            setExpandedRoleId(null);
+            return;
+        }
+        const role = roles.find((r) => r.id === roleId);
+        if (role) {
+            setRoleDrafts((current) => ({
+                ...current,
+                [roleId]: {
+                    canEditContent: role.canEditContent,
+                    restrictGroups: role.restrictGroups,
+                    groupIds: current[roleId]?.groupIds ?? [],
+                },
+            }));
+        }
+        setExpandedRoleId(roleId);
+        await loadRoleGroups(roleId);
+    };
+
+    const handleCreateRole = async () => {
+        const response = await fetch('/api/roles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: newRoleName,
+                canEditContent: false,
+                restrictGroups: true,
+            }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert(data.error || 'Ошибка создания роли');
+            return;
+        }
+        setNewRoleName('');
+        await loadRoles();
+    };
+
+    const handleSaveRole = async (roleId: string) => {
+        const draft = roleDrafts[roleId];
+        if (!draft) return;
+
+        const patchRes = await fetch(`/api/roles/${roleId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                canEditContent: draft.canEditContent,
+                restrictGroups: draft.restrictGroups,
+            }),
+        });
+        if (!patchRes.ok) {
+            const data = await patchRes.json();
+            alert(data.error || 'Ошибка сохранения роли');
+            return;
+        }
+
+        if (draft.restrictGroups) {
+            const groupsRes = await fetch(`/api/roles/${roleId}/groups`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ groupIds: draft.groupIds }),
+            });
+            if (!groupsRes.ok) {
+                const data = await groupsRes.json();
+                alert(data.error || 'Ошибка сохранения групп');
+                return;
+            }
+        }
+
+        await loadRoles();
+        setExpandedRoleId(null);
+    };
+
+    const handleDeleteRole = async (role: AppRole) => {
+        if (role.isSystem) return;
+        if (!confirm(`Удалить роль «${role.name}»?`)) return;
+
+        const response = await fetch(`/api/roles/${role.id}`, {
+            method: 'DELETE',
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert(data.error || 'Ошибка удаления');
+            return;
+        }
+        if (expandedRoleId === role.id) setExpandedRoleId(null);
+        await loadRoles();
+    };
 
     const handleCreateUser = async () => {
         const response = await fetch('/api/users', {
@@ -61,61 +240,68 @@ export default function ManageUsersPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newUser),
         });
-
         const data = await response.json();
         if (!response.ok) {
             alert(data.error || 'Ошибка создания пользователя');
             return;
         }
-
         setNewUser({
             firstName: '',
             lastName: '',
             email: '',
             temporaryPassword: '',
+            appRoleId: DEFAULT_EDITOR_ROLE_ID,
         });
         await loadUsers();
     };
 
-    const handleUpdateUser = async (
-        userId: string,
-        patch: Partial<ManagedUser>
-    ) => {
+    const handleUpdateUser = async (userId: string, patch: Partial<ManagedUser>) => {
         const response = await fetch(`/api/users/${userId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(patch),
         });
-
         const data = await response.json();
         if (!response.ok) {
-            alert(data.error || 'Ошибка обновления пользователя');
+            alert(data.error || 'Ошибка обновления');
             return;
         }
-
         setUsers((current) =>
-            current.map((user) => (user.id === userId ? data.user : user))
+            current.map((u) => (u.id === userId ? data.user : u))
         );
     };
 
-    const handleResetPassword = async (userId: string) => {
-        const temporaryPassword = prompt('Введите новый временный пароль');
-        if (!temporaryPassword) return;
+    const handleLogout = async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            router.push('/login');
+            router.refresh();
+        } catch (error) {
+            console.error('Error logging out:', error);
+        }
+    };
 
-        const response = await fetch(`/api/users/${userId}/reset-password`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ temporaryPassword }),
-        });
-
+    const handleResetPassword = async () => {
+        if (!resetTargetId) return;
+        const response = await fetch(
+            `/api/users/${resetTargetId}/reset-password`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(resetForm),
+            }
+        );
         const data = await response.json();
         if (!response.ok) {
             alert(data.error || 'Ошибка сброса пароля');
             return;
         }
-
+        setResetTargetId(null);
+        setResetForm({ temporaryPassword: '', recoveryPhrase: '' });
         await loadUsers();
     };
+
+    const assignableRoles = roles.filter((r) => !r.canManageUsers);
 
     if (roleLoading || loading) {
         return (
@@ -127,41 +313,317 @@ export default function ManageUsersPage() {
 
     return (
         <div className="min-h-screen bg-[var(--color-grayscale-16)]">
-            <header className="border-b border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)]">
-                <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-6 sm:px-6 lg:px-8">
-                    <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => router.push('/')}
-                            className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-4)] cursor-pointer"
-                        >
-                            <ArrowLeft className="h-4 w-4" />
-                        </button>
-                        <div>
-                            <h1 className="text-2xl font-bold text-[var(--color-grayscale-2)]">
-                                Пользователи
-                            </h1>
-                            <p className="text-sm text-[var(--color-grayscale-6)]">
-                                Управление editor-аккаунтами
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </header>
+            <AppPageHeader
+                onLogout={handleLogout}
+                breadcrumbs={[
+                    ROOT_GROUPS_CRUMB,
+                    { label: 'Пользователи и роли' },
+                ]}
+                title="Пользователи и роли"
+                description="Создавайте роли и назначайте их пользователям"
+            />
 
             <main className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
                 <section className="rounded-lg border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-6">
                     <div className="mb-4 flex items-center gap-2">
-                        <UserPlus className="h-5 w-5 text-[var(--color-primary)]" />
+                        <Shield className="h-5 w-5 text-[var(--color-primary)]" />
                         <h2 className="text-lg font-semibold text-[var(--color-grayscale-2)]">
-                            Создать editor
+                            Роли
                         </h2>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="mb-6 flex flex-wrap gap-2">
+                        <input
+                            value={newRoleName}
+                            onChange={(e) => setNewRoleName(e.target.value)}
+                            placeholder="Название роли (Копирайтер, SEO…)"
+                            className="min-w-[200px] flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200"
+                        />
+                        <button
+                            onClick={handleCreateRole}
+                            disabled={!newRoleName.trim()}
+                            className="rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50 cursor-pointer"
+                        >
+                            Добавить роль
+                        </button>
+                    </div>
+
+                    <div className="space-y-3">
+                        {roles.map((role) => {
+                            const draft = roleDrafts[role.id];
+                            const isExpanded = expandedRoleId === role.id;
+                            const isEditing = Boolean(draft);
+
+                            return (
+                                <div
+                                    key={role.id}
+                                    className="rounded-lg border border-zinc-800 bg-zinc-900"
+                                >
+                                    <div className="flex flex-wrap items-center gap-3 p-4">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                void toggleRoleExpand(role.id)
+                                            }
+                                            className="text-zinc-400 cursor-pointer"
+                                        >
+                                            {isExpanded ? (
+                                                <ChevronDown className="h-4 w-4" />
+                                            ) : (
+                                                <ChevronRight className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-medium text-zinc-100">
+                                                {role.name}
+                                                {role.isSystem && (
+                                                    <span className="ml-2 text-xs text-zinc-500">
+                                                        системная
+                                                    </span>
+                                                )}
+                                            </p>
+                                            <p className="text-xs text-zinc-500">
+                                                {role.canEditContent
+                                                    ? 'Просмотр и редактирование'
+                                                    : 'Только просмотр'}
+                                                {role.restrictGroups
+                                                    ? ` · ${role._count.groupAccess} групп`
+                                                    : ' · все группы'}
+                                                {' · '}
+                                                {role._count.users} польз.
+                                            </p>
+                                        </div>
+                                        {!role.isSystem && (
+                                            <button
+                                                onClick={() =>
+                                                    handleDeleteRole(role)
+                                                }
+                                                className="rounded border border-red-500/30 p-2 text-red-400 cursor-pointer"
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {isExpanded && (
+                                        <div className="border-t border-zinc-800 px-4 pb-4 pt-3 space-y-4">
+                                            {isEditing && !role.isSystem && (
+                                                <>
+                                                    <div className="space-y-2">
+                                                        <p className="text-sm font-medium text-zinc-300">
+                                                            Режим доступа
+                                                        </p>
+                                                        <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+                                                            <input
+                                                                type="radio"
+                                                                checked={
+                                                                    !draft.canEditContent
+                                                                }
+                                                                onChange={() =>
+                                                                    setRoleDrafts(
+                                                                        (c) => ({
+                                                                            ...c,
+                                                                            [role.id]:
+                                                                                {
+                                                                                    ...draft,
+                                                                                    canEditContent:
+                                                                                        false,
+                                                                                },
+                                                                        })
+                                                                    )
+                                                                }
+                                                            />
+                                                            Только просмотр
+                                                            (published)
+                                                        </label>
+                                                        <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+                                                            <input
+                                                                type="radio"
+                                                                checked={
+                                                                    draft.canEditContent
+                                                                }
+                                                                onChange={() =>
+                                                                    setRoleDrafts(
+                                                                        (c) => ({
+                                                                            ...c,
+                                                                            [role.id]:
+                                                                                {
+                                                                                    ...draft,
+                                                                                    canEditContent:
+                                                                                        true,
+                                                                                },
+                                                                        })
+                                                                    )
+                                                                }
+                                                            />
+                                                            Просмотр и
+                                                            редактирование
+                                                        </label>
+                                                    </div>
+                                                    <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={
+                                                                draft.restrictGroups
+                                                            }
+                                                            onChange={(e) =>
+                                                                setRoleDrafts(
+                                                                    (c) => ({
+                                                                        ...c,
+                                                                        [role.id]:
+                                                                            {
+                                                                                ...draft,
+                                                                                restrictGroups:
+                                                                                    e
+                                                                                        .target
+                                                                                        .checked,
+                                                                            },
+                                                                    })
+                                                                )
+                                                            }
+                                                        />
+                                                        Ограничить
+                                                        выбранными группами
+                                                    </label>
+                                                    {draft.restrictGroups && (
+                                                        <GroupAccessChecklist
+                                                            groups={groups}
+                                                            selectedGroupIds={
+                                                                draft.groupIds
+                                                            }
+                                                            onChange={(
+                                                                groupIds
+                                                            ) =>
+                                                                setRoleDrafts(
+                                                                    (c) => ({
+                                                                        ...c,
+                                                                        [role.id]:
+                                                                            {
+                                                                                ...draft,
+                                                                                groupIds,
+                                                                            },
+                                                                    })
+                                                                )
+                                                            }
+                                                        />
+                                                    )}
+                                                    <button
+                                                        onClick={() =>
+                                                            handleSaveRole(
+                                                                role.id
+                                                            )
+                                                        }
+                                                        className="rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm text-white cursor-pointer"
+                                                    >
+                                                        Сохранить роль
+                                                    </button>
+                                                </>
+                                            )}
+                                            {role.isSystem && (
+                                                <div className="space-y-2 text-sm text-zinc-400">
+                                                    <p className="font-medium text-zinc-300">
+                                                        Системная роль — полный
+                                                        доступ
+                                                    </p>
+                                                    <ul className="list-inside list-disc space-y-1 text-zinc-500">
+                                                        <li>
+                                                            Просмотр и
+                                                            редактирование всех
+                                                            отчётов
+                                                        </li>
+                                                        <li>
+                                                            Все группы без
+                                                            ограничений
+                                                        </li>
+                                                        {role.id ===
+                                                            SYSTEM_SUPER_ADMIN_ROLE_ID && (
+                                                            <li>
+                                                                Управление
+                                                                пользователями и
+                                                                ролями
+                                                            </li>
+                                                        )}
+                                                    </ul>
+                                                    <p className="text-zinc-600">
+                                                        Настройки системной роли
+                                                        нельзя изменить.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </section>
+
+                {resetTargetId && (
+                    <section className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-6">
+                        <h2 className="mb-4 text-lg font-semibold text-amber-200">
+                            Сброс пароля
+                        </h2>
+                        <div className="grid max-w-xl gap-3">
+                            <input
+                                type="password"
+                                value={resetForm.temporaryPassword}
+                                onChange={(e) =>
+                                    setResetForm((c) => ({
+                                        ...c,
+                                        temporaryPassword: e.target.value,
+                                    }))
+                                }
+                                placeholder="Новый временный пароль"
+                                className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200"
+                            />
+                            <input
+                                type="password"
+                                value={resetForm.recoveryPhrase}
+                                onChange={(e) =>
+                                    setResetForm((c) => ({
+                                        ...c,
+                                        recoveryPhrase: e.target.value,
+                                    }))
+                                }
+                                placeholder="Ключевая фраза (RECOVERY_PHRASE)"
+                                className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200"
+                            />
+                        </div>
+                        <div className="mt-4 flex gap-2">
+                            <button
+                                onClick={handleResetPassword}
+                                className="rounded-md bg-amber-600 px-4 py-2 text-sm text-white cursor-pointer"
+                            >
+                                Сбросить
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setResetTargetId(null);
+                                    setResetForm({
+                                        temporaryPassword: '',
+                                        recoveryPhrase: '',
+                                    });
+                                }}
+                                className="rounded-md border border-zinc-600 px-4 py-2 text-sm text-zinc-300 cursor-pointer"
+                            >
+                                Отмена
+                            </button>
+                        </div>
+                    </section>
+                )}
+
+                <section className="rounded-lg border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-6">
+                    <div className="mb-4 flex items-center gap-2">
+                        <UserPlus className="h-5 w-5 text-[var(--color-primary)]" />
+                        <h2 className="text-lg font-semibold text-[var(--color-grayscale-2)]">
+                            Создать пользователя
+                        </h2>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                         <input
                             value={newUser.firstName}
                             onChange={(e) =>
-                                setNewUser((current) => ({
-                                    ...current,
+                                setNewUser((c) => ({
+                                    ...c,
                                     firstName: e.target.value,
                                 }))
                             }
@@ -171,8 +633,8 @@ export default function ManageUsersPage() {
                         <input
                             value={newUser.lastName}
                             onChange={(e) =>
-                                setNewUser((current) => ({
-                                    ...current,
+                                setNewUser((c) => ({
+                                    ...c,
                                     lastName: e.target.value,
                                 }))
                             }
@@ -182,19 +644,35 @@ export default function ManageUsersPage() {
                         <input
                             value={newUser.email}
                             onChange={(e) =>
-                                setNewUser((current) => ({
-                                    ...current,
+                                setNewUser((c) => ({
+                                    ...c,
                                     email: e.target.value,
                                 }))
                             }
                             placeholder="Email"
                             className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200"
                         />
+                        <select
+                            value={newUser.appRoleId}
+                            onChange={(e) =>
+                                setNewUser((c) => ({
+                                    ...c,
+                                    appRoleId: e.target.value,
+                                }))
+                            }
+                            className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-200"
+                        >
+                            {assignableRoles.map((role) => (
+                                <option key={role.id} value={role.id}>
+                                    {role.name}
+                                </option>
+                            ))}
+                        </select>
                         <input
                             value={newUser.temporaryPassword}
                             onChange={(e) =>
-                                setNewUser((current) => ({
-                                    ...current,
+                                setNewUser((c) => ({
+                                    ...c,
                                     temporaryPassword: e.target.value,
                                 }))
                             }
@@ -211,127 +689,162 @@ export default function ManageUsersPage() {
                 </section>
 
                 <section className="rounded-lg border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-6">
-                    <div className="mb-4 flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-[var(--color-primary)]" />
-                        <h2 className="text-lg font-semibold text-[var(--color-grayscale-2)]">
-                            Список пользователей
-                        </h2>
-                    </div>
-
+                    <h2 className="mb-4 text-lg font-semibold text-[var(--color-grayscale-2)]">
+                        Пользователи
+                    </h2>
                     <div className="space-y-4">
-                        {users.map((user) => (
-                            <div
-                                key={user.id}
-                                className="rounded-lg border border-zinc-800 bg-zinc-900 p-4"
-                            >
-                                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr_1.2fr_auto_auto_auto] lg:items-center">
-                                    <input
-                                        value={user.firstName}
-                                        disabled={user.role === 'super_admin'}
-                                        onChange={(e) =>
-                                            setUsers((current) =>
-                                                current.map((item) =>
-                                                    item.id === user.id
-                                                        ? {
-                                                              ...item,
-                                                              firstName:
-                                                                  e.target.value,
-                                                          }
-                                                        : item
+                        {users.map((user) => {
+                            const isSuper = user.appRole.canManageUsers;
+                            return (
+                                <div
+                                    key={user.id}
+                                    className="rounded-lg border border-zinc-800 bg-zinc-900 p-4"
+                                >
+                                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr_1.2fr_1fr_auto_auto] lg:items-center">
+                                        <input
+                                            value={user.firstName}
+                                            disabled={isSuper}
+                                            onChange={(e) =>
+                                                setUsers((c) =>
+                                                    c.map((u) =>
+                                                        u.id === user.id
+                                                            ? {
+                                                                  ...u,
+                                                                  firstName:
+                                                                      e.target
+                                                                          .value,
+                                                              }
+                                                            : u
+                                                    )
                                                 )
-                                            )
-                                        }
-                                        className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-200 disabled:opacity-60"
-                                    />
-                                    <input
-                                        value={user.lastName}
-                                        disabled={user.role === 'super_admin'}
-                                        onChange={(e) =>
-                                            setUsers((current) =>
-                                                current.map((item) =>
-                                                    item.id === user.id
-                                                        ? {
-                                                              ...item,
-                                                              lastName:
-                                                                  e.target.value,
-                                                          }
-                                                        : item
+                                            }
+                                            className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-200 disabled:opacity-60"
+                                        />
+                                        <input
+                                            value={user.lastName}
+                                            disabled={isSuper}
+                                            onChange={(e) =>
+                                                setUsers((c) =>
+                                                    c.map((u) =>
+                                                        u.id === user.id
+                                                            ? {
+                                                                  ...u,
+                                                                  lastName:
+                                                                      e.target
+                                                                          .value,
+                                                              }
+                                                            : u
+                                                    )
                                                 )
-                                            )
-                                        }
-                                        className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-200 disabled:opacity-60"
-                                    />
-                                    <input
-                                        value={user.email}
-                                        disabled={user.role === 'super_admin'}
-                                        onChange={(e) =>
-                                            setUsers((current) =>
-                                                current.map((item) =>
-                                                    item.id === user.id
-                                                        ? {
-                                                              ...item,
-                                                              email: e.target.value,
-                                                          }
-                                                        : item
+                                            }
+                                            className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-200 disabled:opacity-60"
+                                        />
+                                        <input
+                                            value={user.email}
+                                            disabled={isSuper}
+                                            onChange={(e) =>
+                                                setUsers((c) =>
+                                                    c.map((u) =>
+                                                        u.id === user.id
+                                                            ? {
+                                                                  ...u,
+                                                                  email: e
+                                                                      .target
+                                                                      .value,
+                                                              }
+                                                            : u
+                                                    )
                                                 )
-                                            )
-                                        }
-                                        className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-200 disabled:opacity-60"
-                                    />
-                                    <span className="text-sm text-zinc-400">
-                                        {user.role === 'super_admin'
-                                            ? 'super_admin'
-                                            : 'editor'}
-                                    </span>
-                                    <button
-                                        onClick={() =>
-                                            handleUpdateUser(user.id, {
-                                                firstName: user.firstName,
-                                                lastName: user.lastName,
-                                                email: user.email,
-                                                isActive: !user.isActive
-                                                    ? true
-                                                    : user.role === 'super_admin'
-                                                      ? true
-                                                      : false,
-                                            })
-                                        }
-                                        disabled={user.role === 'super_admin'}
-                                        className="rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-200 disabled:opacity-50 cursor-pointer"
-                                    >
-                                        {user.isActive ? 'Отключить' : 'Включить'}
-                                    </button>
-                                    <div className="flex items-center gap-2">
+                                            }
+                                            className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-200 disabled:opacity-60"
+                                        />
+                                        {isSuper ? (
+                                            <span className="text-sm text-zinc-400">
+                                                {user.appRole.name}
+                                            </span>
+                                        ) : (
+                                            <select
+                                                value={user.appRoleId}
+                                                onChange={(e) =>
+                                                    setUsers((c) =>
+                                                        c.map((u) =>
+                                                            u.id === user.id
+                                                                ? {
+                                                                      ...u,
+                                                                      appRoleId:
+                                                                          e
+                                                                              .target
+                                                                              .value,
+                                                                  }
+                                                                : u
+                                                        )
+                                                    )
+                                                }
+                                                className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+                                            >
+                                                {assignableRoles.map((role) => (
+                                                    <option
+                                                        key={role.id}
+                                                        value={role.id}
+                                                    >
+                                                        {role.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        )}
                                         <button
                                             onClick={() =>
                                                 handleUpdateUser(user.id, {
                                                     firstName: user.firstName,
                                                     lastName: user.lastName,
                                                     email: user.email,
-                                                    isActive: user.isActive,
+                                                    isActive: !user.isActive,
+                                                    appRoleId: user.appRoleId,
                                                 })
                                             }
-                                            disabled={user.role === 'super_admin'}
+                                            disabled={isSuper}
                                             className="rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-200 disabled:opacity-50 cursor-pointer"
                                         >
-                                            <Save className="h-4 w-4" />
+                                            {user.isActive
+                                                ? 'Отключить'
+                                                : 'Включить'}
                                         </button>
-                                        <button
-                                            onClick={() => handleResetPassword(user.id)}
-                                            disabled={user.role === 'super_admin'}
-                                            className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300 disabled:opacity-50 cursor-pointer"
-                                        >
-                                            <KeyRound className="h-4 w-4" />
-                                        </button>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() =>
+                                                    handleUpdateUser(user.id, {
+                                                        firstName:
+                                                            user.firstName,
+                                                        lastName: user.lastName,
+                                                        email: user.email,
+                                                        isActive: user.isActive,
+                                                        appRoleId:
+                                                            user.appRoleId,
+                                                    })
+                                                }
+                                                disabled={isSuper}
+                                                className="rounded border border-zinc-700 px-3 py-2 cursor-pointer disabled:opacity-50"
+                                            >
+                                                <Save className="h-4 w-4 text-zinc-200" />
+                                            </button>
+                                            <button
+                                                onClick={() =>
+                                                    setResetTargetId(user.id)
+                                                }
+                                                className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 cursor-pointer"
+                                            >
+                                                <KeyRound className="h-4 w-4 text-amber-300" />
+                                            </button>
+                                        </div>
                                     </div>
+                                    <p className="mt-2 text-xs text-zinc-500">
+                                        {user.mustChangePassword
+                                            ? 'Требуется смена пароля'
+                                            : 'Пароль подтверждён'}
+                                    </p>
                                 </div>
-                                <div className="mt-2 text-xs text-zinc-500">
-                                    {user.mustChangePassword
-                                        ? 'Требуется смена пароля'
-                                        : 'Пароль подтвержден'}
-                                </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </section>
             </main>

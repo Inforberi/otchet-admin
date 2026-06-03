@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import { requireEditorMiddleware } from '@/lib/auth-helpers';
 import { rm, unlink } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
@@ -90,7 +90,7 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
@@ -269,7 +269,7 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

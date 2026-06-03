@@ -5,7 +5,15 @@ import { Prisma } from '@prisma/client';
 import { unlink, rm, readdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
-import { requireAdminMiddleware } from '@/lib/auth-helpers';
+import {
+    getRequestUser,
+    isViewerRole,
+    requireEditorMiddleware,
+} from '@/lib/auth-helpers';
+import { canEditContent } from '@/lib/auth';
+import { canAccessGroupId } from '@/lib/group-access';
+import { getGroupAncestors } from '@/lib/group-service';
+import { buildPublishedReportResponse } from '@/lib/report-published-view';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
@@ -26,7 +34,9 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
+        const user = await getRequestUser(request);
         const view = request.nextUrl.searchParams.get('view');
+        const forcePublished = user ? isViewerRole(user) : false;
 
         const report = await prisma.report.findUnique({
             where: { id },
@@ -36,6 +46,7 @@ export async function GET(
                         id: true,
                         name: true,
                         path: true,
+                        parentId: true,
                     },
                 },
                 blocks: {
@@ -51,67 +62,64 @@ export async function GET(
             );
         }
 
+        if (user && !(await canAccessGroupId(user, report.groupId))) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
+        const ancestors = report.group?.parentId
+            ? await getGroupAncestors(report.group.parentId)
+            : [];
+
+        const usePublishedView =
+            forcePublished || view === 'published';
+
+        if (usePublishedView) {
+            const published = buildPublishedReportResponse(report);
+            if (!published) {
+                if (user && canEditContent(user)) {
+                    const hasUnpublishedChanges =
+                        Boolean(report.draftHash) &&
+                        Boolean(report.publishedHash) &&
+                        report.draftHash !== report.publishedHash;
+
+                    return NextResponse.json(
+                        {
+                            report,
+                            ancestors,
+                            hasUnpublishedChanges,
+                            isPublishedView: false,
+                        },
+                        { status: 200 }
+                    );
+                }
+
+                return NextResponse.json(
+                    { error: 'Report not found' },
+                    { status: 404 }
+                );
+            }
+
+            return NextResponse.json(
+                {
+                    report: published.report,
+                    ancestors,
+                    hasUnpublishedChanges: published.hasUnpublishedChanges,
+                    isPublishedView: published.isPublishedView,
+                },
+                { status: 200, headers: published.headers }
+            );
+        }
+
         const hasUnpublishedChanges =
             Boolean(report.draftHash) &&
             Boolean(report.publishedHash) &&
             report.draftHash !== report.publishedHash;
 
-        if (view === 'published' && report.publishedSnapshot) {
-            const snapshot = report.publishedSnapshot as {
-                metadata: {
-                    title: string;
-                    subtitle: string | null;
-                    client: string | null;
-                    date: string | null;
-                    titleFontSize: string | null;
-                    descriptionFontSize: string | null;
-                    captionFontSize: string | null;
-                };
-                blocks: Array<{
-                    id: string;
-                    type: string;
-                    position: number;
-                    data: unknown;
-                }>;
-            };
-
-            const publishedReport = {
-                ...report,
-                title: snapshot.metadata.title,
-                subtitle: snapshot.metadata.subtitle,
-                client: snapshot.metadata.client,
-                date: snapshot.metadata.date,
-                titleFontSize: snapshot.metadata.titleFontSize,
-                descriptionFontSize: snapshot.metadata.descriptionFontSize,
-                captionFontSize: snapshot.metadata.captionFontSize,
-                blocks: snapshot.blocks.map((block) => ({
-                    id: block.id,
-                    reportId: report.id,
-                    type: block.type,
-                    position: block.position,
-                    data: block.data,
-                    version: 1,
-                    createdAt: report.createdAt,
-                    updatedAt: report.updatedAt,
-                })),
-            };
-
-            const headers = report.publishedHash
-                ? { ETag: `"${report.publishedHash}"` }
-                : undefined;
-
-            return NextResponse.json(
-                {
-                    report: publishedReport,
-                    hasUnpublishedChanges,
-                    isPublishedView: true,
-                },
-                { status: 200, headers }
-            );
-        }
-
         return NextResponse.json(
-            { report, hasUnpublishedChanges, isPublishedView: false },
+            { report, ancestors, hasUnpublishedChanges, isPublishedView: false },
             { status: 200 }
         );
     } catch (error) {
@@ -129,7 +137,7 @@ export async function PATCH(
     { params }: { params: Promise<{ id: string }> }
 ) {
     // Проверка прав администратора
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {
@@ -266,7 +274,7 @@ export async function DELETE(
     { params }: { params: Promise<{ id: string }> }
 ) {
     // Проверка прав администратора
-    const adminCheck = await requireAdminMiddleware(request);
+    const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
     try {

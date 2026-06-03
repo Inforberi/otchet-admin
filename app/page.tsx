@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { FolderOpen, Plus, Settings, LogOut } from 'lucide-react';
+import { FolderOpen, Plus } from 'lucide-react';
+import { AppPageHeader } from '@/components/layout/app-page-header';
 import { useUserRole } from '@/hooks/use-user-role';
 import { CreateGroupDialog } from '@/components/groups/create-group-dialog';
 
@@ -21,7 +22,7 @@ interface ReportGroup {
 
 export default function HomePage() {
     const router = useRouter();
-    const { isAdmin, isSuperAdmin, loading: roleLoading } = useUserRole();
+    const { canEdit, loading: roleLoading } = useUserRole();
     const [groups, setGroups] = useState<ReportGroup[]>([]);
     const [loading, setLoading] = useState(true);
     const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
@@ -69,63 +70,30 @@ export default function HomePage() {
 
     return (
         <div className="min-h-screen bg-[var(--color-grayscale-16)]">
-            {/* Header */}
-            <header className="sticky top-0 z-40 border-b border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)]/95 backdrop-blur">
-                <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-                    <div className="flex items-center justify-between">
-                        <h1 className="text-3xl font-bold text-[var(--color-grayscale-2)]">
-                            Группы отчетов
-                        </h1>
-                        <div className="flex items-center gap-3">
-                            {isAdmin && (
-                                <>
-                                    <button
-                                        onClick={() =>
-                                            setIsCreateGroupOpen(true)
-                                        }
-                                        className="flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
-                                    >
-                                        <Plus className="h-4 w-4" />
-                                        Создать папку
-                                    </button>
-                                    <button
-                                        onClick={() => router.push('/groups/manage')}
-                                        className="flex items-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-2 text-sm font-medium text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
-                                    >
-                                        <Settings className="h-4 w-4" />
-                                        Управление
-                                    </button>
-                                    {isSuperAdmin && (
-                                        <button
-                                            onClick={() => router.push('/users/manage')}
-                                            className="flex items-center gap-2 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] px-4 py-2 text-sm font-medium text-[var(--color-grayscale-4)] transition-colors hover:bg-[var(--color-grayscale-13)] cursor-pointer"
-                                        >
-                                            <Settings className="h-4 w-4" />
-                                            Пользователи
-                                        </button>
-                                    )}
-                                </>
-                            )}
-                            <button
-                                onClick={handleLogout}
-                                className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 cursor-pointer"
-                            >
-                                <LogOut className="h-4 w-4" />
-                                Выйти
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </header>
+            <AppPageHeader
+                onLogout={handleLogout}
+                breadcrumbs={[{ label: 'Группы' }]}
+                title="Группы отчетов"
+                actions={
+                    canEdit ? (
+                        <button
+                            onClick={() => setIsCreateGroupOpen(true)}
+                            className="flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
+                        >
+                            <Plus className="h-4 w-4" />
+                            Создать папку
+                        </button>
+                    ) : undefined
+                }
+            />
 
-            {/* Main Content */}
             <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
                 {groups.length === 0 ? (
                     <div className="text-center py-16">
                         <p className="text-lg text-[var(--color-grayscale-6)] mb-4">
                             Нет доступных групп
                         </p>
-                        {isAdmin && (
+                        {canEdit && (
                             <button
                                 onClick={() => setIsCreateGroupOpen(true)}
                                 className="inline-flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-6 py-3 font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
@@ -184,7 +152,7 @@ export default function HomePage() {
                 )}
             </main>
 
-            {isAdmin && (
+            {canEdit && (
                 <CreateGroupDialog
                     open={isCreateGroupOpen}
                     onOpenChange={setIsCreateGroupOpen}

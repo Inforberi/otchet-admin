@@ -22,9 +22,9 @@ export async function POST(request: NextRequest) {
         const currentPassword = String(body.currentPassword || '');
         const newPassword = String(body.newPassword || '');
 
-        if (!newPassword.trim()) {
+        if (!newPassword.trim() || newPassword.length < 8) {
             return NextResponse.json(
-                { error: 'Новый пароль обязателен' },
+                { error: 'Новый пароль должен быть не короче 8 символов' },
                 { status: 400 }
             );
         }
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
             where: { id: currentUser.id },
             select: {
                 id: true,
-                role: true,
+                appRoleId: true,
                 passwordHash: true,
                 mustChangePassword: true,
                 isActive: true,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
             },
         });
 
-        await setSession(createSession(user.id, user.role as 'super_admin' | 'editor'));
+        await setSession(createSession(user.id, user.appRoleId));
 
         return NextResponse.json({ success: true }, { status: 200 });
     } catch (error) {

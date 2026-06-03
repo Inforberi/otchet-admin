@@ -1,29 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-import {
-    hashPassword,
-    normalizeEmail,
-} from '@/lib/auth';
+import { hashPassword, normalizeEmail } from '@/lib/auth';
 import { requireSuperAdminMiddleware } from '@/lib/auth-helpers';
+
+const userSelect = {
+    id: true,
+    firstName: true,
+    lastName: true,
+    email: true,
+    appRoleId: true,
+    isActive: true,
+    mustChangePassword: true,
+    lastLoginAt: true,
+    createdAt: true,
+    appRole: {
+        select: {
+            id: true,
+            name: true,
+            canEditContent: true,
+            canManageUsers: true,
+        },
+    },
+} as const;
 
 export async function GET(request: NextRequest) {
     const authError = await requireSuperAdminMiddleware(request);
     if (authError) return authError;
 
     const users = await prisma.user.findMany({
-        orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
-        select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            role: true,
-            isActive: true,
-            mustChangePassword: true,
-            lastLoginAt: true,
-            createdAt: true,
-        },
+        orderBy: [{ createdAt: 'asc' }],
+        select: userSelect,
     });
 
     return NextResponse.json({ users }, { status: 200 });
@@ -39,6 +46,7 @@ export async function POST(request: NextRequest) {
         const lastName = String(body.lastName || '').trim();
         const email = normalizeEmail(String(body.email || ''));
         const temporaryPassword = String(body.temporaryPassword || '');
+        const appRoleId = String(body.appRoleId || '');
 
         if (!firstName || !lastName || !email || !temporaryPassword.trim()) {
             return NextResponse.json(
@@ -47,27 +55,36 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        if (!appRoleId) {
+            return NextResponse.json(
+                { error: 'Роль обязательна' },
+                { status: 400 }
+            );
+        }
+
+        const role = await prisma.appRole.findUnique({
+            where: { id: appRoleId },
+            select: { canManageUsers: true },
+        });
+
+        if (!role) {
+            return NextResponse.json(
+                { error: 'Роль не найдена' },
+                { status: 404 }
+            );
+        }
+
         const user = await prisma.user.create({
             data: {
                 firstName,
                 lastName,
                 email,
-                role: 'editor',
+                appRoleId,
                 passwordHash: hashPassword(temporaryPassword),
                 mustChangePassword: true,
                 isActive: true,
             },
-            select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-                role: true,
-                isActive: true,
-                mustChangePassword: true,
-                lastLoginAt: true,
-                createdAt: true,
-            },
+            select: userSelect,
         });
 
         return NextResponse.json({ user }, { status: 201 });

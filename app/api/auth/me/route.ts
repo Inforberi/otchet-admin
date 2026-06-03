@@ -6,14 +6,19 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
         {
-            role: user?.role ?? null,
+            roleName: user?.roleName ?? null,
+            canEdit: user?.canEditContent ?? false,
+            canManageUsers: user?.canManageUsers ?? false,
             user: user
                 ? {
                       id: user.id,
                       email: user.email,
                       firstName: user.firstName,
                       lastName: user.lastName,
-                      role: user.role,
+                      appRoleId: user.appRoleId,
+                      roleName: user.roleName,
+                      canEditContent: user.canEditContent,
+                      canManageUsers: user.canManageUsers,
                       mustChangePassword: user.mustChangePassword,
                   }
                 : null,

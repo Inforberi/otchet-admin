@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useUserRole } from '@/hooks/use-user-role';
@@ -9,9 +9,11 @@ import { useUserRole } from '@/hooks/use-user-role';
 const inputClassName =
     'bg-[var(--color-grayscale-14)] border-[var(--color-alpha-3)] text-[var(--color-grayscale-3)] placeholder:text-[var(--color-grayscale-7)] focus-visible:border-[var(--color-primary)]';
 
-export default function ChangePasswordPage() {
+function ChangePasswordForm() {
     const router = useRouter();
-    const { user, loading, mustChangePassword } = useUserRole();
+    const searchParams = useSearchParams();
+    const { user, loading, mustChangePassword, canEdit } = useUserRole();
+    const isReadOnly = !canEdit;
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -44,7 +46,10 @@ export default function ChangePasswordPage() {
                 return;
             }
 
-            router.push('/reports');
+            const redirect =
+                searchParams.get('redirect') ||
+                (isReadOnly ? '/' : '/reports');
+            router.push(redirect);
             router.refresh();
         } catch {
             setError('Ошибка подключения к серверу');
@@ -73,6 +78,16 @@ export default function ChangePasswordPage() {
                         : 'Обновите пароль для своей учетной записи.'}
                 </p>
 
+                {!mustChangePassword && (
+                    <button
+                        type="button"
+                        onClick={() => router.push(isReadOnly ? '/' : '/reports')}
+                        className="mb-4 text-sm text-[var(--color-grayscale-6)] underline underline-offset-4 cursor-pointer"
+                    >
+                        Назад
+                    </button>
+                )}
+
                 <form onSubmit={handleSubmit} className="space-y-4">
                     {!mustChangePassword && (
                         <Input
@@ -86,7 +101,7 @@ export default function ChangePasswordPage() {
                     )}
                     <Input
                         type="password"
-                        placeholder="Новый пароль"
+                        placeholder="Новый пароль (мин. 8 символов)"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         className={inputClassName}
@@ -101,7 +116,7 @@ export default function ChangePasswordPage() {
 
                     <Button
                         type="submit"
-                        disabled={submitting || !newPassword}
+                        disabled={submitting || newPassword.length < 8}
                         className="w-full bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 text-white h-11 font-medium"
                     >
                         Сохранить пароль
@@ -109,5 +124,19 @@ export default function ChangePasswordPage() {
                 </form>
             </div>
         </div>
+    );
+}
+
+export default function ChangePasswordPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen items-center justify-center bg-[#181818] text-zinc-400">
+                    Загрузка...
+                </div>
+            }
+        >
+            <ChangePasswordForm />
+        </Suspense>
     );
 }

@@ -24,13 +24,17 @@ export async function POST(request: NextRequest) {
             where: { email },
             select: {
                 id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-                role: true,
+                appRoleId: true,
                 passwordHash: true,
                 mustChangePassword: true,
                 isActive: true,
+                appRole: {
+                    select: {
+                        name: true,
+                        canEditContent: true,
+                        canManageUsers: true,
+                    },
+                },
             },
         });
 
@@ -41,20 +45,20 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const sessionToken = createSession(user.id, user.role as 'super_admin' | 'editor');
+        const sessionToken = createSession(user.id, user.appRoleId);
         await setSession(sessionToken);
 
         await prisma.user.update({
             where: { id: user.id },
-            data: {
-                lastLoginAt: new Date(),
-            },
+            data: { lastLoginAt: new Date() },
         });
 
         return NextResponse.json(
             {
                 success: true,
-                role: user.role,
+                roleName: user.appRole.name,
+                canEdit: user.appRole.canEditContent,
+                canManageUsers: user.appRole.canManageUsers,
                 mustChangePassword: user.mustChangePassword,
             },
             { status: 200 }
