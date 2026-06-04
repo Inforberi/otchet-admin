@@ -10,6 +10,9 @@ import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
 import { Extension, type Editor } from '@tiptap/core';
 import Link from '@tiptap/extension-link';
+import { Plugin } from '@tiptap/pm/state';
+import type { EditorState, Transaction } from '@tiptap/pm/state';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import {
     Bold,
     Italic,
@@ -25,6 +28,7 @@ import {
     DESCRIPTION_HEADING_FONT_SIZE_PX,
     normalizeRichTextHtml,
     plainTextToRichTextHtml,
+    RICH_TEXT_SPACER_CLASS,
     sanitizePastedHtml,
 } from '@/lib/rich-text';
 
@@ -59,6 +63,63 @@ const ParagraphClassAttribute = Extension.create({
                     },
                 },
             },
+        ];
+    },
+});
+
+const isEmptyParagraphNode = (node: ProseMirrorNode): boolean => {
+    if (node.childCount === 0) return true;
+    if (
+        node.childCount === 1 &&
+        (node.firstChild?.type.name === 'hardBreak' ||
+            node.firstChild?.type.name === 'br')
+    ) {
+        return true;
+    }
+    return node.textContent.trim().length === 0;
+};
+
+const SpacerParagraphPlugin = Extension.create({
+    name: 'spacerParagraphPlugin',
+
+    addProseMirrorPlugins() {
+        return [
+            new Plugin({
+                appendTransaction(
+                    transactions: readonly Transaction[],
+                    _oldState: EditorState,
+                    newState: EditorState
+                ) {
+                    if (!transactions.some((tr) => tr.docChanged)) return null;
+
+                    const tr = newState.tr;
+                    let modified = false;
+
+                    newState.doc.descendants((node: ProseMirrorNode, pos: number) => {
+                        if (node.type.name !== 'paragraph') return;
+
+                        const empty = isEmptyParagraphNode(node);
+                        const hasSpacerClass =
+                            node.attrs.class === RICH_TEXT_SPACER_CLASS;
+
+                        if (empty && !hasSpacerClass) {
+                            tr.setNodeMarkup(pos, undefined, {
+                                ...node.attrs,
+                                class: RICH_TEXT_SPACER_CLASS,
+                            });
+                            modified = true;
+                        } else if (!empty && hasSpacerClass) {
+                            tr.setNodeMarkup(pos, undefined, {
+                                ...node.attrs,
+                                class: null,
+                            });
+                            modified = true;
+                        }
+                    });
+
+                    return modified ? tr : null;
+                },
+            }),
         ];
     },
 });
@@ -212,6 +273,7 @@ const getEditorExtensions = (mode: 'inline' | 'block') => {
             blockquote: mode === 'block' ? {} : false,
         }),
         ParagraphClassAttribute,
+        SpacerParagraphPlugin,
         Placeholder.configure({
             placeholder: '',
             emptyEditorClass: 'is-editor-empty',

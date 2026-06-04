@@ -128,6 +128,9 @@ importers:
       '@tiptap/extension-text-style':
         specifier: ^3.25.0
         version: 3.25.0(@tiptap/core@3.25.0(@tiptap/pm@3.25.0))
+      '@tiptap/pm':
+        specifier: ^3.25.0
+        version: 3.25.0
       '@tiptap/react':
         specifier: ^3.25.0
         version: 3.25.0(@floating-ui/dom@1.7.4)(@tiptap/core@3.25.0(@tiptap/pm@3.25.0))(@tiptap/pm@3.25.0)(@types/react-dom@19.2.3(@types/react@19.2.8))(@types/react@19.2.8)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)

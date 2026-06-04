@@ -22,12 +22,15 @@ import {
     AlignRight,
 } from 'lucide-react';
 import type { TaskBlockData, ImageData, ScreenshotBlockData, PhotoBlockLayout } from '@/lib/db-types';
-import type { SyncStatus, TaskBlockDirtyPatch } from '@/hooks/use-report-draft-sync';
+import type { TaskBlockDirtyPatch } from '@/hooks/use-report-draft-sync';
 import {
     canUserActOnTask,
     formatAssigneesList,
     normalizeTaskAssignees,
 } from '@/lib/task-assignees';
+import { taskBlockDataSemanticallyEqual } from '@/lib/block-data-equal';
+import { canonicalRichTextValue } from '@/lib/rich-text';
+import { registerDraftFlushHandler } from '@/lib/report-draft-flush-registry';
 import { ScreenshotBlockView } from '@/components/report/screenshot-block-view';
 import {
     TaskAssigneesBadges,
@@ -310,6 +313,13 @@ function withNormalizedAssignees(data: TaskBlockData): TaskBlockData {
     };
 }
 
+function completionAtIso(
+    marked: boolean,
+    closedAt: string
+): string | null {
+    return marked && closedAt ? `${closedAt}T12:00:00.000Z` : null;
+}
+
 interface TaskBlockCardProps {
     blockId: string;
     reportId: string;
@@ -326,8 +336,6 @@ interface TaskBlockCardProps {
     showActions: boolean;
     /** Редактор: поля задачи и отчёт о выполнении → черновик отчёта */
     onTaskChange?: (patch: TaskBlockDirtyPatch) => void;
-    /** Статус синхронизации отчёта — для отображения закрытой задачи после save */
-    syncStatus?: SyncStatus;
     titleFontSize?: string;
     descriptionFontSize?: string;
     contentHeadingFontSize?: string;
@@ -341,9 +349,9 @@ function todayDateInputValue(): string {
 }
 
 function isoToDateInput(iso: string | null | undefined): string {
-    if (!iso) return todayDateInputValue();
+    if (!iso) return '';
     const s = iso.slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : todayDateInputValue();
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
 }
 
 function formatDate(iso: string | null | undefined): string {
@@ -377,7 +385,6 @@ export function TaskBlockCard({
     canEdit = false,
     showActions,
     onTaskChange,
-    syncStatus = 'synced',
     titleFontSize = '40',
     descriptionFontSize = '20',
     contentHeadingFontSize = '24',
@@ -390,11 +397,7 @@ export function TaskBlockCard({
     const [completedAt, setCompletedAt] = useState<string | null>(
         taskCompletedAt ? String(taskCompletedAt) : null
     );
-    const isPersistedCompleted =
-        Boolean(taskCompletedAt) &&
-        (syncStatus === 'synced' ||
-            syncStatus === 'saving' ||
-            syncStatus === 'autosaving');
+    const isPersistedCompleted = Boolean(taskCompletedAt);
     const [notes, setNotes] = useState<string | null>(taskCompletionNotes ?? null);
     const [completionImages, setCompletionImages] = useState<ImageData[]>(taskCompletionImages ?? []);
     const [completionLayout, setCompletionLayout] = useState<PhotoBlockLayout>(
@@ -402,7 +405,9 @@ export function TaskBlockCard({
     );
 
     const [completionClosedAt, setCompletionClosedAt] = useState(() =>
-        isoToDateInput(taskCompletedAt ? String(taskCompletedAt) : null)
+        taskCompletedAt
+            ? isoToDateInput(String(taskCompletedAt))
+            : ''
     );
     const [completionUploading, setCompletionUploading] = useState(false);
     const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
@@ -420,6 +425,18 @@ export function TaskBlockCard({
     const taskFileRef = useRef<HTMLInputElement>(null);
     const onTaskChangeRef = useRef(onTaskChange);
     onTaskChangeRef.current = onTaskChange;
+    const markCompletedRef = useRef(markCompleted);
+    markCompletedRef.current = markCompleted;
+    const completionClosedAtRef = useRef(completionClosedAt);
+    completionClosedAtRef.current = completionClosedAt;
+
+    const resolveCompletionAt = useCallback(
+        (
+            marked = markCompletedRef.current,
+            closedAt = completionClosedAtRef.current
+        ) => completionAtIso(marked, closedAt || todayDateInputValue()),
+        []
+    );
 
     const externalDataKey = useMemo(
         () => JSON.stringify(normalizeTaskAssignees(data)),
@@ -430,7 +447,10 @@ export function TaskBlockCard({
         () =>
             JSON.stringify({
                 taskCompletedAt,
-                taskCompletionNotes,
+                taskCompletionNotes: canonicalRichTextValue(
+                    taskCompletionNotes,
+                    'block'
+                ),
                 taskCompletionImages,
                 taskCompletionLayout,
             }),
@@ -443,28 +463,70 @@ export function TaskBlockCard({
     );
 
     useEffect(() => {
-        setLocalData(withNormalizedAssignees(data));
+        setLocalData((current) => {
+            const next = withNormalizedAssignees(data);
+            return taskBlockDataSemanticallyEqual(current, next)
+                ? current
+                : next;
+        });
     }, [blockId, externalDataKey, data]);
 
     useEffect(() => {
+        const pendingCompletionAt = resolveCompletionAt();
+        const isCompletionPending =
+            !!pendingCompletionAt && !taskCompletedAt;
+
+        if (isCompletionPending) {
+            setNotes((current) => {
+                const next = taskCompletionNotes ?? null;
+                return canonicalRichTextValue(current, 'block') ===
+                    canonicalRichTextValue(next, 'block')
+                    ? current
+                    : next;
+            });
+            setCompletionImages(taskCompletionImages ?? []);
+            setCompletionLayout(taskCompletionLayout ?? 'full-width');
+            return;
+        }
+
         setMarkCompleted(!!taskCompletedAt);
         setCompletedAt(taskCompletedAt ? String(taskCompletedAt) : null);
-        setNotes(taskCompletionNotes ?? null);
+        setNotes((current) => {
+            const next = taskCompletionNotes ?? null;
+            return canonicalRichTextValue(current, 'block') ===
+                canonicalRichTextValue(next, 'block')
+                ? current
+                : next;
+        });
         setCompletionImages(taskCompletionImages ?? []);
         setCompletionLayout(taskCompletionLayout ?? 'full-width');
         setCompletionClosedAt(
-            isoToDateInput(taskCompletedAt ? String(taskCompletedAt) : null)
+            taskCompletedAt
+                ? isoToDateInput(String(taskCompletedAt))
+                : ''
         );
-    }, [blockId, externalTaskKey, taskCompletedAt, taskCompletionNotes, taskCompletionImages, taskCompletionLayout]);
+    }, [
+        blockId,
+        externalTaskKey,
+        taskCompletedAt,
+        taskCompletionNotes,
+        taskCompletionImages,
+        taskCompletionLayout,
+        resolveCompletionAt,
+    ]);
 
     const buildTaskPatch = useCallback(
         (overrides?: Partial<TaskBlockDirtyPatch>): TaskBlockDirtyPatch => {
+            const marked = overrides?.taskCompletedAt
+                ? true
+                : overrides?.taskCompletedAt === null
+                  ? false
+                  : markCompletedRef.current;
+            const closedAt =
+                completionClosedAtRef.current || todayDateInputValue();
             const base: TaskBlockDirtyPatch = {
                 data: localData,
-                taskCompletedAt:
-                    markCompleted && completionClosedAt
-                        ? `${completionClosedAt}T12:00:00.000Z`
-                        : null,
+                taskCompletedAt: marked ? resolveCompletionAt(marked, closedAt) : null,
                 taskCompletionNotes: notes,
                 taskCompletionImages: completionImages,
                 taskCompletionLayout: completionLayout,
@@ -473,11 +535,10 @@ export function TaskBlockCard({
         },
         [
             localData,
-            markCompleted,
-            completionClosedAt,
             notes,
             completionImages,
             completionLayout,
+            resolveCompletionAt,
         ]
     );
 
@@ -488,18 +549,35 @@ export function TaskBlockCard({
         [buildTaskPatch]
     );
 
+    const buildTaskPatchRef = useRef(buildTaskPatch);
+    buildTaskPatchRef.current = buildTaskPatch;
+
+    useEffect(() => {
+        if (!isEditable) return;
+        return registerDraftFlushHandler(() => {
+            onTaskChangeRef.current?.(
+                buildTaskPatchRef.current({
+                    taskCompletedAt: resolveCompletionAt(),
+                })
+            );
+        });
+    }, [isEditable, resolveCompletionAt]);
+
     useEffect(() => {
         if (!isEditable) return;
         const t = setTimeout(() => pushTaskChange(), 150);
         return () => clearTimeout(t);
-    }, [isEditable, pushTaskChange, buildTaskPatch]);
+    }, [isEditable, pushTaskChange, localData, completionImages, completionLayout]);
 
     const assignees = useMemo(
         () => normalizeTaskAssignees(localData),
         [localData]
     );
 
-    const isCompleted = isPersistedCompleted;
+    const isCompletionPending =
+        !!resolveCompletionAt() && !taskCompletedAt;
+    const showAsCompleted = Boolean(taskCompletedAt) || isCompletionPending;
+    const isCompleted = showAsCompleted;
     const isClosedReportView = isPersistedCompleted && !isEditable;
     const dlStatus = deadlineStatus(localData.deadline, isPersistedCompleted);
 
@@ -628,9 +706,11 @@ export function TaskBlockCard({
     }, [completionImages]);
 
     const handleReopen = useCallback(() => {
+        markCompletedRef.current = false;
+        completionClosedAtRef.current = '';
         setMarkCompleted(false);
         setCompletedAt(null);
-        setCompletionClosedAt(todayDateInputValue());
+        setCompletionClosedAt('');
         pushTaskChange({
             taskCompletedAt: null,
             taskCompletedByUserId: null,
@@ -639,12 +719,14 @@ export function TaskBlockCard({
     }, [pushTaskChange]);
 
     const handleClearCompletion = useCallback(() => {
+        markCompletedRef.current = false;
+        completionClosedAtRef.current = '';
         setMarkCompleted(false);
         setCompletedAt(null);
         setNotes(null);
         setCompletionImages([]);
         setCompletionLayout('full-width');
-        setCompletionClosedAt(todayDateInputValue());
+        setCompletionClosedAt('');
         pushTaskChange({
             taskCompletedAt: null,
             taskCompletedByUserId: null,
@@ -981,12 +1063,25 @@ export function TaskBlockCard({
                                             checked={markCompleted}
                                             onCheckedChange={(checked) => {
                                                 const next = checked === true;
+                                                const nextClosedAt =
+                                                    next && !completionClosedAtRef.current
+                                                        ? todayDateInputValue()
+                                                        : completionClosedAtRef.current;
+                                                markCompletedRef.current = next;
+                                                completionClosedAtRef.current = nextClosedAt;
                                                 setMarkCompleted(next);
                                                 if (next && !completionClosedAt) {
-                                                    setCompletionClosedAt(
-                                                        todayDateInputValue()
-                                                    );
+                                                    setCompletionClosedAt(nextClosedAt);
                                                 }
+                                                if (!next) {
+                                                    setCompletionClosedAt('');
+                                                }
+                                                pushTaskChange({
+                                                    taskCompletedAt: completionAtIso(
+                                                        next,
+                                                        nextClosedAt
+                                                    ),
+                                                });
                                             }}
                                             className="border-zinc-600 data-[state=checked]:border-green-600 data-[state=checked]:bg-green-600"
                                         />
@@ -1018,9 +1113,17 @@ export function TaskBlockCard({
                                         id={`${blockId}-task-closed-at`}
                                         type="date"
                                         value={completionClosedAt}
-                                        onChange={(e) =>
-                                            setCompletionClosedAt(e.target.value)
-                                        }
+                                        onChange={(e) => {
+                                            const nextClosedAt = e.target.value;
+                                            completionClosedAtRef.current = nextClosedAt;
+                                            setCompletionClosedAt(nextClosedAt);
+                                            pushTaskChange({
+                                                taskCompletedAt: completionAtIso(
+                                                    markCompletedRef.current,
+                                                    nextClosedAt
+                                                ),
+                                            });
+                                        }}
                                         disabled={!markCompleted}
                                         aria-label="Дата закрытия"
                                         className={`${inputCls} [color-scheme:dark] focus:border-green-600 focus:ring-green-600`}
@@ -1032,7 +1135,11 @@ export function TaskBlockCard({
                             label="Что было сделано"
                             editorId={`${blockId}:completion-notes`}
                             value={notes ?? ''}
-                            onChange={(value) => setNotes(value || null)}
+                            onChange={(value) => {
+                                const next = value || null;
+                                setNotes(next);
+                                pushTaskChange({ taskCompletionNotes: next });
+                            }}
                             placeholder="Опишите что сделано, результаты работы..."
                             minHeight="200px"
                             baseFontSize={descriptionFontSize}

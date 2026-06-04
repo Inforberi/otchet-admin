@@ -1,4 +1,5 @@
 import type { TextBlockData } from '@/lib/db-types';
+import { RichTextView } from './rich-text-view';
 
 interface TextBlockViewProps {
     data: TextBlockData;
@@ -26,18 +27,19 @@ export function TextBlockView({ data, titleFontSize = '40', contentFontSize = '2
     return (
         <section className="space-y-8">
             {hasTitle && (
-                <h2
-                    className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
+                <RichTextView
+                    as="h2"
+                    html={data.title}
+                    className="font-semibold text-zinc-100 mb-8 tracking-tight"
                     style={{ fontSize: `${titleFontSize}px` }}
-                    dangerouslySetInnerHTML={{ __html: data.title }}
                 />
             )}
 
             {hasContent && (
-                <div
-                    className="report-rich-text text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
+                <RichTextView
+                    html={data.content}
+                    className="text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
                     style={{ fontSize: `${contentFontSize}px` }}
-                    dangerouslySetInnerHTML={{ __html: data.content }}
                 />
             )}
         </section>

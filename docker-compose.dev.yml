@@ -1,0 +1,6 @@
+# Локальная разработка: проброс PostgreSQL на хост (make dev).
+# Использование: docker compose -f docker-compose.yml -f docker-compose.dev.yml ...
+services:
+    postgres:
+        ports:
+            - '${POSTGRES_HOST_PORT:-5455}:5432'

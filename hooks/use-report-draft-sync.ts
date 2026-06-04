@@ -19,6 +19,10 @@ import {
     loadStoredDraftSnapshot,
     saveStoredDraftSnapshot,
 } from '@/lib/report-draft-storage';
+import { reportBlocksSemanticallyEqual } from '@/lib/block-data-equal';
+import { mergeTaskBlockAfterSave } from '@/lib/report-block-merge';
+import { normalizeBlockOrder } from '@/lib/block-tree';
+import { runDraftFlushHandlers } from '@/lib/report-draft-flush-registry';
 
 export type SyncStatus =
     | 'synced'
@@ -42,6 +46,12 @@ type DraftSaveResponse = {
 
 const LOCAL_STORAGE_DEBOUNCE_MS = 300;
 const DEFAULT_AUTOSAVE_MS = 60_000;
+const MIN_SAVING_DISPLAY_MS = 400;
+const MIN_AUTOSAVING_DISPLAY_MS = 250;
+const SAVING_INDICATOR_DELAY_MS = 150;
+
+const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
 const hasUnpublishedChanges = (report: ReportFromDB | null): boolean =>
     Boolean(
@@ -118,6 +128,8 @@ export const useReportDraftSync = (
     const [loading, setLoading] = useState(true);
     const [publishing, setPublishing] = useState(false);
     const [hasLocalChanges, setHasLocalChanges] = useState(false);
+    const [isFlushInFlight, setIsFlushInFlight] = useState(false);
+    const [showSavingIndicator, setShowSavingIndicator] = useState(false);
 
     const reportRef = useRef<ReportFromDB | null>(null);
     const blocksRef = useRef<ReportBlockFromDB[]>([]);
@@ -216,12 +228,24 @@ export const useReportDraftSync = (
                 (nextReport.blocks || []) as ReportBlockFromDB[]
             );
             const prevBlocks = blocksRef.current;
+            const hadLocalChanges = hasLocalChangesRef.current;
             const mergedBlocks = nextBlocks.map((block) => {
                 const prev = prevBlocks.find((item) => item.id === block.id);
+                if (!prev) return block;
+
                 if (
-                    prev &&
-                    JSON.stringify(prev.data) === JSON.stringify(block.data)
+                    hadLocalChanges &&
+                    prev.type === 'task' &&
+                    block.type === 'task'
                 ) {
+                    const merged = mergeTaskBlockAfterSave(prev, block);
+                    if (reportBlocksSemanticallyEqual(prev, merged)) {
+                        return prev;
+                    }
+                    return merged;
+                }
+
+                if (prev && reportBlocksSemanticallyEqual(prev, block)) {
                     return prev;
                 }
                 return block;
@@ -230,7 +254,7 @@ export const useReportDraftSync = (
             reportRef.current = nextReport;
             blocksRef.current = mergedBlocks;
             setReport(nextReport);
-            setBlocks(mergedBlocks);
+            setBlocks(normalizeBlockOrder(mergedBlocks));
             setHasLocalChanges(false);
             setSyncStatus('synced');
             clearLocalDraft();
@@ -249,7 +273,7 @@ export const useReportDraftSync = (
                     report: ReportFromDB;
                 };
 
-                const sortedBlocks = sortBlocks(
+                const sortedBlocks = normalizeBlockOrder(
                     (reportData.blocks || []) as ReportBlockFromDB[]
                 );
                 baseVersionRef.current = reportData.version;
@@ -270,8 +294,10 @@ export const useReportDraftSync = (
                         sortedBlocks,
                         localSnapshot
                     );
+                    const restoredBlocks = normalizeBlockOrder(restored.blocks);
+                    blocksRef.current = restoredBlocks;
                     setReport(restored.report);
-                    setBlocks(restored.blocks);
+                    setBlocks(restoredBlocks);
                     setHasLocalChanges(true);
                     setSyncStatus('local');
                     scheduleAutosave();
@@ -316,7 +342,15 @@ export const useReportDraftSync = (
                 return true;
             }
 
+            runDraftFlushHandlers();
+
+            const savingStarted = Date.now();
+            setIsFlushInFlight(true);
             setSyncStatus(reason === 'autosave' ? 'autosaving' : 'saving');
+
+            const indicatorTimer = setTimeout(() => {
+                setShowSavingIndicator(true);
+            }, SAVING_INDICATOR_DELAY_MS);
 
             try {
                 const response = await fetch(`/api/reports/${reportId}/draft`, {
@@ -340,6 +374,15 @@ export const useReportDraftSync = (
                     throw new Error('Failed to save draft');
                 }
 
+                const minMs =
+                    reason === 'autosave'
+                        ? MIN_AUTOSAVING_DISPLAY_MS
+                        : MIN_SAVING_DISPLAY_MS;
+                const elapsed = Date.now() - savingStarted;
+                if (elapsed < minMs) {
+                    await sleep(minMs - elapsed);
+                }
+
                 const data = (await response.json()) as DraftSaveResponse;
                 commitServerState(data.report);
                 return true;
@@ -347,6 +390,10 @@ export const useReportDraftSync = (
                 console.error(error);
                 setSyncStatus('error');
                 return false;
+            } finally {
+                clearTimeout(indicatorTimer);
+                setShowSavingIndicator(false);
+                setIsFlushInFlight(false);
             }
         },
         [commitServerState, handleVersionConflict, reportId]
@@ -396,7 +443,7 @@ export const useReportDraftSync = (
 
     const replaceBlocksLocally = useCallback(
         (nextBlocks: ReportBlockFromDB[]) => {
-            setBlocks(sortBlocks(nextBlocks));
+            setBlocks(sortBlocks(normalizeBlockOrder(nextBlocks)));
             markDirty();
         },
         [markDirty]
@@ -404,13 +451,13 @@ export const useReportDraftSync = (
 
     const markBlockDirty = useCallback(
         (blockId: string, data: BlockData) => {
-            setBlocks((prev) =>
-                sortBlocks(
-                    prev.map((block) =>
-                        block.id === blockId ? { ...block, data } : block
-                    )
+            const next = sortBlocks(
+                blocksRef.current.map((block) =>
+                    block.id === blockId ? { ...block, data } : block
                 )
             );
+            blocksRef.current = next;
+            setBlocks(next);
             markDirty();
         },
         [markDirty]
@@ -418,15 +465,15 @@ export const useReportDraftSync = (
 
     const markTaskBlockDirty = useCallback(
         (blockId: string, patch: TaskBlockDirtyPatch) => {
-            setBlocks((prev) =>
-                sortBlocks(
-                    prev.map((block) =>
-                        block.id === blockId && block.type === 'task'
-                            ? { ...block, ...patch }
-                            : block
-                    )
+            const next = sortBlocks(
+                blocksRef.current.map((block) =>
+                    block.id === blockId && block.type === 'task'
+                        ? { ...block, ...patch }
+                        : block
                 )
             );
+            blocksRef.current = next;
+            setBlocks(next);
             markDirty();
         },
         [markDirty]
@@ -528,6 +575,8 @@ export const useReportDraftSync = (
         blocks,
         loading,
         syncStatus,
+        isFlushInFlight,
+        showSavingIndicator,
         publishing,
         hasLocalChanges,
         hasUnpublishedChanges: hasUnpublishedChanges(report) || hasLocalChanges,

@@ -1,5 +1,6 @@
 import type { BaseBlockData } from '@/lib/db-types';
 import { isEmptyRichHtml } from '@/lib/rich-text-empty';
+import { RichTextView } from './rich-text-view';
 
 export { isEmptyRichHtml };
 
@@ -17,10 +18,11 @@ export function BlockTitleView({
     if (isEmptyRichHtml(title)) return null;
 
     return (
-        <h2
-            className={`report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight ${className}`.trim()}
+        <RichTextView
+            as="h2"
+            html={title}
+            className={`font-semibold text-zinc-100 mb-8 tracking-tight ${className}`.trim()}
             style={{ fontSize: `${titleFontSize}px` }}
-            dangerouslySetInnerHTML={{ __html: title }}
         />
     );
 }

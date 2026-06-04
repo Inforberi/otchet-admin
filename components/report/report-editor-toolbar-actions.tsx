@@ -1,23 +1,29 @@
 'use client';
 
-import { Eye, Save } from 'lucide-react';
+import { Eye, Loader2, Save } from 'lucide-react';
 import { ReportAutosaveControl } from '@/components/report/report-autosave-control';
 
 const TOOLBAR_BTN =
     'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-zinc-600 px-2.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer';
 
 const PUBLISH_BTN =
-    'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent bg-green-600 px-2.5 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer';
+    'inline-flex h-8 min-w-[9.5rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-transparent bg-green-600 px-2.5 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer';
 
 type ReportEditorToolbarActionsProps = {
-    syncStatusBadge: { className: string; text: string; shortText: string };
+    syncStatusBadge: {
+        className: string;
+        text: string;
+        shortText: string;
+        title: string;
+        isSaving: boolean;
+    };
     autosaveIntervalMs: number;
     onAutosaveIntervalChange: (ms: number) => void;
     onSave: () => void;
     onView: () => void;
     onPublish: () => void;
     saveDisabled: boolean;
-    saveLabel: string;
+    isSaving: boolean;
     publishDisabled: boolean;
     publishing: boolean;
     canPublish: boolean;
@@ -35,16 +41,12 @@ export function ReportEditorToolbarActions({
     onView,
     onPublish,
     saveDisabled,
-    saveLabel,
+    isSaving,
     publishDisabled,
     publishing,
     canPublish,
 }: ReportEditorToolbarActionsProps) {
-    const publishLabel = publishing
-        ? 'Публикация...'
-        : canPublish
-          ? 'Опубликовать'
-          : 'Опубликовано';
+    const publishLabel = canPublish ? 'Опубликовать' : 'Опубликовано';
 
     return (
         <div
@@ -53,10 +55,22 @@ export function ReportEditorToolbarActions({
             aria-label="Действия редактора"
         >
             <span
-                className={`${syncStatusBadge.className} inline-flex min-w-[10.5rem] shrink-0 items-center justify-center truncate xl:min-w-[19rem]`}
-                title={syncStatusBadge.text}
+                className={`${syncStatusBadge.className} inline-flex min-w-[10.5rem] shrink-0 items-center justify-center gap-1.5 truncate xl:min-w-[11rem]`}
+                title={syncStatusBadge.title}
                 aria-live="polite"
             >
+                <span
+                    className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center transition-opacity duration-200 ${
+                        syncStatusBadge.isSaving ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    aria-hidden={!syncStatusBadge.isSaving}
+                >
+                    <Loader2
+                        className={`h-3.5 w-3.5 shrink-0 animate-spin ${
+                            syncStatusBadge.isSaving ? '' : 'invisible'
+                        }`}
+                    />
+                </span>
                 <span className="xl:hidden">{syncStatusBadge.shortText}</span>
                 <span className="hidden xl:inline">{syncStatusBadge.text}</span>
             </span>
@@ -72,10 +86,17 @@ export function ReportEditorToolbarActions({
                 onClick={onSave}
                 disabled={saveDisabled}
                 className={`${TOOLBAR_BTN} min-w-[8.75rem]`}
-                title={saveLabel}
+                title={isSaving ? 'Сохранение...' : 'Сохранить черновик'}
             >
-                <Save className="h-4 w-4 shrink-0" aria-hidden />
-                <span className="hidden md:inline">{saveLabel}</span>
+                {isSaving ? (
+                    <Loader2
+                        className="h-4 w-4 shrink-0 animate-spin"
+                        aria-hidden
+                    />
+                ) : (
+                    <Save className="h-4 w-4 shrink-0" aria-hidden />
+                )}
+                <span className="hidden md:inline">Сохранить</span>
             </button>
             <button
                 type="button"
@@ -91,8 +112,14 @@ export function ReportEditorToolbarActions({
                 onClick={onPublish}
                 disabled={publishDisabled}
                 className={PUBLISH_BTN}
-                title={publishLabel}
+                title={publishing ? 'Публикация...' : publishLabel}
             >
+                {publishing ? (
+                    <Loader2
+                        className="h-4 w-4 shrink-0 animate-spin"
+                        aria-hidden
+                    />
+                ) : null}
                 {publishLabel}
             </button>
         </div>

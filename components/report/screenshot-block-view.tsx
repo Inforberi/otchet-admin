@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { ScreenshotBlockData } from '@/lib/db-types';
 import { ImageLightbox } from './image-lightbox';
+import { RichTextView } from './rich-text-view';
 import { ImageOff } from 'lucide-react';
 
 interface ScreenshotBlockViewProps {
@@ -30,6 +31,23 @@ function isEmpty(str: string | null | undefined): boolean {
 
 const EMBEDDED_IMG_MAX_CLASS = 'max-h-[min(480px,70vh)]';
 
+const getViewLayoutClasses = (isEmbedded: boolean) => ({
+    section: isEmbedded ? 'space-y-3' : 'space-y-8',
+    sectionSidebar: isEmbedded ? 'space-y-3' : 'space-y-6',
+    title: isEmbedded
+        ? 'font-semibold text-zinc-100 tracking-tight'
+        : 'font-semibold text-zinc-100 mb-8 tracking-tight',
+    titleSidebar: isEmbedded
+        ? 'font-semibold text-zinc-100 tracking-tight'
+        : 'text-[20px] font-semibold text-white mb-8 tracking-tight',
+    description:
+        'text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap',
+    descriptionSidebar: isEmbedded
+        ? 'text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap'
+        : 'text-[18px] text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap',
+    sidebarGap: isEmbedded ? 'gap-4' : 'gap-8',
+});
+
 export function ScreenshotBlockView({
     data,
     titleFontSize = '40',
@@ -38,6 +56,7 @@ export function ScreenshotBlockView({
     variant = 'default',
 }: ScreenshotBlockViewProps) {
     const isEmbedded = variant === 'embedded';
+    const layoutClasses = getViewLayoutClasses(isEmbedded);
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
@@ -137,20 +156,21 @@ export function ScreenshotBlockView({
     if (layout === 'two-column' && data.images.length > 0) {
         return (
             <>
-                <section className="space-y-8">
+                <section className={layoutClasses.section}>
                     {hasTitle && (
-                        <h2
-                            className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
+                        <RichTextView
+                            as="h2"
+                            html={data.title}
+                            className={layoutClasses.title}
                             style={{ fontSize: `${titleFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
 
                     {hasDescription && (
-                        <div
-                            className="report-rich-text text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
+                        <RichTextView
+                            html={data.description}
+                            className={layoutClasses.description}
                             style={{ fontSize: `${descriptionFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                         />
                     )}
 
@@ -180,20 +200,21 @@ export function ScreenshotBlockView({
     if (layout === 'full-width' && data.images.length > 0) {
         return (
             <>
-                <section className="space-y-8">
+                <section className={layoutClasses.section}>
                     {hasTitle && (
-                        <h2
-                            className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
+                        <RichTextView
+                            as="h2"
+                            html={data.title}
+                            className={layoutClasses.title}
                             style={{ fontSize: `${titleFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
 
                     {hasDescription && (
-                        <div
-                            className="report-rich-text text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
+                        <RichTextView
+                            html={data.description}
+                            className={layoutClasses.description}
                             style={{ fontSize: `${descriptionFontSize}px` }}
-                            dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                         />
                     )}
 
@@ -229,20 +250,27 @@ export function ScreenshotBlockView({
     if (layout === 'sidebar' && data.images.length > 0) {
         return (
             <>
-                <section className="space-y-6">
+                <section className={layoutClasses.sectionSidebar}>
                     {hasTitle && (
-                        <h2
-                            className="report-rich-text text-[20px] font-semibold text-white mb-8 tracking-tight"
-                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
+                        <RichTextView
+                            as="h2"
+                            html={data.title}
+                            className={layoutClasses.titleSidebar}
+                            style={isEmbedded ? { fontSize: `${titleFontSize}px` } : undefined}
                         />
                     )}
 
-                    <div className="flex flex-col md:flex-row gap-8">
+                    <div className={`flex flex-col md:flex-row ${layoutClasses.sidebarGap}`}>
                         {hasDescription && (
                             <div className="md:w-[40%]">
-                                <div
-                                    className="report-rich-text text-[18px] text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
-                                    dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
+                                <RichTextView
+                                    html={data.description}
+                                    className={layoutClasses.descriptionSidebar}
+                                    style={
+                                        isEmbedded
+                                            ? { fontSize: `${descriptionFontSize}px` }
+                                            : undefined
+                                    }
                                 />
                             </div>
                         )}
@@ -277,15 +305,17 @@ export function ScreenshotBlockView({
     if (layout === 'sidebar-reverse' && data.images.length > 0) {
         return (
             <>
-                <section className="space-y-6">
+                <section className={layoutClasses.sectionSidebar}>
                     {hasTitle && (
-                        <h2
-                            className="report-rich-text text-[20px] font-semibold text-white mb-8 tracking-tight"
-                            dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
+                        <RichTextView
+                            as="h2"
+                            html={data.title}
+                            className={layoutClasses.titleSidebar}
+                            style={isEmbedded ? { fontSize: `${titleFontSize}px` } : undefined}
                         />
                     )}
 
-                    <div className="flex flex-col md:flex-row gap-8">
+                    <div className={`flex flex-col md:flex-row ${layoutClasses.sidebarGap}`}>
                         <div
                             className={`${hasDescription ? 'md:w-[60%]' : 'md:w-full'} space-y-4 ${spacingClasses[spacing]}`}
                             style={
@@ -299,9 +329,14 @@ export function ScreenshotBlockView({
 
                         {hasDescription && (
                             <div className="md:w-[40%]">
-                                <div
-                                    className="report-rich-text text-[18px] text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
-                                    dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
+                                <RichTextView
+                                    html={data.description}
+                                    className={layoutClasses.descriptionSidebar}
+                                    style={
+                                        isEmbedded
+                                            ? { fontSize: `${descriptionFontSize}px` }
+                                            : undefined
+                                    }
                                 />
                             </div>
                         )}
@@ -323,20 +358,21 @@ export function ScreenshotBlockView({
 
     // Default/Grid layout
     return (
-        <section className="space-y-8">
+        <section className={layoutClasses.section}>
             {hasTitle && (
-                <h2
-                    className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
+                <RichTextView
+                    as="h2"
+                    html={data.title}
+                    className={layoutClasses.title}
                     style={{ fontSize: `${titleFontSize}px` }}
-                    dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                 />
             )}
 
             {hasDescription && (
-                <div
-                    className="report-rich-text text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
+                <RichTextView
+                    html={data.description}
+                    className={layoutClasses.description}
                     style={{ fontSize: `${descriptionFontSize}px` }}
-                    dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                 />
             )}
 

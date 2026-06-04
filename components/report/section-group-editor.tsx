@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { ReportBlockFromDB, SectionBlockData } from '@/lib/db-types';
-import { isSectionCollapsed } from '@/lib/block-tree';
+import { isSectionEditorCollapsed } from '@/lib/block-tree';
 
 const FormattedTextEditor = dynamic(
     () => import('@/components/editor/rich-text-editor'),
@@ -31,7 +31,7 @@ export function SectionGroupEditor({
     onToggleCollapsed,
 }: SectionGroupEditorProps) {
     const data = section.data as SectionBlockData;
-    const collapsed = isSectionCollapsed(section);
+    const collapsed = isSectionEditorCollapsed(section);
 
     const headerRow = (
         <div className="flex flex-col gap-2 border-b border-zinc-800 p-4 sm:flex-row sm:items-center sm:justify-between">
