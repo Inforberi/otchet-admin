@@ -89,7 +89,6 @@ import {
 import {
     DndContext,
     DragOverlay,
-    closestCenter,
     KeyboardSensor,
     PointerSensor,
     TouchSensor,
@@ -101,6 +100,7 @@ import {
     type DraggableAttributes,
     type DraggableSyntheticListeners,
 } from '@dnd-kit/core';
+import { sidebarCollisionDetection } from '@/lib/sidebar-dnd-collision';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 
@@ -1224,7 +1224,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
 
             <DndContext
                 sensors={sensors}
-                collisionDetection={closestCenter}
+                collisionDetection={sidebarCollisionDetection}
                 modifiers={[restrictToVerticalAxis]}
                 onDragStart={handleBlocksDragStart}
                 onDragOver={handleBlocksDragOver}

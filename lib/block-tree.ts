@@ -260,6 +260,52 @@ export const moveBlockIntoSection = (
     return reindexBlockPositions(next);
 };
 
+/** Вынести блок из группы сразу после секции (top-level, под группой) */
+export const moveBlockAfterSection = (
+    blocks: ReportBlockFromDB[],
+    activeId: string,
+    sectionId: string
+): ReportBlockFromDB[] => {
+    const { sorted, block } = removeBlockFromSorted(
+        sortBlocksByPosition(validateTree(blocks)),
+        activeId
+    );
+    if (!block || block.type === 'section') return blocks;
+
+    const reparented: ReportBlockFromDB = { ...block, parentId: null };
+    const tree = buildEditorTree(sorted);
+    const sectionIndex = tree.findIndex(
+        (n) => n.kind === 'section' && n.section.id === sectionId
+    );
+    if (sectionIndex === -1) {
+        return reindexBlockPositions([...sorted, reparented]);
+    }
+
+    const nextTree = [...tree];
+    nextTree.splice(sectionIndex + 1, 0, { kind: 'block', block: reparented });
+    return flattenTree(nextTree);
+};
+
+/** Плоский порядок id для одного SortableContext в сайдбаре */
+export const buildFlatSidebarSortableIds = (
+    tree: EditorTreeNode[]
+): string[] => {
+    const ids: string[] = [];
+    for (const node of tree) {
+        if (node.kind === 'section') {
+            ids.push(node.section.id);
+            if (!isSectionCollapsed(node.section)) {
+                for (const child of node.children) {
+                    ids.push(child.id);
+                }
+            }
+        } else {
+            ids.push(node.block.id);
+        }
+    }
+    return ids;
+};
+
 /** Вынести блок из группы на верхний уровень (на позицию over) */
 export const moveBlockToTopLevel = (
     blocks: ReportBlockFromDB[],
@@ -325,28 +371,23 @@ export const applyBlockDrag = (
         return blocks;
     }
 
-    if (targetSectionId) {
-        if (
-            targetSectionId === active.parentId &&
-            over.parentId === active.parentId &&
-            over.type !== 'section'
-        ) {
+    if (active.parentId) {
+        if (over.type === 'section') {
+            if (over.id === active.parentId) {
+                return moveBlockAfterSection(blocks, activeId, active.parentId);
+            }
+            return moveBlockToTopLevel(blocks, activeId, over.id);
+        }
+        if (over.parentId === active.parentId) {
             return moveChildInGroup(blocks, activeId, overId);
         }
-        const insertBefore =
-            over.type !== 'section' && over.parentId === targetSectionId
-                ? over.id
-                : null;
-        return moveBlockIntoSection(
-            blocks,
-            activeId,
-            targetSectionId,
-            insertBefore
-        );
-    }
-
-    if (over.type !== 'section' && !over.parentId) {
-        return moveBlockToTopLevel(blocks, activeId, overId);
+        if (over.parentId && over.parentId !== active.parentId) {
+            return moveBlockIntoSection(blocks, activeId, over.parentId, over.id);
+        }
+        if (!over.parentId) {
+            return moveBlockToTopLevel(blocks, activeId, overId);
+        }
+        return blocks;
     }
 
     return blocks;
@@ -403,22 +444,20 @@ export const getBlockDragIntent = (
         return 'none';
     }
 
-    if (targetSectionId) {
-        if (
-            targetSectionId === active.parentId &&
-            over.parentId === active.parentId &&
-            over.type !== 'section'
-        ) {
+    if (active.parentId) {
+        if (over.type === 'section') {
+            return 'exitGroup';
+        }
+        if (over.parentId === active.parentId) {
             return 'reorderInGroup';
         }
-        if (targetSectionId !== active.parentId) {
+        if (over.parentId && over.parentId !== active.parentId) {
             return 'moveBetweenGroups';
         }
-        return 'reorderInGroup';
-    }
-
-    if (over.type !== 'section' && !over.parentId) {
-        return 'exitGroup';
+        if (!over.parentId) {
+            return 'exitGroup';
+        }
+        return 'none';
     }
 
     return 'none';

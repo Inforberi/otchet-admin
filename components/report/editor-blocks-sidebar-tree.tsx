@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useMemo } from 'react';
+import { Fragment, memo, useCallback, useMemo } from 'react';
 import {
     SortableContext,
     verticalListSortingStrategy,
@@ -10,8 +10,8 @@ import { CSS } from '@dnd-kit/utilities';
 import type { ReportBlockFromDB } from '@/lib/db-types';
 import {
     buildEditorTree,
+    buildFlatSidebarSortableIds,
     getBlockDragIntent,
-    getTopLevelNodeId,
     isSectionCollapsed,
     type BlockDragIntent,
     type EditorTreeNode,
@@ -46,6 +46,8 @@ type EditorBlocksSidebarTreeProps = {
     BlockListCard: React.ComponentType<BlockListCardProps>;
 };
 
+const noLayoutAnimation = () => false;
+
 const resolveDropIntent = (
     blocks: ReportBlockFromDB[],
     activeBlockId: string | null,
@@ -67,6 +69,7 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
     BlockListCard,
     collapseToggle,
     dropIntent,
+    indented,
 }: {
     block: ReportBlockFromDB;
     isSelected: boolean;
@@ -76,6 +79,7 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
     BlockListCard: React.ComponentType<BlockListCardProps>;
     collapseToggle?: BlockListCardProps['collapseToggle'];
     dropIntent: BlockDragIntent;
+    indented?: boolean;
 }) {
     const {
         attributes,
@@ -84,7 +88,10 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
         transform,
         transition,
         isDragging,
-    } = useSortable({ id: block.id });
+    } = useSortable({
+        id: block.id,
+        animateLayoutChanges: noLayoutAnimation,
+    });
 
     const style = useMemo(
         () => ({
@@ -96,7 +103,11 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
     );
 
     return (
-        <div ref={setNodeRef} style={style}>
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={indented ? 'ml-3 sm:ml-4' : undefined}
+        >
             <BlockListCard
                 block={block}
                 isSelected={isSelected}
@@ -111,30 +122,26 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
     );
 });
 
-const SortableSectionRow = memo(function SortableSectionRow({
+const SortableSectionHeader = memo(function SortableSectionHeader({
     section,
-    childrenBlocks,
+    childCount,
     selectedBlockId,
-    activeBlockId,
-    overBlockId,
-    blocks,
     onSelect,
     onDelete,
     onDuplicate,
     onToggleSectionCollapsed,
     BlockListCard,
+    dropIntent,
 }: {
     section: ReportBlockFromDB;
-    childrenBlocks: ReportBlockFromDB[];
+    childCount: number;
     selectedBlockId: string | null;
-    activeBlockId: string | null;
-    overBlockId: string | null;
-    blocks: ReportBlockFromDB[];
     onSelect: (id: string) => void;
     onDelete: (id: string) => void;
     onDuplicate: (id: string) => void;
     onToggleSectionCollapsed: (sectionId: string) => void;
     BlockListCard: React.ComponentType<BlockListCardProps>;
+    dropIntent: BlockDragIntent;
 }) {
     const {
         attributes,
@@ -143,7 +150,10 @@ const SortableSectionRow = memo(function SortableSectionRow({
         transform,
         transition,
         isDragging,
-    } = useSortable({ id: section.id });
+    } = useSortable({
+        id: section.id,
+        animateLayoutChanges: noLayoutAnimation,
+    });
 
     const style = useMemo(
         () => ({
@@ -155,35 +165,6 @@ const SortableSectionRow = memo(function SortableSectionRow({
     );
 
     const collapsed = isSectionCollapsed(section);
-    const childCount = childrenBlocks.length;
-    const sectionDropIntent = resolveDropIntent(
-        blocks,
-        activeBlockId,
-        overBlockId,
-        section.id
-    );
-
-    const childrenZoneIntent = useMemo((): BlockDragIntent => {
-        if (!activeBlockId || !overBlockId) return 'none';
-        if (overBlockId === section.id) return sectionDropIntent;
-        const overChild = childrenBlocks.find((c) => c.id === overBlockId);
-        if (!overChild) return 'none';
-        return getBlockDragIntent(blocks, activeBlockId, overBlockId);
-    }, [
-        activeBlockId,
-        overBlockId,
-        section.id,
-        sectionDropIntent,
-        childrenBlocks,
-        blocks,
-    ]);
-
-    const showChildrenZoneHint =
-        !collapsed &&
-        childrenBlocks.length > 0 &&
-        (childrenZoneIntent === 'enterGroup' ||
-            childrenZoneIntent === 'moveBetweenGroups' ||
-            childrenZoneIntent === 'reorderInGroup');
 
     return (
         <div ref={setNodeRef} style={style} className="mb-1">
@@ -209,40 +190,8 @@ const SortableSectionRow = memo(function SortableSectionRow({
                           }`
                         : undefined
                 }
-                dropIntent={sectionDropIntent}
+                dropIntent={dropIntent}
             />
-            {!collapsed && childrenBlocks.length > 0 && (
-                <SortableContext
-                    items={childrenBlocks.map((c) => c.id)}
-                    strategy={verticalListSortingStrategy}
-                >
-                    <div
-                        className={`ml-3 border-l pl-2 sm:ml-4 sm:pl-3 ${
-                            showChildrenZoneHint
-                                ? 'border-amber-500/50'
-                                : 'border-zinc-800/60'
-                        }`}
-                    >
-                        {childrenBlocks.map((child) => (
-                            <SortableBlockCardWrapper
-                                key={child.id}
-                                block={child}
-                                isSelected={selectedBlockId === child.id}
-                                onSelect={onSelect}
-                                onDelete={onDelete}
-                                onDuplicate={onDuplicate}
-                                BlockListCard={BlockListCard}
-                                dropIntent={resolveDropIntent(
-                                    blocks,
-                                    activeBlockId,
-                                    overBlockId,
-                                    child.id
-                                )}
-                            />
-                        ))}
-                    </div>
-                </SortableContext>
-            )}
         </div>
     );
 });
@@ -259,28 +208,80 @@ export const EditorBlocksSidebarTree = memo(function EditorBlocksSidebarTree({
     BlockListCard,
 }: EditorBlocksSidebarTreeProps) {
     const tree = useMemo(() => buildEditorTree(blocks), [blocks]);
-    const topLevelIds = useMemo(() => tree.map(getTopLevelNodeId), [tree]);
+    const flatIds = useMemo(() => buildFlatSidebarSortableIds(tree), [tree]);
 
     const renderNode = useCallback(
         (node: EditorTreeNode) => {
             if (node.kind === 'section') {
+                const collapsed = isSectionCollapsed(node.section);
+                const showChildrenZoneHint =
+                    !collapsed &&
+                    node.children.length > 0 &&
+                    activeBlockId &&
+                    overBlockId &&
+                    (() => {
+                        const intent = getBlockDragIntent(
+                            blocks,
+                            activeBlockId,
+                            overBlockId
+                        );
+                        return (
+                            intent === 'enterGroup' ||
+                            intent === 'moveBetweenGroups' ||
+                            intent === 'reorderInGroup'
+                        );
+                    })();
+
                 return (
-                    <SortableSectionRow
-                        key={node.section.id}
-                        section={node.section}
-                        childrenBlocks={node.children}
-                        selectedBlockId={selectedBlockId}
-                        activeBlockId={activeBlockId}
-                        overBlockId={overBlockId}
-                        blocks={blocks}
-                        onSelect={onSelect}
-                        onDelete={onDelete}
-                        onDuplicate={onDuplicate}
-                        onToggleSectionCollapsed={onToggleSectionCollapsed}
-                        BlockListCard={BlockListCard}
-                    />
+                    <Fragment key={node.section.id}>
+                        <SortableSectionHeader
+                            section={node.section}
+                            childCount={node.children.length}
+                            selectedBlockId={selectedBlockId}
+                            onSelect={onSelect}
+                            onDelete={onDelete}
+                            onDuplicate={onDuplicate}
+                            onToggleSectionCollapsed={onToggleSectionCollapsed}
+                            BlockListCard={BlockListCard}
+                            dropIntent={resolveDropIntent(
+                                blocks,
+                                activeBlockId,
+                                overBlockId,
+                                node.section.id
+                            )}
+                        />
+                        {!collapsed && node.children.length > 0 && (
+                            <div
+                                className={`mb-1 ml-3 border-l pl-2 sm:ml-4 sm:pl-3 ${
+                                    showChildrenZoneHint
+                                        ? 'border-amber-500/50'
+                                        : 'border-zinc-800/60'
+                                }`}
+                            >
+                                {node.children.map((child) => (
+                                    <SortableBlockCardWrapper
+                                        key={child.id}
+                                        block={child}
+                                        isSelected={selectedBlockId === child.id}
+                                        onSelect={onSelect}
+                                        onDelete={onDelete}
+                                        onDuplicate={onDuplicate}
+                                        BlockListCard={BlockListCard}
+                                        dropIntent={resolveDropIntent(
+                                            blocks,
+                                            activeBlockId,
+                                            overBlockId,
+                                            child.id
+                                        )}
+                                        indented
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </Fragment>
                 );
             }
+
             return (
                 <SortableBlockCardWrapper
                     key={node.block.id}
@@ -313,7 +314,10 @@ export const EditorBlocksSidebarTree = memo(function EditorBlocksSidebarTree({
     );
 
     return (
-        <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
+        <SortableContext
+            items={flatIds}
+            strategy={verticalListSortingStrategy}
+        >
             {tree.map(renderNode)}
         </SortableContext>
     );
