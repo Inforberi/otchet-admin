@@ -17,11 +17,13 @@ import {
 type ReportAutosaveControlProps = {
     intervalMs: number;
     onIntervalChange: (ms: number) => void;
+    className?: string;
 };
 
 export function ReportAutosaveControl({
     intervalMs,
     onIntervalChange,
+    className = '',
 }: ReportAutosaveControlProps) {
     const enabled = intervalMs > 0;
     const selectValue = enabled ? String(intervalMs) : String(DEFAULT_AUTOSAVE_INTERVAL_MS);
@@ -41,15 +43,20 @@ export function ReportAutosaveControl({
     };
 
     return (
-        <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/40 px-3 py-1.5">
-            <Clock className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+        <div
+            className={`flex w-full max-w-full flex-wrap items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/40 px-2.5 py-1.5 sm:px-3 md:inline-flex md:w-auto ${className}`}
+        >
+            <Clock className="hidden h-4 w-4 shrink-0 text-zinc-500 sm:block" aria-hidden />
             <label className="inline-flex cursor-pointer items-center gap-2 select-none">
                 <Switch
                     checked={enabled}
                     onCheckedChange={handleToggle}
                     aria-label="Автосохранение"
                 />
-                <span className="text-sm text-zinc-300">Автосохранение</span>
+                <span className="text-sm text-zinc-300">
+                    <span className="sm:hidden">Авто</span>
+                    <span className="hidden sm:inline">Автосохранение</span>
+                </span>
             </label>
             <Select
                 value={selectValue}

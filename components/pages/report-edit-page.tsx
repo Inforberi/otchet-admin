@@ -38,6 +38,16 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { TaskBlockCard } from '@/components/report/task-block-card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { ReportAutosaveControl } from '@/components/report/report-autosave-control';
 import { generateClientId } from '@/lib/generate-id';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
@@ -53,10 +63,16 @@ import {
     joinGroupPathFromSegments,
 } from '@/lib/report-paths';
 import {
+    insertBlockAt,
+    reindexBlockPositions,
+    sortBlocksByPosition,
+} from '@/lib/report-block-order';
+import {
     DndContext,
     closestCenter,
     KeyboardSensor,
     PointerSensor,
+    TouchSensor,
     useSensor,
     useSensors,
     DragEndEvent,
@@ -136,33 +152,6 @@ const ADD_BLOCK_BUTTONS: { type: BlockTypeKey; label: string; Icon: LucideIcon; 
     { type: 'divider', label: 'HR', Icon: Minus, ring: 'hover:ring-zinc-500/40' },
 ];
 
-const splitBlocks = (blocks: ReportBlockFromDB[]) => {
-    const sorted = [...blocks].sort((a, b) => a.position - b.position);
-    return {
-        taskBlocks: sorted.filter((b) => b.type === 'task'),
-        contentBlocks: sorted.filter((b) => b.type !== 'task'),
-    };
-};
-
-const mergeWithPositions = (
-    taskBlocks: ReportBlockFromDB[],
-    contentBlocks: ReportBlockFromDB[]
-): ReportBlockFromDB[] =>
-    [...taskBlocks, ...contentBlocks].map((block, index) => ({
-        ...block,
-        position: index,
-    }));
-
-const blocksNeedNormalization = (blocks: ReportBlockFromDB[]): boolean => {
-    const sorted = [...blocks].sort((a, b) => a.position - b.position);
-    let seenContent = false;
-    for (const block of sorted) {
-        if (block.type !== 'task') seenContent = true;
-        else if (seenContent) return true;
-    }
-    return false;
-};
-
 const getBlockPreview = (block: ReportBlockFromDB | { type: ReportBlockFromDB['type']; data: ReportBlockFromDB['data'] }): string => {
     if (block.type === 'text') {
         const data = block.data as TextBlockData;
@@ -182,7 +171,8 @@ const getBlockPreview = (block: ReportBlockFromDB | { type: ReportBlockFromDB['t
     }
     if (block.type === 'task') {
         const data = block.data as TaskBlockData;
-        if (data.title) return data.title;
+        const title = stripHtml(data.title);
+        if (title) return title;
         return 'Задача';
     }
     return 'Разделитель';
@@ -431,16 +421,14 @@ function BlockEditor({
 
     return (
         <div className="bg-zinc-900 rounded-lg border border-zinc-800 mb-4">
-            <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-4">
-                        <span className={`px-2.5 py-1 text-xs font-medium rounded ${block.type === 'text' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}>
-                            {block.type === 'text' ? 'Текст' : 'Фото'}
-                        </span>
-                        <p className="text-lg font-medium text-zinc-200">{blockPreview}</p>
-                    </div>
+            <div className="flex flex-col gap-2 border-b border-zinc-800 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+                    <span className={`shrink-0 rounded px-2.5 py-1 text-xs font-medium ${block.type === 'text' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}>
+                        {block.type === 'text' ? 'Текст' : 'Фото'}
+                    </span>
+                    <p className="min-w-0 truncate text-base font-medium text-zinc-200 sm:text-lg">{blockPreview}</p>
                 </div>
-                <button onClick={() => setIsExpanded(!isExpanded)} className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400 cursor-pointer">
+                <button onClick={() => setIsExpanded(!isExpanded)} className="self-end rounded p-1.5 text-zinc-400 hover:bg-zinc-800 cursor-pointer sm:self-auto">
                     {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                 </button>
             </div>
@@ -504,8 +492,8 @@ function BlockEditor({
                                 <div className="space-y-3">
                                     {(localData as ScreenshotBlockData).images?.map((img, idx) => (
                                         <div key={img.uploadId || `img-${idx}-${img.url}`} className="overflow-hidden rounded border border-zinc-700 bg-zinc-800 p-3">
-                                            <div className="relative flex gap-3">
-                                                <img src={img.url} alt={img.alt} className="relative z-0 h-36 w-36 shrink-0 rounded object-cover" />
+                                            <div className="relative flex flex-col gap-3 sm:flex-row">
+                                                <img src={img.url} alt={img.alt} className="relative z-0 h-auto w-full max-h-48 shrink-0 rounded object-cover sm:h-36 sm:w-36 sm:max-h-none" />
                                                 <div className="relative z-10 min-w-0 flex-1 space-y-2">
                                                     <input
                                                         type="text"
@@ -521,7 +509,7 @@ function BlockEditor({
                                                         placeholder="Alt текст..."
                                                         className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
                                                     />
-                                                    <div className="flex flex-wrap items-center gap-5">
+                                                    <div className="flex flex-wrap items-center gap-2 sm:gap-5">
                                                         <div className="flex items-center gap-2.5">
                                                             <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Размер</span>
                                                             <select
@@ -632,9 +620,13 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const reportId = resolvedReportId ?? '';
 
     const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+    const [blockToDeleteId, setBlockToDeleteId] = useState<string | null>(null);
+    const [publishSuccessOpen, setPublishSuccessOpen] = useState(false);
+    const [mobileBlocksPanelOpen, setMobileBlocksPanelOpen] = useState(false);
     const [ancestors, setAncestors] = useState<GroupAncestor[]>([]);
     const draftLoadedForReportIdRef = useRef<string | null>(null);
-    const normalizationReportIdRef = useRef<string | null>(null);
+
+    const dragActivation = { delay: 150, tolerance: 8 } as const;
 
     useEffect(() => {
         if (!reportApiUrl) return;
@@ -653,12 +645,13 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const groupBackLabel = report?.group?.name ?? ancestors.at(-1)?.name ?? 'К группе';
 
     const sensors = useSensors(
-        useSensor(PointerSensor),
+        useSensor(PointerSensor, { activationConstraint: dragActivation }),
+        useSensor(TouchSensor, { activationConstraint: dragActivation }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
-    const { taskBlocks, contentBlocks } = useMemo(() => splitBlocks(blocks), [blocks]);
-    const hasBlocks = taskBlocks.length > 0 || contentBlocks.length > 0;
+    const sortedBlocks = useMemo(() => sortBlocksByPosition(blocks), [blocks]);
+    const hasBlocks = sortedBlocks.length > 0;
 
     const handleLogout = useCallback(async () => {
         try {
@@ -684,8 +677,22 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         }
     }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
 
+    const syncStatusShortLabel = useMemo(() => {
+        switch (syncStatus) {
+            case 'local': return 'Локальные изменения';
+            case 'autosaving': return 'Автосохранение…';
+            case 'saving': return 'Сохранение…';
+            case 'conflict': return 'Конфликт';
+            case 'error': return 'Ошибка';
+            default:
+                if (hasUnpublishedChanges) return 'Не опубликовано';
+                if (report?.publishedHash) return 'Опубликовано';
+                return 'Сохранено';
+        }
+    }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
+
     const syncStatusBadge = useMemo(() => {
-        const base = 'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium';
+        const base = 'inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-medium';
         switch (syncStatus) {
             case 'local':
                 return { className: `${base} bg-amber-500/15 text-amber-300`, text: syncStatusLabel };
@@ -725,57 +732,43 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
 
     const handlePublish = useCallback(async () => {
         const ok = await publish();
-        if (ok) alert('Отчёт опубликован');
+        if (ok) setPublishSuccessOpen(true);
     }, [publish]);
 
-    const handleTaskDragEnd = useCallback(
+    const handleBlocksDragEnd = useCallback(
         (event: DragEndEvent) => {
             const { active, over } = event;
             if (!over || active.id === over.id) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-            const oldIndex = tasks.findIndex((b) => b.id === active.id);
-            const newIndex = tasks.findIndex((b) => b.id === over.id);
+            const sorted = sortBlocksByPosition(blocks);
+            const oldIndex = sorted.findIndex((b) => b.id === active.id);
+            const newIndex = sorted.findIndex((b) => b.id === over.id);
             if (oldIndex === -1 || newIndex === -1) return;
             replaceBlocksLocally(
-                mergeWithPositions(arrayMove(tasks, oldIndex, newIndex), content)
+                reindexBlockPositions(arrayMove(sorted, oldIndex, newIndex))
             );
         },
         [blocks, replaceBlocksLocally]
     );
 
-    const handleContentDragEnd = useCallback(
-        (event: DragEndEvent) => {
-            const { active, over } = event;
-            if (!over || active.id === over.id) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-            const oldIndex = content.findIndex((b) => b.id === active.id);
-            const newIndex = content.findIndex((b) => b.id === over.id);
-            if (oldIndex === -1 || newIndex === -1) return;
-            replaceBlocksLocally(
-                mergeWithPositions(tasks, arrayMove(content, oldIndex, newIndex))
-            );
-        },
-        [blocks, replaceBlocksLocally]
-    );
+    const handleDeleteBlock = useCallback((id: string) => {
+        setBlockToDeleteId(id);
+    }, []);
 
-    const handleDeleteBlock = useCallback(
-        (id: string) => {
-            if (!confirm('Удалить блок?')) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-            const nextTasks = tasks.filter((block) => block.id !== id);
-            const nextContent = content.filter((block) => block.id !== id);
-            const nextBlocks = mergeWithPositions(nextTasks, nextContent);
-            replaceBlocksLocally(nextBlocks);
-            setSelectedBlockId((cur) => (cur === id ? nextBlocks[0]?.id || null : cur));
-        },
-        [blocks, replaceBlocksLocally]
-    );
+    const confirmDeleteBlock = useCallback(() => {
+        const id = blockToDeleteId;
+        if (!id) return;
+        const nextBlocks = reindexBlockPositions(
+            sortBlocksByPosition(blocks).filter((block) => block.id !== id)
+        );
+        replaceBlocksLocally(nextBlocks);
+        setSelectedBlockId((cur) => (cur === id ? nextBlocks[0]?.id || null : cur));
+        setBlockToDeleteId(null);
+    }, [blockToDeleteId, blocks, replaceBlocksLocally]);
 
     const handleDuplicateBlock = useCallback(
         (id: string) => {
             const blockToDup = blocks.find((b) => b.id === id);
             if (!blockToDup) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
             const duplicatedBlock: ReportBlockFromDB = {
                 ...blockToDup,
                 id: generateClientId(),
@@ -785,10 +778,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 updatedAt: new Date(),
                 data: JSON.parse(JSON.stringify(blockToDup.data)) as ReportBlockFromDB['data'],
             };
-            const nextBlocks =
-                blockToDup.type === 'task'
-                    ? mergeWithPositions([...tasks, duplicatedBlock], content)
-                    : mergeWithPositions(tasks, [...content, duplicatedBlock]);
+            const nextBlocks = insertBlockAt(blocks, duplicatedBlock, id);
             replaceBlocksLocally(nextBlocks);
             setSelectedBlockId(duplicatedBlock.id);
         },
@@ -809,13 +799,11 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         createdAt: new Date().toISOString().slice(0, 10),
                         startDate: null,
                         deadline: null,
-                        assigneeId: null,
-                        assigneeName: null,
+                        assignees: [],
                         layout: 'full-width',
                     } satisfies TaskBlockData;
                 return { title: '', description: '', images: [], layout: 'full-width' };
             };
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
             const newBlock: ReportBlockFromDB = {
                 id: generateClientId(),
                 reportId,
@@ -826,17 +814,17 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 updatedAt: new Date(),
                 data: defaultData(),
             };
-            const nextBlocks =
-                type === 'task'
-                    ? mergeWithPositions([...tasks, newBlock], content)
-                    : mergeWithPositions(tasks, [...content, newBlock]);
+            const nextBlocks = insertBlockAt(blocks, newBlock, selectedBlockId);
             replaceBlocksLocally(nextBlocks);
             setSelectedBlockId(newBlock.id);
         },
-        [blocks, report, reportId, replaceBlocksLocally]
+        [blocks, report, reportId, replaceBlocksLocally, selectedBlockId]
     );
 
-    const handleSelectBlock = useCallback((id: string) => setSelectedBlockId(id), []);
+    const handleSelectBlock = useCallback((id: string) => {
+        setSelectedBlockId(id);
+        setMobileBlocksPanelOpen(false);
+    }, []);
 
     useEffect(() => {
         if (!report?.slug || !report.group?.path) return;
@@ -866,26 +854,13 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         if (!resolvedReportId) return;
         if (draftLoadedForReportIdRef.current === resolvedReportId) return;
         draftLoadedForReportIdRef.current = resolvedReportId;
-        normalizationReportIdRef.current = null;
         void loadReport().then((merged) => {
             if (merged && merged.blocks.length > 0) {
-                const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(merged.blocks);
-                setSelectedBlockId(tasks[0]?.id ?? content[0]?.id ?? merged.blocks[0].id);
+                const sorted = sortBlocksByPosition(merged.blocks);
+                setSelectedBlockId(sorted[0]?.id ?? null);
             }
         });
     }, [resolvedReportId, canEdit, roleLoading, router, loadReport, groupPathStr, reportSlug, report]);
-
-    useEffect(() => {
-        if (!resolvedReportId || blocks.length === 0) return;
-        if (!blocksNeedNormalization(blocks)) {
-            normalizationReportIdRef.current = resolvedReportId;
-            return;
-        }
-        if (normalizationReportIdRef.current === resolvedReportId) return;
-        const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-        replaceBlocksLocally(mergeWithPositions(tasks, content));
-        normalizationReportIdRef.current = resolvedReportId;
-    }, [blocks, resolvedReportId, replaceBlocksLocally]);
 
     useEffect(() => {
         if (report && !report.date) markMetadataDirty({ date: new Date().toISOString().split('T')[0] });
@@ -911,17 +886,18 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     onLogout={handleLogout}
                     breadcrumbs={[]}
                     title={
-                        <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-4">
+                        <div className="flex w-full min-w-0 flex-col gap-2">
                             <Link
                                 href={groupBackHref}
-                                className="inline-flex w-fit items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+                                className="inline-flex w-fit max-w-full items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
                             >
                                 <ArrowLeft className="h-4 w-4 shrink-0" />
-                                {groupBackLabel}
+                                <span className="truncate">{groupBackLabel}</span>
                             </Link>
-                            <div className="hidden h-4 w-px bg-zinc-700 sm:block" aria-hidden />
-                            <div className="min-w-0">
-                                <p className="text-lg font-semibold text-white">Конструктор отчёта</p>
+                            <div className="min-w-0 border-t border-zinc-800/80 pt-2">
+                                <p className="text-base font-semibold text-white sm:text-lg">
+                                    Конструктор отчёта
+                                </p>
                                 {stripHtmlLabel(report.title || '') && (
                                     <p className="truncate text-sm text-zinc-400">
                                         {stripHtmlLabel(report.title || '')}
@@ -931,58 +907,69 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         </div>
                     }
                     actions={
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className={syncStatusBadge.className}>{syncStatusBadge.text}</span>
-                            <div className="hidden h-6 w-px bg-zinc-700 sm:block" aria-hidden />
+                        <div className="flex w-full min-w-0 flex-col gap-3">
+                            <span className={`${syncStatusBadge.className} w-fit`}>
+                                <span className="lg:hidden">{syncStatusShortLabel}</span>
+                                <span className="hidden lg:inline">{syncStatusBadge.text}</span>
+                            </span>
                             <ReportAutosaveControl
                                 intervalMs={autosaveIntervalMs}
                                 onIntervalChange={handleAutosaveIntervalChange}
                             />
-                            <button
-                                type="button"
-                                onClick={handleSaveDraft}
-                                disabled={syncStatus === 'saving' || syncStatus === 'autosaving'}
-                                className="inline-flex items-center gap-2 rounded-lg border border-zinc-600 bg-transparent px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                            >
-                                <Save className="h-4 w-4" />
-                                {syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    router.push(
-                                        getReportPublicPath({
-                                            slug: report.slug ?? reportSlug,
-                                            group:
-                                                report.group ??
-                                                (groupPathStr ? { path: groupPathStr } : null),
-                                        })
-                                    )
-                                }
-                                className="inline-flex items-center gap-2 rounded-lg border border-zinc-600 bg-transparent px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer"
-                            >
-                                <Eye className="h-4 w-4" />
-                                Просмотр
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handlePublish}
-                                disabled={!canPublish}
-                                className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                            >
-                                {publishing ? 'Публикация...' : canPublish ? 'Опубликовать' : 'Опубликовано'}
-                            </button>
+                            <div className="grid w-full grid-cols-3 gap-2 lg:flex lg:w-auto lg:gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleSaveDraft}
+                                    disabled={syncStatus === 'saving' || syncStatus === 'autosaving'}
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-600 bg-transparent px-2 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed lg:px-3"
+                                    title="Сохранить"
+                                >
+                                    <Save className="h-4 w-4 shrink-0" />
+                                    <span className="hidden xl:inline">
+                                        {syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить'}
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        router.push(
+                                            getReportPublicPath({
+                                                slug: report.slug ?? reportSlug,
+                                                group:
+                                                    report.group ??
+                                                    (groupPathStr ? { path: groupPathStr } : null),
+                                            })
+                                        )
+                                    }
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-600 bg-transparent px-2 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer lg:px-3"
+                                    title="Просмотр"
+                                >
+                                    <Eye className="h-4 w-4 shrink-0" />
+                                    <span className="hidden xl:inline">Просмотр</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handlePublish}
+                                    disabled={!canPublish}
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-green-600 px-2 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed lg:px-3"
+                                    title={canPublish ? 'Опубликовать' : 'Опубликовано'}
+                                >
+                                    <span className="hidden xl:inline">
+                                        {publishing ? 'Публикация...' : canPublish ? 'Опубликовать' : 'Опубликовано'}
+                                    </span>
+                                    <span className="xl:hidden">
+                                        {publishing ? '…' : canPublish ? 'Опубл.' : 'Готово'}
+                                    </span>
+                                </button>
+                            </div>
                         </div>
                     }
                 />
             </div>
 
-            <div className="flex-1 flex">
+            <div className="flex flex-1 flex-col lg:flex-row">
                 {/* Main editing lane */}
-                <div
-                    className="scrollbar-thin flex-1 overflow-y-auto p-6"
-                    style={{ height: EDITOR_PANE_HEIGHT }}
-                >
+                <div className="scrollbar-thin flex-1 overflow-y-auto p-4 pb-32 sm:p-6 lg:h-[calc(100vh-6.75rem)] lg:pb-6 lg:overflow-y-auto">
                     <div className={`${EDITOR_CONTENT_MAX} mx-auto w-full space-y-6`}>
                         {/* Metadata */}
                         <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
@@ -1040,76 +1027,56 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         {!hasBlocks ? (
                             <div className="text-center py-16 text-zinc-500 bg-zinc-900 rounded-lg border border-zinc-800">
                                 <p>Нет блоков</p>
-                                <p className="text-sm text-zinc-600 mt-2">Добавьте первый блок через панель справа</p>
+                                <p className="text-sm text-zinc-600 mt-2">
+                                    <span className="lg:hidden">Добавьте первый блок кнопками внизу</span>
+                                    <span className="hidden lg:inline">Добавьте первый блок через панель справа</span>
+                                </p>
                             </div>
                         ) : (
-                            <>
-                                {taskBlocks.length > 0 && (
-                                    <div className="space-y-4">
-                                        {contentBlocks.length > 0 && (
-                                            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-purple-400">
-                                                Задачи ({taskBlocks.length})
-                                            </h2>
+                            <div className="space-y-4">
+                                {sortedBlocks.map((block) => (
+                                    <div
+                                        key={block.id}
+                                        id={`block-${block.id}`}
+                                        className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
+                                    >
+                                        {block.type === 'task' ? (
+                                            <TaskBlockCard
+                                                blockId={block.id}
+                                                reportId={reportId}
+                                                groupId={report?.groupId}
+                                                data={block.data as TaskBlockData}
+                                                taskCompletedAt={block.taskCompletedAt}
+                                                taskCompletedByUserId={block.taskCompletedByUserId}
+                                                taskCompletionNotes={block.taskCompletionNotes}
+                                                taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
+                                                taskCompletionLayout={block.taskCompletionLayout ?? null}
+                                                currentUserId={currentUser?.id}
+                                                canEdit={canEdit}
+                                                showActions={true}
+                                                titleFontSize={report.titleFontSize || '40'}
+                                                descriptionFontSize={report.descriptionFontSize || '20'}
+                                                captionFontSize={report.captionFontSize || '16'}
+                                                onDataChange={(data) => markBlockDirty(block.id, data)}
+                                            />
+                                        ) : (
+                                            <BlockEditor
+                                                block={block}
+                                                onLocalChange={markBlockDirty}
+                                                reportId={reportId}
+                                                groupId={report?.groupId}
+                                            />
                                         )}
-                                        {taskBlocks.map((block) => (
-                                            <div
-                                                key={block.id}
-                                                id={`block-${block.id}`}
-                                                className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
-                                            >
-                                                <TaskBlockCard
-                                                    blockId={block.id}
-                                                    reportId={reportId}
-                                                    groupId={report?.groupId}
-                                                    data={block.data as TaskBlockData}
-                                                    taskCompletedAt={block.taskCompletedAt}
-                                                    taskCompletedByUserId={block.taskCompletedByUserId}
-                                                    taskCompletionNotes={block.taskCompletionNotes}
-                                                    taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
-                                                    taskCompletionLayout={block.taskCompletionLayout ?? null}
-                                                    currentUserId={currentUser?.id}
-                                                    canEdit={canEdit}
-                                                    showActions={true}
-                                                    titleFontSize={report.titleFontSize || '40'}
-                                                    descriptionFontSize={report.descriptionFontSize || '20'}
-                                                    captionFontSize={report.captionFontSize || '16'}
-                                                    onDataChange={(data) => markBlockDirty(block.id, data)}
-                                                />
-                                            </div>
-                                        ))}
                                     </div>
-                                )}
-                                {contentBlocks.length > 0 && (
-                                    <div className={`space-y-4 ${taskBlocks.length > 0 ? 'pt-2' : ''}`}>
-                                        {taskBlocks.length > 0 && (
-                                            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-zinc-500">
-                                                Блоки ({contentBlocks.length})
-                                            </h2>
-                                        )}
-                                        {contentBlocks.map((block) => (
-                                            <div
-                                                key={block.id}
-                                                id={`block-${block.id}`}
-                                                className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
-                                            >
-                                                <BlockEditor
-                                                    block={block}
-                                                    onLocalChange={markBlockDirty}
-                                                    reportId={reportId}
-                                                    groupId={report?.groupId}
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </>
+                                ))}
+                            </div>
                         )}
                     </div>
                 </div>
 
-                {/* Right sidebar */}
+                {/* Desktop sidebar */}
                 <div
-                    className="flex w-96 shrink-0 flex-col border-l border-zinc-800 bg-zinc-900/95"
+                    className="hidden w-96 shrink-0 flex-col border-l border-zinc-800 bg-zinc-900/95 lg:flex"
                     style={{ minHeight: EDITOR_PANE_HEIGHT }}
                 >
                     <div className="border-b border-zinc-800 p-4">
@@ -1131,40 +1098,29 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         </div>
                     </div>
                     <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
-                        {taskBlocks.length > 0 && (
-                            <>
-                                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-purple-400/90">
-                                    Задачи ({taskBlocks.length})
-                                </p>
-                                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTaskDragEnd}>
-                                    <SortableContext items={taskBlocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                                        {taskBlocks.map((block) => (
-                                            <SortableBlockCard key={block.id} block={block} isSelected={selectedBlockId === block.id} onSelect={handleSelectBlock} onDelete={handleDeleteBlock} onDuplicate={handleDuplicateBlock} />
-                                        ))}
-                                    </SortableContext>
-                                </DndContext>
-                            </>
-                        )}
-
-                        {contentBlocks.length > 0 && (
-                            <>
-                                {taskBlocks.length > 0 && (
-                                    <div className="my-4 border-t border-zinc-700/50" />
-                                )}
-                                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                                    Блоки ({contentBlocks.length})
-                                </p>
-                                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleContentDragEnd}>
-                                    <SortableContext items={contentBlocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                                        {contentBlocks.map((block) => (
-                                            <SortableBlockCard key={block.id} block={block} isSelected={selectedBlockId === block.id} onSelect={handleSelectBlock} onDelete={handleDeleteBlock} onDuplicate={handleDuplicateBlock} />
-                                        ))}
-                                    </SortableContext>
-                                </DndContext>
-                            </>
-                        )}
-
-                        {!hasBlocks && (
+                        {hasBlocks ? (
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={handleBlocksDragEnd}
+                            >
+                                <SortableContext
+                                    items={sortedBlocks.map((b) => b.id)}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    {sortedBlocks.map((block) => (
+                                        <SortableBlockCard
+                                            key={block.id}
+                                            block={block}
+                                            isSelected={selectedBlockId === block.id}
+                                            onSelect={handleSelectBlock}
+                                            onDelete={handleDeleteBlock}
+                                            onDuplicate={handleDuplicateBlock}
+                                        />
+                                    ))}
+                                </SortableContext>
+                            </DndContext>
+                        ) : (
                             <div className="flex flex-col items-center px-2 py-12 text-center text-zinc-500">
                                 <LayoutGrid className="mb-3 h-8 w-8 text-zinc-600" aria-hidden />
                                 <p className="text-sm text-zinc-400">Добавьте блок кнопками выше</p>
@@ -1173,6 +1129,100 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     </div>
                 </div>
             </div>
+
+            {/* Mobile sticky blocks panel */}
+            <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-900/95 backdrop-blur lg:hidden pb-[env(safe-area-inset-bottom)]">
+                {mobileBlocksPanelOpen && (
+                    <div className="scrollbar-thin max-h-[min(50vh,400px)] overflow-y-auto border-b border-zinc-800 p-3">
+                        {hasBlocks ? (
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={handleBlocksDragEnd}
+                            >
+                                <SortableContext
+                                    items={sortedBlocks.map((b) => b.id)}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    {sortedBlocks.map((block) => (
+                                        <SortableBlockCard
+                                            key={block.id}
+                                            block={block}
+                                            isSelected={selectedBlockId === block.id}
+                                            onSelect={handleSelectBlock}
+                                            onDelete={handleDeleteBlock}
+                                            onDuplicate={handleDuplicateBlock}
+                                        />
+                                    ))}
+                                </SortableContext>
+                            </DndContext>
+                        ) : (
+                            <p className="py-4 text-center text-sm text-zinc-500">
+                                Блоков пока нет — добавьте кнопками ниже
+                            </p>
+                        )}
+                    </div>
+                )}
+                <div className="space-y-2 p-3">
+                    <button
+                        type="button"
+                        onClick={() => setMobileBlocksPanelOpen((v) => !v)}
+                        className="flex w-full items-center justify-between rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-3 py-2 text-sm font-medium text-zinc-200 cursor-pointer"
+                        aria-expanded={mobileBlocksPanelOpen}
+                    >
+                        <span className="flex items-center gap-2">
+                            <LayoutGrid className="h-4 w-4 text-zinc-400" aria-hidden />
+                            Блоки ({sortedBlocks.length})
+                        </span>
+                        {mobileBlocksPanelOpen ? (
+                            <ChevronDown className="h-5 w-5 text-zinc-400" />
+                        ) : (
+                            <ChevronUp className="h-5 w-5 text-zinc-400" />
+                        )}
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                        {ADD_BLOCK_BUTTONS.map(({ type, label, Icon, ring }) => (
+                            <button
+                                key={type}
+                                type="button"
+                                onClick={() => handleAddBlock(type)}
+                                className={`flex flex-col items-center gap-1 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-2 py-2 text-xs font-medium text-zinc-300 transition-all hover:bg-zinc-800 hover:ring-1 ${ring} cursor-pointer`}
+                            >
+                                <Icon className="h-4 w-4" aria-hidden />
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            <ConfirmDialog
+                open={blockToDeleteId !== null}
+                onOpenChange={(open) => {
+                    if (!open) setBlockToDeleteId(null);
+                }}
+                title="Удалить блок?"
+                description="Блок будет удалён из черновика. Изменения сохранятся при следующей синхронизации."
+                confirmLabel="Удалить"
+                variant="destructive"
+                onConfirm={confirmDeleteBlock}
+            />
+
+            <AlertDialog open={publishSuccessOpen} onOpenChange={setPublishSuccessOpen}>
+                <AlertDialogContent className="border-zinc-700 bg-zinc-900 text-zinc-100 sm:max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-zinc-100">Отчёт опубликован</AlertDialogTitle>
+                        <AlertDialogDescription className="text-zinc-400">
+                            Читатели увидят актуальную версию отчёта.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction className="bg-green-700 text-white hover:bg-green-600">
+                            OK
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

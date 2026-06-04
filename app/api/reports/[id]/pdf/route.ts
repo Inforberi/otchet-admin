@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { chromium } from 'playwright';
-import type { ReportFromDB, ScreenshotBlockData, TextBlockData, DividerBlockData } from '@/lib/db-types';
+import type {
+    ReportFromDB,
+    ScreenshotBlockData,
+    TextBlockData,
+    DividerBlockData,
+    TaskBlockData,
+    ImageData,
+} from '@/lib/db-types';
+import { formatAssigneesList, normalizeTaskAssignees } from '@/lib/task-assignees';
 
 // GET /api/reports/[id]/pdf - генерация PDF отчета
 export async function GET(
@@ -37,11 +45,11 @@ export async function GET(
         const reportWithTypedBlocks: ReportFromDB = {
             ...report,
             publishedSnapshot: report.publishedSnapshot,
-            blocks: report.blocks.map(block => ({
+            blocks: report.blocks.map((block) => ({
                 ...block,
                 type: block.type as 'text' | 'screenshot' | 'divider' | 'task',
-                data: block.data as TextBlockData | ScreenshotBlockData | DividerBlockData,
-                taskCompletionImages: block.taskCompletionImages as import('@/lib/db-types').ImageData[] | null,
+                data: block.data as TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData,
+                taskCompletionImages: block.taskCompletionImages as ImageData[] | null,
                 taskCompletionLayout: block.taskCompletionLayout as import('@/lib/db-types').PhotoBlockLayout | null,
             })),
         };
@@ -49,8 +57,7 @@ export async function GET(
         // Генерируем HTML для PDF
         const html = generatePDFHTML(reportWithTypedBlocks, baseUrl);
 
-        // Генерируем PDF через Playwright
-        // В production используем браузеры, установленные через Playwright
+        // Генерируем PDF через Playwright (браузеры в образе: PLAYWRIGHT_BROWSERS_PATH)
         const browser = await chromium.launch({
             headless: true,
             args: [
@@ -63,39 +70,44 @@ export async function GET(
                 '--disable-gpu',
             ],
         });
-        const page = await browser.newPage();
 
-        await page.setContent(html, { waitUntil: 'networkidle' });
+        let pdfBuffer: Buffer;
+        try {
+            const page = await browser.newPage();
 
-        // Ждем загрузки всех изображений
-        await page.evaluate(() => {
-            return Promise.all(
-                Array.from(document.images)
-                    .filter(img => !img.complete)
-                    .map(img => new Promise((resolve) => {
-                        img.onload = resolve;
-                        img.onerror = resolve;
-                    }))
-            );
-        });
+            await page.setContent(html, { waitUntil: 'load', timeout: 60_000 });
 
-        // Дополнительная задержка для полной загрузки
-        await page.waitForTimeout(1000);
+            await page.evaluate(() => {
+                return Promise.all(
+                    Array.from(document.images)
+                        .filter((img) => !img.complete)
+                        .map(
+                            (img) =>
+                                new Promise<void>((resolve) => {
+                                    img.onload = () => resolve();
+                                    img.onerror = () => resolve();
+                                })
+                        )
+                );
+            });
 
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            margin: {
-                top: '15mm',
-                right: '15mm',
-                bottom: '15mm',
-                left: '15mm',
-            },
-            printBackground: true,
-            preferCSSPageSize: false,
-            displayHeaderFooter: false,
-        });
+            await page.waitForTimeout(500);
 
-        await browser.close();
+            pdfBuffer = await page.pdf({
+                format: 'A4',
+                margin: {
+                    top: '15mm',
+                    right: '15mm',
+                    bottom: '15mm',
+                    left: '15mm',
+                },
+                printBackground: true,
+                preferCSSPageSize: false,
+                displayHeaderFooter: false,
+            });
+        } finally {
+            await browser.close();
+        }
 
         // Формируем имя файла из названия отчета
         const cleanTitle = report.title
@@ -350,6 +362,93 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                 `;
         }
 
+        if (block.type === 'task') {
+            const data = block.data as TaskBlockData;
+            const taskTitleSz = data.titleFontSize || titleFontSize;
+            const taskDescSz = data.descriptionFontSize || descriptionFontSize;
+            const textHeightMm = estimateTextBlockHeightMm({
+                title: data.title,
+                description: data.description,
+                titleFontSize: taskTitleSz,
+                descriptionFontSize: taskDescSz,
+            });
+
+            const taskImagesHtml =
+                data.images && data.images.length > 0
+                    ? `
+                        <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+                            ${data.images
+                                .map(
+                                    (img) => `
+                                <div style="page-break-inside: avoid;">
+                                    <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: 247mm; object-fit: contain;" />
+                                    ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center;">${escapeHTML(img.caption)}</p>` : ''}
+                                </div>
+                            `
+                                )
+                                .join('')}
+                        </div>
+                    `
+                    : '';
+
+            const metaParts: string[] = [];
+            if (data.createdAt) metaParts.push(`Создано: ${formatDate(data.createdAt)}`);
+            if (data.startDate) metaParts.push(`Начало: ${formatDate(data.startDate)}`);
+            if (data.deadline) metaParts.push(`Дедлайн: ${formatDate(data.deadline)}`);
+            const assigneesList = formatAssigneesList(normalizeTaskAssignees(data));
+            if (assigneesList) {
+                metaParts.push(`Исполнители: ${escapeHTML(assigneesList)}`);
+            }
+
+            const completedAt = block.taskCompletedAt
+                ? formatDate(
+                      typeof block.taskCompletedAt === 'string'
+                          ? block.taskCompletedAt.slice(0, 10)
+                          : block.taskCompletedAt.toISOString().slice(0, 10)
+                  )
+                : '';
+
+            const completionImages = (block.taskCompletionImages as ImageData[] | null) ?? [];
+            const completionImagesHtml =
+                completionImages.length > 0
+                    ? `
+                        <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
+                            ${completionImages
+                                .map(
+                                    (img) => `
+                                <div style="page-break-inside: avoid;">
+                                    <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-height: 200mm; object-fit: contain;" />
+                                </div>
+                            `
+                                )
+                                .join('')}
+                        </div>
+                    `
+                    : '';
+
+            const completionSection = block.taskCompletedAt
+                ? `
+                    <div style="margin-top: 24px; padding: 16px; border: 1px solid #bbf7d0; border-radius: 8px; background: #f0fdf4;">
+                        <p style="font-size: 14px; font-weight: 600; color: #166534; margin: 0 0 8px 0;">Выполнено${completedAt ? ` — ${completedAt}` : ''}</p>
+                        ${block.taskCompletionNotes ? `<div style="font-size: ${taskDescSz}px; color: #374151; line-height: 1.7;">${block.taskCompletionNotes}</div>` : ''}
+                        ${completionImagesHtml}
+                    </div>
+                `
+                : '';
+
+            accumulatedMm += textHeightMm + (data.images?.length ? 120 : 0) + (block.taskCompletedAt ? 80 : 0) + 10;
+
+            return `
+                    <section style="margin-bottom: 40px; page-break-inside: avoid;">
+                        ${data.title ? `<h2 style="font-size: ${taskTitleSz}px; font-weight: 600; color: #111827; margin-bottom: 12px; margin-top: 0;">${data.title}</h2>` : ''}
+                        ${metaParts.length > 0 ? `<p style="font-size: 13px; color: #6b7280; margin: 0 0 12px 0;">${metaParts.join(' • ')}</p>` : ''}
+                        ${data.description ? `<div style="font-size: ${taskDescSz}px; color: #374151; line-height: 1.7; white-space: pre-wrap; margin-bottom: 12px;">${data.description}</div>` : ''}
+                        ${taskImagesHtml}
+                        ${completionSection}
+                    </section>
+                `;
+        }
+
         return '';
     });
 
@@ -405,6 +504,30 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
             max-width: 100%;
             height: auto;
             display: block;
+        }
+        a {
+            color: #2563eb;
+            text-decoration: underline;
+        }
+        ol, ul {
+            margin: 12px 0;
+            list-style-position: outside;
+        }
+        ol {
+            list-style-type: decimal;
+            padding-left: 36px;
+        }
+        ul {
+            list-style-type: disc;
+            padding-left: 28px;
+        }
+        li {
+            display: list-item;
+            margin: 4px 0;
+            padding-left: 4px;
+        }
+        li > p {
+            margin: 0;
         }
         @media print {
             .header {

@@ -47,7 +47,7 @@ export function AppPageHeader({
                 <div
                     className={
                         isEditor
-                            ? 'px-4 pb-3'
+                            ? 'px-3 pb-3 sm:px-4'
                             : 'pb-6'
                     }
                 >
@@ -57,17 +57,19 @@ export function AppPageHeader({
 
                     {(title || actions) && (
                         <div
-                            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
-                                showBreadcrumbs ? 'mt-2' : 'mt-0'
-                            }`}
+                            className={`flex flex-col gap-3 ${
+                                isEditor
+                                    ? 'lg:flex-row lg:items-start lg:justify-between'
+                                    : 'sm:flex-row sm:items-center sm:justify-between'
+                            } ${showBreadcrumbs ? 'mt-2' : 'mt-0'}`}
                         >
                             {(title || description) && (
-                                <div className="min-w-0 flex-1">
+                                <div className="min-w-0 w-full flex-1">
                                     {title && (
                                         <div
                                             className={
                                                 isEditor
-                                                    ? 'text-lg font-semibold text-white'
+                                                    ? 'min-w-0 w-full'
                                                     : 'text-3xl font-bold text-[var(--color-grayscale-2)]'
                                             }
                                         >
@@ -88,7 +90,13 @@ export function AppPageHeader({
                                 </div>
                             )}
                             {actions && (
-                                <div className="flex shrink-0 flex-wrap items-center gap-3">
+                                <div
+                                    className={
+                                        isEditor
+                                            ? 'flex w-full min-w-0 shrink-0 flex-col gap-3 lg:w-auto lg:max-w-[min(100%,42rem)]'
+                                            : 'flex shrink-0 flex-wrap items-center gap-3'
+                                    }
+                                >
                                     {actions}
                                 </div>
                             )}

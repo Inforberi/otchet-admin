@@ -16,6 +16,15 @@ import { TextBlockView } from '@/components/report/text-block-view';
 import { DividerBlockView } from '@/components/report/divider-block-view';
 import { TaskBlockCard } from '@/components/report/task-block-card';
 import { Download, Edit } from 'lucide-react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { AppPageHeader } from '@/components/layout/app-page-header';
 import { useUserRole } from '@/hooks/use-user-role';
 import {
@@ -30,6 +39,7 @@ import {
     getReportPublicPath,
     joinGroupPathFromSegments,
 } from '@/lib/report-paths';
+import { sortBlocksByPosition } from '@/lib/report-block-order';
 
 function isEmptyHtml(html: string | null | undefined): boolean {
     if (!html) return true;
@@ -57,6 +67,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
     const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
+    const [pdfErrorOpen, setPdfErrorOpen] = useState(false);
     const [showFloatingEdit, setShowFloatingEdit] = useState(false);
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
@@ -172,7 +183,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
             document.body.removeChild(a);
         } catch (error) {
             console.error('Error exporting PDF:', error);
-            alert('Ошибка при генерации PDF. Попробуйте позже.');
+            setPdfErrorOpen(true);
         } finally {
             setIsExporting(false);
         }
@@ -238,7 +249,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 title={
                     !isEmptyHtml(report.title) ? (
                         <span
-                            className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
+                            className="report-rich-text text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
                             dangerouslySetInnerHTML={{ __html: report.title ?? '' }}
                         />
                     ) : (
@@ -249,7 +260,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     <div className="space-y-2">
                         {!isEmptyHtml(report.subtitle) && (
                             <div
-                                className="text-lg text-zinc-300 whitespace-pre-wrap"
+                                className="report-rich-text text-lg text-zinc-300 [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
                                 dangerouslySetInnerHTML={{ __html: report.subtitle ?? '' }}
                             />
                         )}
@@ -258,26 +269,24 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 }
                 actions={
                     canEdit ? (
-                        <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => router.push(getReportEditPublicPath(report))}
-                                    className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] px-3 py-1.5 text-[var(--color-grayscale-5)] transition-colors hover:bg-[var(--color-grayscale-14)] cursor-pointer"
-                                >
-                                    <Edit className="h-4 w-4" />
-                                    Редактор
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleExportPDF}
-                                    disabled={isExporting}
-                                    className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                                >
-                                    <Download className="h-4 w-4" />
-                                    {isExporting ? 'Генерация...' : 'PDF'}
-                                </button>
-                            </div>
+                        <div className="flex w-full flex-wrap items-stretch justify-end gap-2 print:hidden sm:w-auto">
+                            <button
+                                type="button"
+                                onClick={() => router.push(getReportEditPublicPath(report))}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-alpha-3)] px-3 py-1.5 text-[var(--color-grayscale-5)] transition-colors hover:bg-[var(--color-grayscale-14)] cursor-pointer sm:flex-initial"
+                            >
+                                <Edit className="h-4 w-4 shrink-0" />
+                                Редактор
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleExportPDF}
+                                disabled={isExporting}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer sm:flex-initial"
+                            >
+                                <Download className="h-4 w-4 shrink-0" />
+                                {isExporting ? 'Генерация...' : 'PDF'}
+                            </button>
                         </div>
                     ) : undefined
                 }
@@ -290,16 +299,8 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     </div>
                 )}
                 {(() => {
-                    const taskBlocks =
-                        report.blocks
-                            ?.filter((b) => b.type === 'task')
-                            .sort((a, b) => a.position - b.position) ?? [];
-                    const contentBlocks =
-                        report.blocks
-                            ?.filter((b) => b.type !== 'task')
-                            .sort((a, b) => a.position - b.position) ?? [];
-                    const hasAny = taskBlocks.length > 0 || contentBlocks.length > 0;
-                    if (!hasAny) {
+                    const sortedBlocks = sortBlocksByPosition(report.blocks ?? []);
+                    if (sortedBlocks.length === 0) {
                         return (
                             <div className="rounded-lg border border-dashed border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-6 py-16 text-center">
                                 <p className="text-[var(--color-grayscale-6)]">Блоки не добавлены</p>
@@ -308,39 +309,29 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     }
                     return (
                         <div className="space-y-20">
-                            {taskBlocks.length > 0 && (
-                                <div>
-                                    <h2 className="mb-4 text-sm font-semibold uppercase tracking-widest text-zinc-500">
-                                        Задачи ({taskBlocks.length})
-                                    </h2>
-                                    <div className="space-y-4">
-                                        {taskBlocks.map((block) => (
-                                            <TaskBlockCard
-                                                key={block.id}
-                                                blockId={block.id}
-                                                reportId={report.id}
-                                                groupId={report.group?.id}
-                                                data={block.data as TaskBlockData}
-                                                taskCompletedAt={block.taskCompletedAt}
-                                                taskCompletedByUserId={block.taskCompletedByUserId}
-                                                taskCompletionNotes={block.taskCompletionNotes}
-                                                taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
-                                                taskCompletionLayout={block.taskCompletionLayout ?? null}
-                                                currentUserId={currentUser?.id}
-                                                canEdit={canEdit}
-                                                showActions={false}
-                                                titleFontSize={report.titleFontSize || '40'}
-                                                descriptionFontSize={report.descriptionFontSize || '20'}
-                                                captionFontSize={report.captionFontSize || '16'}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {contentBlocks.length > 0 && (
-                                <div className="space-y-20">
-                                    {contentBlocks.map((block) => renderBlock(block, report, { currentUserId: currentUser?.id, canEdit }))}
-                                </div>
+                            {sortedBlocks.map((block) =>
+                                block.type === 'task' ? (
+                                    <TaskBlockCard
+                                        key={block.id}
+                                        blockId={block.id}
+                                        reportId={report.id}
+                                        groupId={report.group?.id}
+                                        data={block.data as TaskBlockData}
+                                        taskCompletedAt={block.taskCompletedAt}
+                                        taskCompletedByUserId={block.taskCompletedByUserId}
+                                        taskCompletionNotes={block.taskCompletionNotes}
+                                        taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
+                                        taskCompletionLayout={block.taskCompletionLayout ?? null}
+                                        currentUserId={currentUser?.id}
+                                        canEdit={canEdit}
+                                        showActions={false}
+                                        titleFontSize={report.titleFontSize || '40'}
+                                        descriptionFontSize={report.descriptionFontSize || '20'}
+                                        captionFontSize={report.captionFontSize || '16'}
+                                    />
+                                ) : (
+                                    <div key={block.id}>{renderBlock(block, report, { currentUserId: currentUser?.id, canEdit })}</div>
+                                )
                             )}
                         </div>
                     );
@@ -356,19 +347,36 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
             {canEdit && showFloatingEdit && !isLightboxOpen && (
                 <button
                     onClick={() => router.push(getReportEditPublicPath(report))}
-                    className="fixed right-8 top-1/2 -translate-y-1/2 z-50 print:hidden
-                        bg-[var(--color-grayscale-14)] hover:bg-[var(--color-grayscale-13)]
-                        text-[var(--color-grayscale-4)] rounded-full p-4
-                        shadow-lg hover:shadow-xl transition-all duration-300
-                        border border-[var(--color-alpha-3)]
-                        opacity-70 hover:opacity-100
-                        group cursor-pointer"
+                    className="fixed right-4 bottom-24 z-50 rounded-full border border-[var(--color-alpha-3)]
+                        bg-[var(--color-grayscale-14)] p-4 text-[var(--color-grayscale-4)] shadow-lg
+                        transition-all duration-300 opacity-70 hover:bg-[var(--color-grayscale-13)]
+                        hover:opacity-100 hover:shadow-xl group cursor-pointer print:hidden
+                        sm:right-8 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2"
                     title="Редактировать отчет"
                     aria-label="Редактировать отчет"
                 >
                     <Edit className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 </button>
             )}
+
+            <AlertDialog open={pdfErrorOpen} onOpenChange={setPdfErrorOpen}>
+                <AlertDialogContent className="border-zinc-700 bg-zinc-900 text-zinc-100 sm:max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-zinc-100">
+                            Не удалось сформировать PDF
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-zinc-400">
+                            Попробуйте ещё раз через минуту. Если ошибка повторяется, обновите
+                            страницу или обратитесь к администратору.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction className="bg-zinc-700 text-white hover:bg-zinc-600">
+                            Понятно
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

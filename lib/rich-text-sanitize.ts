@@ -11,6 +11,7 @@ const ALLOWED_TAGS = [
     'li',
     'blockquote',
     'span',
+    'a',
     'h1',
     'h2',
     'h3',
@@ -19,6 +20,7 @@ const ALLOWED_TAGS = [
 const ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions['allowedAttributes'] = {
     p: ['style'],
     span: ['style'],
+    a: ['href', 'target', 'rel'],
     h1: ['style'],
     h2: ['style'],
     h3: ['style'],
@@ -44,6 +46,17 @@ export const sanitizeRichTextHtml = (
             allowedTags: ALLOWED_TAGS,
             allowedAttributes: ALLOWED_ATTRIBUTES,
             allowedStyles: ALLOWED_STYLES,
+            allowedSchemes: ['http', 'https', 'mailto'],
+            transformTags: {
+                a: (_tag, attribs) => ({
+                    tagName: 'a',
+                    attribs: {
+                        href: attribs.href ?? '',
+                        target: '_blank',
+                        rel: 'noopener noreferrer',
+                    },
+                }),
+            },
             parser: {
                 lowerCaseTags: true,
             },

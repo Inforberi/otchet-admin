@@ -12,7 +12,7 @@ type AppTopNavProps = {
 export function AppTopNav({ onLogout, variant = 'default' }: AppTopNavProps) {
     const router = useRouter();
     const pathname = usePathname();
-    const { canManageUsers, loading } = useUserRole();
+    const { canEdit, canManageUsers, loading } = useUserRole();
 
     const isEditor = variant === 'editor';
 
@@ -43,27 +43,41 @@ export function AppTopNav({ onLogout, variant = 'default' }: AppTopNavProps) {
         : 'border-b border-[var(--color-alpha-3)]';
 
     const manageUsersActive = pathname.startsWith('/users/manage');
+    const taskPeopleActive = pathname.startsWith('/task-people/manage');
     const showUsersTab = !loading && canManageUsers;
+    const showTaskPeopleTab = !loading && canEdit;
+    const showNavSections = showUsersTab || showTaskPeopleTab;
 
     return (
         <nav
-            className={`flex flex-wrap items-center gap-x-6 gap-y-2 ${
-                isEditor ? 'bg-zinc-900 px-4' : ''
-            } ${navBorderClass} ${showUsersTab ? 'justify-between' : 'justify-end'}`}
+            className={`flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2 ${
+                isEditor ? 'bg-zinc-900 px-3 sm:px-4' : ''
+            } ${navBorderClass} ${showNavSections ? 'sm:justify-between' : 'sm:justify-end'}`}
             aria-label="Основная навигация"
         >
-            {showUsersTab && (
-                <div className="flex flex-wrap items-center">
-                    <button
-                        type="button"
-                        onClick={() => router.push('/users/manage')}
-                        className={sectionLinkClass(manageUsersActive)}
-                    >
-                        Пользователи
-                    </button>
+            {showNavSections && (
+                <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
+                    {showTaskPeopleTab && (
+                        <button
+                            type="button"
+                            onClick={() => router.push('/task-people/manage')}
+                            className={sectionLinkClass(taskPeopleActive)}
+                        >
+                            Исполнители
+                        </button>
+                    )}
+                    {showUsersTab && (
+                        <button
+                            type="button"
+                            onClick={() => router.push('/users/manage')}
+                            className={sectionLinkClass(manageUsersActive)}
+                        >
+                            Пользователи
+                        </button>
+                    )}
                 </div>
             )}
-            <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+            <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:gap-2">
                 <button
                     type="button"
                     onClick={() => router.push('/change-password')}

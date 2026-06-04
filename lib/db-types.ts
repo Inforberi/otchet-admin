@@ -52,6 +52,15 @@ export interface DividerBlockData {
     [key: string]: never;
 }
 
+export type TaskAssigneeKind = 'user' | 'person';
+
+export interface TaskAssignee {
+    kind: TaskAssigneeKind;
+    id: string;
+    firstName: string;
+    lastName: string;
+}
+
 // Данные блока-задачи
 export interface TaskBlockData {
     title: string;
@@ -63,8 +72,10 @@ export interface TaskBlockData {
     createdAt: string; // ISO date, auto-set when block is added
     startDate: string | null; // дата начала (manual if no assignee)
     deadline: string | null; // крайний срок
-    assigneeId: string | null;
-    assigneeName: string | null;
+    assignees: TaskAssignee[];
+    /** @deprecated — миграция при чтении через normalizeTaskAssignees */
+    assigneeId?: string | null;
+    assigneeName?: string | null;
 }
 
 // Тип блока из БД (с id, type, position)
