@@ -48,6 +48,7 @@ services:
             COOKIE_SECURE: ${COOKIE_SECURE:-false}
             UPLOAD_DIR: /app/uploads
             PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+            PDF_INTERNAL_BASE_URL: http://127.0.0.1:3000
         ports:
             - '3002:3000'
         volumes:

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { chromium } from 'playwright';
+import { launchPdfBrowser } from '@/lib/playwright-pdf';
 import type {
     ReportFromDB,
     ScreenshotBlockData,
@@ -10,6 +10,10 @@ import type {
     ImageData,
 } from '@/lib/db-types';
 import { formatAssigneesList, normalizeTaskAssignees } from '@/lib/task-assignees';
+import { resolvePdfImageSrc } from '@/lib/pdf-embed-images';
+
+export const maxDuration = 120;
+export const dynamic = 'force-dynamic';
 
 // GET /api/reports/[id]/pdf - генерация PDF отчета
 export async function GET(
@@ -39,7 +43,9 @@ export async function GET(
         // Получаем базовый URL для изображений
         // Используем URL из запроса напрямую, чтобы получить правильный порт
         const requestUrl = new URL(request.url);
-        const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
+        const baseUrl =
+            process.env.PDF_INTERNAL_BASE_URL?.trim() ||
+            `${requestUrl.protocol}//${requestUrl.host}`;
 
         // Приводим тип отчета к ReportFromDB (Prisma возвращает type как string, а не литеральный тип)
         const reportWithTypedBlocks: ReportFromDB = {
@@ -55,27 +61,16 @@ export async function GET(
         };
 
         // Генерируем HTML для PDF
-        const html = generatePDFHTML(reportWithTypedBlocks, baseUrl);
+        const html = await generatePDFHTML(reportWithTypedBlocks, baseUrl);
 
         // Генерируем PDF через Playwright (браузеры в образе: PLAYWRIGHT_BROWSERS_PATH)
-        const browser = await chromium.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-gpu',
-            ],
-        });
+        const browser = await launchPdfBrowser();
 
         let pdfBuffer: Buffer;
         try {
             const page = await browser.newPage();
 
-            await page.setContent(html, { waitUntil: 'load', timeout: 60_000 });
+            await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
             await page.evaluate(() => {
                 return Promise.all(
@@ -90,8 +85,6 @@ export async function GET(
                         )
                 );
             });
-
-            await page.waitForTimeout(500);
 
             pdfBuffer = await page.pdf({
                 format: 'A4',
@@ -154,7 +147,10 @@ export async function GET(
         const errorStack = error instanceof Error ? error.stack : undefined;
         console.error('Error details:', { message: errorMessage, stack: errorStack });
         return NextResponse.json(
-            { error: 'Failed to generate PDF', details: process.env.NODE_ENV === 'development' ? errorMessage : undefined },
+            {
+                error: 'Failed to generate PDF',
+                details: errorMessage.slice(0, 300),
+            },
             { status: 500 }
         );
     }
@@ -184,7 +180,7 @@ function estimateTextBlockHeightMm(p: {
     return mm;
 }
 
-function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
+async function generatePDFHTML(report: ReportFromDB, baseUrl: string): Promise<string> {
     const formatDate = (dateString: string | null | undefined): string => {
         if (!dateString) return '';
         try {
@@ -215,26 +211,32 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
     const blocks = report.blocks ?? [];
     let accumulatedMm = HEADER_MM;
 
-    const blockHtmls = blocks.map((block) => {
+    const blockHtmls: string[] = [];
+    for (const block of blocks) {
         if (block.type === 'divider') {
             accumulatedMm += 10;
-            return '<div style="margin: 30px 0; border-top: 1px solid #e5e7eb; page-break-inside: avoid;"></div>';
+            blockHtmls.push('<div style="margin: 30px 0; border-top: 1px solid #e5e7eb; page-break-inside: avoid;"></div>');
+            continue;
         }
 
         if (block.type === 'text') {
             const data = block.data as TextBlockData;
             const h = estimateTextBlockHeightMm({ title: data.title, content: data.content, titleFontSize, descriptionFontSize });
             accumulatedMm += h + 10;
-            return `
+            blockHtmls.push(`
                     <section style="margin-bottom: 40px; orphans: 3; widows: 3;">
                         ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 16px; margin-top: 0; page-break-after: avoid;">${data.title}</h2>` : ''}
                         ${data.content ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap; orphans: 3; widows: 3;">${data.content}</div>` : ''}
                     </section>
-                `;
+                `);
+            continue;
         }
 
         if (block.type === 'screenshot') {
             const data = block.data as ScreenshotBlockData;
+            const imageSrcs = await Promise.all(
+                (data.images ?? []).map((img) => resolvePdfImageSrc(img.url, baseUrl))
+            );
             const layout = data.layout || 'full-width';
             const spacing = data.spacing || 'medium';
             const spacingValue = spacing === 'small' ? '8px' : spacing === 'large' ? '24px' : '16px';
@@ -281,7 +283,7 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                         const wrapperStyle = isAutoHeight ? `display: flex; justify-content: ${justify}; page-break-inside: avoid;` : 'page-break-inside: avoid;';
                                         return `
                                     <div style="${wrapperStyle}">
-                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
+                                        <img src="${imageSrcs[idx]}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
                                         ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                     </div>
                                 `;
@@ -311,7 +313,7 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                         const wrapperStyle = isAutoHeight ? `display: flex; justify-content: ${justify}; margin-bottom: ${spacingValue}; page-break-inside: avoid;` : `margin-bottom: ${spacingValue}; page-break-inside: avoid;`;
                                         return `
                                         <div style="${wrapperStyle}">
-                                            <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
+                                            <img src="${imageSrcs[idx]}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
                                             ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                         </div>
                                     `;
@@ -338,7 +340,7 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                                         const wrapperStyle = isAutoHeight ? `display: flex; justify-content: ${justify}; page-break-inside: avoid;` : 'page-break-inside: avoid;';
                                         return `
                                     <div style="${wrapperStyle}">
-                                        <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
+                                        <img src="${imageSrcs[idx]}" alt="${escapeHTML(img.alt || '')}" style="${imgStyle}" />
                                         ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center; page-break-before: avoid;">${escapeHTML(img.caption)}</p>` : ''}
                                     </div>
                                 `;
@@ -353,13 +355,14 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
             const blockHeightMm = textHeightMm + (firstImgMaxMm ?? 267) + gapMm;
             accumulatedMm += blockHeightMm;
 
-            return `
+            blockHtmls.push(`
                     <section style="margin-bottom: 40px;">
                         ${data.title ? `<h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 16px; margin-top: 0; page-break-after: avoid;">${data.title}</h2>` : ''}
                         ${data.description && layout !== 'sidebar' && layout !== 'sidebar-reverse' ? `<div style="font-size: ${descriptionFontSize}px; color: #374151; line-height: 1.7; white-space: pre-wrap; margin-bottom: 20px; orphans: 3; widows: 3;">${data.description}</div>` : ''}
                         ${imagesHTML}
                     </section>
-                `;
+                `);
+            continue;
         }
 
         if (block.type === 'task') {
@@ -373,15 +376,18 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                 descriptionFontSize: taskDescSz,
             });
 
+            const taskImageSrcs = await Promise.all(
+                (data.images ?? []).map((img) => resolvePdfImageSrc(img.url, baseUrl))
+            );
             const taskImagesHtml =
                 data.images && data.images.length > 0
                     ? `
                         <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
                             ${data.images
                                 .map(
-                                    (img) => `
+                                    (img, idx) => `
                                 <div style="page-break-inside: avoid;">
-                                    <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: 247mm; object-fit: contain;" />
+                                    <img src="${taskImageSrcs[idx]}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-width: 100%; max-height: 247mm; object-fit: contain;" />
                                     ${img.caption ? `<p style="font-size: ${captionFontSize}px; color: #6b7280; margin-top: 12px; text-align: center;">${escapeHTML(img.caption)}</p>` : ''}
                                 </div>
                             `
@@ -409,15 +415,18 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                 : '';
 
             const completionImages = (block.taskCompletionImages as ImageData[] | null) ?? [];
+            const completionImageSrcs = await Promise.all(
+                completionImages.map((img) => resolvePdfImageSrc(img.url, baseUrl))
+            );
             const completionImagesHtml =
                 completionImages.length > 0
                     ? `
                         <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
                             ${completionImages
                                 .map(
-                                    (img) => `
+                                    (img, idx) => `
                                 <div style="page-break-inside: avoid;">
-                                    <img src="${getImageUrl(img.url, baseUrl)}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-height: 200mm; object-fit: contain;" />
+                                    <img src="${completionImageSrcs[idx]}" alt="${escapeHTML(img.alt || '')}" style="width: 100%; height: auto; display: block; border-radius: 8px; max-height: 200mm; object-fit: contain;" />
                                 </div>
                             `
                                 )
@@ -438,7 +447,7 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
 
             accumulatedMm += textHeightMm + (data.images?.length ? 120 : 0) + (block.taskCompletedAt ? 80 : 0) + 10;
 
-            return `
+            blockHtmls.push(`
                     <section style="margin-bottom: 40px; page-break-inside: avoid;">
                         ${data.title ? `<h2 style="font-size: ${taskTitleSz}px; font-weight: 600; color: #111827; margin-bottom: 12px; margin-top: 0;">${data.title}</h2>` : ''}
                         ${metaParts.length > 0 ? `<p style="font-size: 13px; color: #6b7280; margin: 0 0 12px 0;">${metaParts.join(' • ')}</p>` : ''}
@@ -446,11 +455,10 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
                         ${taskImagesHtml}
                         ${completionSection}
                     </section>
-                `;
+                `);
+            continue;
         }
-
-        return '';
-    });
+    }
 
     const blocksHTML = blockHtmls.length > 0 ? blockHtmls.join('') : '<p style="color: #6b7280;">Блоки не добавлены</p>';
 
@@ -567,82 +575,3 @@ function escapeHTML(text: string): string {
         .replace(/'/g, '&#039;');
 }
 
-function getImageUrl(url: string, baseUrl: string): string {
-    if (!url || !url.trim()) {
-        return '';
-    }
-
-    // Если URL уже полный, возвращаем как есть
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-        return url;
-    }
-
-    let normalizedUrl = url.trim();
-
-    // Если URL начинается с /api/static/uploads/, кодируем сегменты пути
-    if (normalizedUrl.startsWith('/api/static/uploads/')) {
-        const pathAfterPrefix = normalizedUrl.substring('/api/static/uploads/'.length);
-        // Кодируем каждый сегмент пути отдельно (важно для путей с пробелами)
-        const encodedPath = pathAfterPrefix
-            .split('/')
-            .map(segment => {
-                // Пробуем декодировать, чтобы избежать двойного кодирования
-                try {
-                    const decoded = decodeURIComponent(segment);
-                    return encodeURIComponent(decoded);
-                } catch {
-                    return encodeURIComponent(segment);
-                }
-            })
-            .join('/');
-        return `${baseUrl}/api/static/uploads/${encodedPath}`;
-    }
-
-    // Если URL начинается с /uploads/, преобразуем в /api/static/uploads/
-    if (normalizedUrl.startsWith('/uploads/')) {
-        const pathAfterPrefix = normalizedUrl.substring('/uploads/'.length);
-        const encodedPath = pathAfterPrefix
-            .split('/')
-            .map(segment => {
-                try {
-                    const decoded = decodeURIComponent(segment);
-                    return encodeURIComponent(decoded);
-                } catch {
-                    return encodeURIComponent(segment);
-                }
-            })
-            .join('/');
-        return `${baseUrl}/api/static/uploads/${encodedPath}`;
-    }
-
-    // Если URL начинается с /, добавляем baseUrl и кодируем
-    if (normalizedUrl.startsWith('/')) {
-        const pathWithoutSlash = normalizedUrl.substring(1);
-        const encodedPath = pathWithoutSlash
-            .split('/')
-            .map(segment => {
-                try {
-                    const decoded = decodeURIComponent(segment);
-                    return encodeURIComponent(decoded);
-                } catch {
-                    return encodeURIComponent(segment);
-                }
-            })
-            .join('/');
-        return `${baseUrl}/${encodedPath}`;
-    }
-
-    // Иначе добавляем /api/static/uploads/ для относительных путей
-    const encodedPath = normalizedUrl
-        .split('/')
-        .map(segment => {
-            try {
-                const decoded = decodeURIComponent(segment);
-                return encodeURIComponent(decoded);
-            } catch {
-                return encodeURIComponent(segment);
-            }
-        })
-        .join('/');
-    return `${baseUrl}/api/static/uploads/${encodedPath}`;
-}
