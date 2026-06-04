@@ -28,21 +28,13 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
 # ============================================
-# Stage 3: Playwright base — отдельная стадия
-# Пересобирается только если меняется FROM или список пакетов.
-# Кешируется между всеми другими сборками.
+# Stage 3: Playwright browsers (версия = package.json, не npx latest)
 # ============================================
-FROM base AS playwright-base
+FROM deps AS playwright-base
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        curl wget ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN npx playwright install chromium && \
-    npx playwright install-deps chromium && \
+RUN pnpm exec playwright install --with-deps chromium && \
     chmod -R 755 /ms-playwright
 
 # ============================================
@@ -106,9 +98,13 @@ RUN groupadd --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+# Playwright runtime (pnpm symlinks require .pnpm store)
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/.pnpm/playwright-core@1.57.0 ./node_modules/.pnpm/playwright-core@1.57.0
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/.pnpm/playwright@1.57.0 ./node_modules/.pnpm/playwright@1.57.0
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/playwright ./node_modules/playwright
 
 RUN mkdir -p /app/uploads && chmod 777 /app/uploads && \
-    chown nextjs:nodejs /ms-playwright
+    chown -R nextjs:nodejs /ms-playwright
 
 USER nextjs
 

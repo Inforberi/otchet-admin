@@ -3,9 +3,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { AppPageHeader } from '@/components/layout/app-page-header';
-import { stripHtml as stripHtmlLabel, type GroupAncestor } from '@/lib/breadcrumbs';
+import { type GroupAncestor } from '@/lib/breadcrumbs';
+import { ReportEditorShell } from '@/components/report/report-editor-header';
+import { ReportEditorToolbarActions } from '@/components/report/report-editor-toolbar-actions';
+import { UnpublishedChangesBanner } from '@/components/report/unpublished-changes-banner';
 import { useUserRole } from '@/hooks/use-user-role';
 import type {
     ReportFromDB,
@@ -19,17 +20,14 @@ import type {
 import {
     GripVertical,
     Trash2,
-    Eye,
     ChevronDown,
     ChevronUp,
     Copy,
     Upload,
     X,
-    Save,
     AlignCenter,
     AlignLeft,
     AlignRight,
-    ArrowLeft,
     FileText,
     Image,
     ClipboardList,
@@ -37,8 +35,6 @@ import {
     LayoutGrid,
     type LucideIcon,
 } from 'lucide-react';
-import { TaskBlockCard } from '@/components/report/task-block-card';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -48,7 +44,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ReportAutosaveControl } from '@/components/report/report-autosave-control';
+import { TaskBlockCard } from '@/components/report/task-block-card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { generateClientId } from '@/lib/generate-id';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
 import {
@@ -69,6 +66,7 @@ import {
 } from '@/lib/report-block-order';
 import {
     DndContext,
+    DragOverlay,
     closestCenter,
     KeyboardSensor,
     PointerSensor,
@@ -76,7 +74,11 @@ import {
     useSensor,
     useSensors,
     DragEndEvent,
+    DragStartEvent,
+    type DraggableAttributes,
+    type DraggableSyntheticListeners,
 } from '@dnd-kit/core';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import {
     arrayMove,
     SortableContext,
@@ -110,7 +112,6 @@ const stripHtml = (value: string | null | undefined): string =>
 const truncateText = (value: string, maxLength = 48): string =>
     value.length <= maxLength ? value : `${value.slice(0, maxLength).trim()}...`;
 
-const EDITOR_PANE_HEIGHT = 'calc(100vh - 6.75rem)';
 const EDITOR_CONTENT_MAX = 'max-w-7xl';
 
 type BlockTypeKey = ReportBlockFromDB['type'];
@@ -178,6 +179,109 @@ const getBlockPreview = (block: ReportBlockFromDB | { type: ReportBlockFromDB['t
     return 'Разделитель';
 };
 
+const BlockListCard = memo(function BlockListCard({
+    block,
+    onDelete,
+    onDuplicate,
+    isSelected,
+    onSelect,
+    dragHandleProps,
+    isDragOverlay,
+}: {
+    block: ReportBlockFromDB;
+    onDelete?: (id: string) => void;
+    onDuplicate?: (id: string) => void;
+    isSelected?: boolean;
+    onSelect?: (id: string) => void;
+    dragHandleProps?: {
+        attributes: DraggableAttributes;
+        listeners: DraggableSyntheticListeners;
+    };
+    isDragOverlay?: boolean;
+}) {
+    const blockTitle = useMemo(() => truncateText(getBlockPreview(block), 42), [block]);
+    const meta = BLOCK_TYPE_META[block.type];
+    const TypeIcon = meta.Icon;
+    const handleSelect = useCallback(() => onSelect?.(block.id), [onSelect, block.id]);
+    const handleDuplicate = useCallback(
+        (e: React.MouseEvent) => {
+            e.stopPropagation();
+            onDuplicate?.(block.id);
+        },
+        [onDuplicate, block.id]
+    );
+    const handleDelete = useCallback(
+        (e: React.MouseEvent) => {
+            e.stopPropagation();
+            onDelete?.(block.id);
+        },
+        [onDelete, block.id]
+    );
+    const handleStopPropagation = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+    }, []);
+
+    return (
+        <div
+            onClick={onSelect ? handleSelect : undefined}
+            className={`group mb-1.5 rounded-lg border border-l-[3px] bg-zinc-800/80 p-2.5 transition-colors hover:bg-zinc-800 ${meta.accent} ${
+                onSelect ? 'cursor-pointer' : ''
+            } ${
+                isDragOverlay
+                    ? 'shadow-lg ring-1 ring-zinc-500 border-zinc-600'
+                    : isSelected
+                      ? 'ring-1 ring-zinc-500 border-zinc-600'
+                      : 'border-zinc-700/80 hover:border-zinc-600'
+            }`}
+        >
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {dragHandleProps ? (
+                    <button
+                        {...dragHandleProps.attributes}
+                        {...dragHandleProps.listeners}
+                        className="cursor-grab rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-300 active:cursor-grabbing flex-shrink-0"
+                        onClick={handleStopPropagation}
+                        aria-label="Перетащить блок"
+                    >
+                        <GripVertical className="h-4 w-4" />
+                    </button>
+                ) : (
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center text-zinc-500">
+                        <GripVertical className="h-4 w-4" aria-hidden />
+                    </span>
+                )}
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${meta.iconBg}`}>
+                    <TypeIcon className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1 whitespace-nowrap">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{meta.label}</p>
+                    <p className="text-sm text-zinc-200">{blockTitle}</p>
+                </div>
+                {onDuplicate && onDelete && (
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <button
+                            type="button"
+                            onClick={handleDuplicate}
+                            className="rounded p-1 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200 cursor-pointer"
+                            title="Дублировать"
+                        >
+                            <Copy className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleDelete}
+                            className="rounded p-1 text-zinc-400 transition-colors hover:bg-red-950 hover:text-red-400 cursor-pointer"
+                            title="Удалить"
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+});
+
 const SortableBlockCard = memo(function SortableBlockCard({
     block,
     onDelete,
@@ -200,67 +304,25 @@ const SortableBlockCard = memo(function SortableBlockCard({
         isDragging,
     } = useSortable({ id: block.id });
 
-    const style = useMemo(() => ({
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
-    }), [transform, transition, isDragging]);
-
-    const blockTitle = useMemo(() => truncateText(getBlockPreview(block), 42), [block]);
-    const meta = BLOCK_TYPE_META[block.type];
-    const TypeIcon = meta.Icon;
-    const handleSelect = useCallback(() => onSelect(block.id), [onSelect, block.id]);
-    const handleDuplicate = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDuplicate(block.id); }, [onDuplicate, block.id]);
-    const handleDelete = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(block.id); }, [onDelete, block.id]);
-    const handleStopPropagation = useCallback((e: React.MouseEvent) => { e.stopPropagation(); }, []);
+    const style = useMemo(
+        () => ({
+            transform: CSS.Transform.toString(transform),
+            transition: isDragging ? undefined : transition,
+            opacity: isDragging ? 0.35 : 1,
+        }),
+        [transform, transition, isDragging]
+    );
 
     return (
-        <div
-            ref={setNodeRef}
-            style={style}
-            onClick={handleSelect}
-            className={`group mb-1.5 cursor-pointer rounded-lg border border-l-[3px] bg-zinc-800/80 p-2.5 transition-all hover:bg-zinc-800 ${meta.accent} ${
-                isSelected
-                    ? 'ring-1 ring-zinc-500 border-zinc-600'
-                    : 'border-zinc-700/80 hover:border-zinc-600'
-            }`}
-        >
-            <div className="flex items-center gap-2">
-                <button
-                    {...attributes}
-                    {...listeners}
-                    className="cursor-grab rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-300 active:cursor-grabbing flex-shrink-0"
-                    onClick={handleStopPropagation}
-                    aria-label="Перетащить блок"
-                >
-                    <GripVertical className="h-4 w-4" />
-                </button>
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${meta.iconBg}`}>
-                    <TypeIcon className="h-3.5 w-3.5" aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{meta.label}</p>
-                    <p className="truncate text-sm text-zinc-200">{blockTitle}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                    <button
-                        type="button"
-                        onClick={handleDuplicate}
-                        className="rounded p-1 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-200 cursor-pointer"
-                        title="Дублировать"
-                    >
-                        <Copy className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handleDelete}
-                        className="rounded p-1 text-zinc-400 transition-colors hover:bg-red-950 hover:text-red-400 cursor-pointer"
-                        title="Удалить"
-                    >
-                        <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                </div>
-            </div>
+        <div ref={setNodeRef} style={style}>
+            <BlockListCard
+                block={block}
+                isSelected={isSelected}
+                onSelect={onSelect}
+                onDelete={onDelete}
+                onDuplicate={onDuplicate}
+                dragHandleProps={{ attributes, listeners }}
+            />
         </div>
     );
 });
@@ -623,10 +685,15 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const [blockToDeleteId, setBlockToDeleteId] = useState<string | null>(null);
     const [publishSuccessOpen, setPublishSuccessOpen] = useState(false);
     const [mobileBlocksPanelOpen, setMobileBlocksPanelOpen] = useState(false);
+    const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+    const [isLargeScreen, setIsLargeScreen] = useState(false);
     const [ancestors, setAncestors] = useState<GroupAncestor[]>([]);
     const draftLoadedForReportIdRef = useRef<string | null>(null);
+    const mobileDockRef = useRef<HTMLDivElement>(null);
+    const editorHeaderRef = useRef<HTMLElement>(null);
 
-    const dragActivation = { delay: 150, tolerance: 8 } as const;
+    const pointerActivation = { delay: 100, tolerance: 8 } as const;
+    const touchActivation = { delay: 150, tolerance: 8 } as const;
 
     useEffect(() => {
         if (!reportApiUrl) return;
@@ -645,13 +712,126 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const groupBackLabel = report?.group?.name ?? ancestors.at(-1)?.name ?? 'К группе';
 
     const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: dragActivation }),
-        useSensor(TouchSensor, { activationConstraint: dragActivation }),
+        useSensor(PointerSensor, { activationConstraint: pointerActivation }),
+        useSensor(TouchSensor, { activationConstraint: touchActivation }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
     const sortedBlocks = useMemo(() => sortBlocksByPosition(blocks), [blocks]);
     const hasBlocks = sortedBlocks.length > 0;
+
+    const activeBlock = useMemo(
+        () => (activeBlockId ? sortedBlocks.find((b) => b.id === activeBlockId) : null),
+        [activeBlockId, sortedBlocks]
+    );
+
+    useEffect(() => {
+        const header = editorHeaderRef.current;
+        if (!header) return;
+
+        const updateHeaderHeight = () => {
+            document.documentElement.style.setProperty(
+                '--editor-header-h',
+                `${header.offsetHeight}px`
+            );
+        };
+
+        updateHeaderHeight();
+        const observer = new ResizeObserver(updateHeaderHeight);
+        observer.observe(header);
+        return () => {
+            observer.disconnect();
+            document.documentElement.style.removeProperty('--editor-header-h');
+        };
+    }, []);
+
+    const syncStatusLabel = useMemo(() => {
+        switch (syncStatus) {
+            case 'local':
+                return '● Есть локальные изменения';
+            case 'autosaving':
+                return '↻ Автосохранение...';
+            case 'saving':
+                return '↻ Сохранение...';
+            case 'conflict':
+                return '⚠ Конфликт';
+            case 'error':
+                return '⚠ Ошибка';
+            default:
+                if (hasUnpublishedChanges) return '● Есть неопубликованные изменения';
+                if (report?.publishedHash) return '✓ Опубликовано';
+                return '✓ Сохранено';
+        }
+    }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
+
+    const syncStatusShortLabel = useMemo(() => {
+        switch (syncStatus) {
+            case 'local':
+                return 'Локальные';
+            case 'autosaving':
+                return 'Авто…';
+            case 'saving':
+                return 'Сохранение…';
+            case 'conflict':
+                return 'Конфликт';
+            case 'error':
+                return 'Ошибка';
+            default:
+                if (hasUnpublishedChanges) return 'Не опубл.';
+                if (report?.publishedHash) return 'Опубликовано';
+                return 'Сохранено';
+        }
+    }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
+
+    const syncStatusBadge = useMemo(() => {
+        const base =
+            'inline-flex h-8 max-w-full shrink-0 items-center rounded-full px-2.5 text-xs font-medium';
+        switch (syncStatus) {
+            case 'local':
+                return {
+                    className: `${base} bg-amber-500/15 text-amber-300`,
+                    text: syncStatusLabel,
+                    shortText: syncStatusShortLabel,
+                };
+            case 'autosaving':
+            case 'saving':
+                return {
+                    className: `${base} bg-blue-500/15 text-blue-300`,
+                    text: syncStatusLabel,
+                    shortText: syncStatusShortLabel,
+                };
+            case 'conflict':
+            case 'error':
+                return {
+                    className: `${base} bg-red-500/15 text-red-300`,
+                    text: syncStatusLabel,
+                    shortText: syncStatusShortLabel,
+                };
+            default:
+                if (hasUnpublishedChanges) {
+                    return {
+                        className: `${base} bg-amber-500/15 text-amber-300`,
+                        text: syncStatusLabel,
+                        shortText: syncStatusShortLabel,
+                    };
+                }
+                return {
+                    className: `${base} bg-zinc-700/80 text-zinc-400`,
+                    text: syncStatusLabel,
+                    shortText: syncStatusShortLabel,
+                };
+        }
+    }, [syncStatus, syncStatusLabel, syncStatusShortLabel, hasUnpublishedChanges]);
+
+    const canPublish = useMemo(() => {
+        if (!report) return false;
+        return (
+            !publishing &&
+            syncStatus !== 'saving' &&
+            syncStatus !== 'autosaving' &&
+            (hasLocalChanges || hasUnpublishedChanges || !report.publishedHash)
+        );
+    }, [hasLocalChanges, hasUnpublishedChanges, publishing, report, syncStatus]);
 
     const handleLogout = useCallback(async () => {
         try {
@@ -662,58 +842,6 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
             console.error('Error logging out:', error);
         }
     }, [router]);
-
-    const syncStatusLabel = useMemo(() => {
-        switch (syncStatus) {
-            case 'local': return '● Есть локальные изменения';
-            case 'autosaving': return '↻ Автосохранение...';
-            case 'saving': return '↻ Сохранение...';
-            case 'conflict': return '⚠ Конфликт';
-            case 'error': return '⚠ Ошибка';
-            default:
-                if (hasUnpublishedChanges) return '● Есть неопубликованные изменения';
-                if (report?.publishedHash) return '✓ Опубликовано';
-                return '✓ Сохранено';
-        }
-    }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
-
-    const syncStatusShortLabel = useMemo(() => {
-        switch (syncStatus) {
-            case 'local': return 'Локальные изменения';
-            case 'autosaving': return 'Автосохранение…';
-            case 'saving': return 'Сохранение…';
-            case 'conflict': return 'Конфликт';
-            case 'error': return 'Ошибка';
-            default:
-                if (hasUnpublishedChanges) return 'Не опубликовано';
-                if (report?.publishedHash) return 'Опубликовано';
-                return 'Сохранено';
-        }
-    }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
-
-    const syncStatusBadge = useMemo(() => {
-        const base = 'inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-medium';
-        switch (syncStatus) {
-            case 'local':
-                return { className: `${base} bg-amber-500/15 text-amber-300`, text: syncStatusLabel };
-            case 'autosaving':
-            case 'saving':
-                return { className: `${base} bg-blue-500/15 text-blue-300`, text: syncStatusLabel };
-            case 'conflict':
-            case 'error':
-                return { className: `${base} bg-red-500/15 text-red-300`, text: syncStatusLabel };
-            default:
-                if (hasUnpublishedChanges) {
-                    return { className: `${base} bg-amber-500/15 text-amber-300`, text: syncStatusLabel };
-                }
-                return { className: `${base} bg-zinc-700/80 text-zinc-400`, text: syncStatusLabel };
-        }
-    }, [syncStatus, syncStatusLabel, hasUnpublishedChanges]);
-
-    const canPublish = useMemo(() => {
-        if (!report) return false;
-        return !publishing && syncStatus !== 'saving' && syncStatus !== 'autosaving' && (hasLocalChanges || hasUnpublishedChanges || !report.publishedHash);
-    }, [hasLocalChanges, hasUnpublishedChanges, publishing, report, syncStatus]);
 
     const handleAutosaveIntervalChange = useCallback(
         (ms: number) => {
@@ -735,8 +863,59 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         if (ok) setPublishSuccessOpen(true);
     }, [publish]);
 
+    const handleViewReport = useCallback(() => {
+        if (!report) return;
+        router.push(
+            getReportPublicPath({
+                slug: report.slug ?? reportSlug,
+                group: report.group ?? (groupPathStr ? { path: groupPathStr } : null),
+            })
+        );
+    }, [report, reportSlug, groupPathStr, router]);
+
+    const saveDisabled = syncStatus === 'saving' || syncStatus === 'autosaving';
+    const saveLabel = syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить';
+
+    const showUnpublishedBanner = useMemo(() => {
+        if (!report?.publishedHash) return hasUnpublishedChanges || hasLocalChanges;
+        return hasUnpublishedChanges;
+    }, [hasUnpublishedChanges, hasLocalChanges, report?.publishedHash]);
+
+    useEffect(() => {
+        const mq = window.matchMedia('(min-width: 1024px)');
+        const update = () => setIsLargeScreen(mq.matches);
+        update();
+        mq.addEventListener('change', update);
+        return () => mq.removeEventListener('change', update);
+    }, []);
+
+    useEffect(() => {
+        const dock = mobileDockRef.current;
+        if (!dock) return;
+
+        const updateDockHeight = () => {
+            document.documentElement.style.setProperty(
+                '--editor-mobile-dock-h',
+                `${dock.offsetHeight}px`
+            );
+        };
+
+        updateDockHeight();
+        const observer = new ResizeObserver(updateDockHeight);
+        observer.observe(dock);
+        return () => {
+            observer.disconnect();
+            document.documentElement.style.removeProperty('--editor-mobile-dock-h');
+        };
+    }, [mobileBlocksPanelOpen, hasBlocks]);
+
+    const handleBlocksDragStart = useCallback((event: DragStartEvent) => {
+        setActiveBlockId(String(event.active.id));
+    }, []);
+
     const handleBlocksDragEnd = useCallback(
         (event: DragEndEvent) => {
+            setActiveBlockId(null);
             const { active, over } = event;
             if (!over || active.id === over.id) return;
             const sorted = sortBlocksByPosition(blocks);
@@ -877,100 +1056,63 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     if (loading) return <div className="p-8 bg-zinc-950 text-white min-h-screen">Загрузка...</div>;
     if (!report) return <div className="p-8 bg-zinc-950 text-white min-h-screen">Отчет не найден</div>;
 
-    return (
-        <div className="min-h-screen bg-zinc-950 flex flex-col">
-            <div className="flex flex-col border-b border-zinc-800 bg-zinc-900">
-                <AppPageHeader
-                    variant="editor"
-                    showBreadcrumbs={false}
-                    onLogout={handleLogout}
-                    breadcrumbs={[]}
-                    title={
-                        <div className="flex w-full min-w-0 flex-col gap-2">
-                            <Link
-                                href={groupBackHref}
-                                className="inline-flex w-fit max-w-full items-center gap-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
-                            >
-                                <ArrowLeft className="h-4 w-4 shrink-0" />
-                                <span className="truncate">{groupBackLabel}</span>
-                            </Link>
-                            <div className="min-w-0 border-t border-zinc-800/80 pt-2">
-                                <p className="text-base font-semibold text-white sm:text-lg">
-                                    Конструктор отчёта
-                                </p>
-                                {stripHtmlLabel(report.title || '') && (
-                                    <p className="truncate text-sm text-zinc-400">
-                                        {stripHtmlLabel(report.title || '')}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    }
-                    actions={
-                        <div className="flex w-full min-w-0 flex-col gap-3">
-                            <span className={`${syncStatusBadge.className} w-fit`}>
-                                <span className="lg:hidden">{syncStatusShortLabel}</span>
-                                <span className="hidden lg:inline">{syncStatusBadge.text}</span>
-                            </span>
-                            <ReportAutosaveControl
-                                intervalMs={autosaveIntervalMs}
-                                onIntervalChange={handleAutosaveIntervalChange}
-                            />
-                            <div className="grid w-full grid-cols-3 gap-2 lg:flex lg:w-auto lg:gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleSaveDraft}
-                                    disabled={syncStatus === 'saving' || syncStatus === 'autosaving'}
-                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-600 bg-transparent px-2 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed lg:px-3"
-                                    title="Сохранить"
-                                >
-                                    <Save className="h-4 w-4 shrink-0" />
-                                    <span className="hidden xl:inline">
-                                        {syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить'}
-                                    </span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() =>
-                                        router.push(
-                                            getReportPublicPath({
-                                                slug: report.slug ?? reportSlug,
-                                                group:
-                                                    report.group ??
-                                                    (groupPathStr ? { path: groupPathStr } : null),
-                                            })
-                                        )
-                                    }
-                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-600 bg-transparent px-2 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 cursor-pointer lg:px-3"
-                                    title="Просмотр"
-                                >
-                                    <Eye className="h-4 w-4 shrink-0" />
-                                    <span className="hidden xl:inline">Просмотр</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handlePublish}
-                                    disabled={!canPublish}
-                                    className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-green-600 px-2 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed lg:px-3"
-                                    title={canPublish ? 'Опубликовать' : 'Опубликовано'}
-                                >
-                                    <span className="hidden xl:inline">
-                                        {publishing ? 'Публикация...' : canPublish ? 'Опубликовать' : 'Опубликовано'}
-                                    </span>
-                                    <span className="xl:hidden">
-                                        {publishing ? '…' : canPublish ? 'Опубл.' : 'Готово'}
-                                    </span>
-                                </button>
-                            </div>
-                        </div>
-                    }
+    const sortableBlockList = hasBlocks ? (
+        <SortableContext
+            items={sortedBlocks.map((b) => b.id)}
+            strategy={verticalListSortingStrategy}
+        >
+            {sortedBlocks.map((block) => (
+                <SortableBlockCard
+                    key={block.id}
+                    block={block}
+                    isSelected={selectedBlockId === block.id}
+                    onSelect={handleSelectBlock}
+                    onDelete={handleDeleteBlock}
+                    onDuplicate={handleDuplicateBlock}
                 />
-            </div>
+            ))}
+        </SortableContext>
+    ) : null;
 
-            <div className="flex flex-1 flex-col lg:flex-row">
+    return (
+        <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
+            <ReportEditorShell
+                ref={editorHeaderRef}
+                groupBackHref={groupBackHref}
+                groupBackLabel={groupBackLabel}
+                reportTitle={stripHtml(report.title || '') || undefined}
+                onLogout={handleLogout}
+                toolbar={
+                    <ReportEditorToolbarActions
+                        syncStatusBadge={syncStatusBadge}
+                        autosaveIntervalMs={autosaveIntervalMs}
+                        onAutosaveIntervalChange={handleAutosaveIntervalChange}
+                        onSave={() => void handleSaveDraft()}
+                        onView={handleViewReport}
+                        onPublish={() => void handlePublish()}
+                        saveDisabled={saveDisabled}
+                        saveLabel={saveLabel}
+                        publishDisabled={!canPublish}
+                        publishing={publishing}
+                        canPublish={canPublish}
+                    />
+                }
+            />
+
+            <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis]}
+                onDragStart={handleBlocksDragStart}
+                onDragEnd={handleBlocksDragEnd}
+            >
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row lg:items-stretch">
                 {/* Main editing lane */}
-                <div className="scrollbar-thin flex-1 overflow-y-auto p-4 pb-32 sm:p-6 lg:h-[calc(100vh-6.75rem)] lg:pb-6 lg:overflow-y-auto">
+                <div
+                    className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 max-lg:pb-[calc(var(--editor-mobile-dock-h,9rem)+env(safe-area-inset-bottom)+1rem)] lg:pb-6"
+                >
                     <div className={`${EDITOR_CONTENT_MAX} mx-auto w-full space-y-6`}>
+                        {showUnpublishedBanner && <UnpublishedChangesBanner />}
                         {/* Metadata */}
                         <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-6">
                             <h2 className="text-lg font-semibold text-white mb-4">Метаданные отчёта</h2>
@@ -1074,12 +1216,12 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     </div>
                 </div>
 
-                {/* Desktop sidebar */}
-                <div
-                    className="hidden w-96 shrink-0 flex-col border-l border-zinc-800 bg-zinc-900/95 lg:flex"
-                    style={{ minHeight: EDITOR_PANE_HEIGHT }}
+                {/* Desktop sidebar — на всю высоту колонки, без зазора под шапкой */}
+                <aside
+                    className="hidden w-96 shrink-0 flex-col overflow-hidden border-l border-zinc-800 bg-zinc-900 lg:flex"
+                    aria-label="Панель блоков"
                 >
-                    <div className="border-b border-zinc-800 p-4">
+                    <div className="shrink-0 border-b border-zinc-800 p-4">
                         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                             Добавить блок
                         </p>
@@ -1097,70 +1239,33 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                             ))}
                         </div>
                     </div>
-                    <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
-                        {hasBlocks ? (
-                            <DndContext
-                                sensors={sensors}
-                                collisionDetection={closestCenter}
-                                onDragEnd={handleBlocksDragEnd}
-                            >
-                                <SortableContext
-                                    items={sortedBlocks.map((b) => b.id)}
-                                    strategy={verticalListSortingStrategy}
-                                >
-                                    {sortedBlocks.map((block) => (
-                                        <SortableBlockCard
-                                            key={block.id}
-                                            block={block}
-                                            isSelected={selectedBlockId === block.id}
-                                            onSelect={handleSelectBlock}
-                                            onDelete={handleDeleteBlock}
-                                            onDuplicate={handleDuplicateBlock}
-                                        />
-                                    ))}
-                                </SortableContext>
-                            </DndContext>
-                        ) : (
+                    <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-900 p-3 touch-pan-y">
+                        {hasBlocks && isLargeScreen ? (
+                            sortableBlockList
+                        ) : !hasBlocks ? (
                             <div className="flex flex-col items-center px-2 py-12 text-center text-zinc-500">
                                 <LayoutGrid className="mb-3 h-8 w-8 text-zinc-600" aria-hidden />
                                 <p className="text-sm text-zinc-400">Добавьте блок кнопками выше</p>
                             </div>
-                        )}
+                        ) : null}
                     </div>
-                </div>
+                </aside>
             </div>
 
             {/* Mobile sticky blocks panel */}
-            <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-900/95 backdrop-blur lg:hidden pb-[env(safe-area-inset-bottom)]">
+            <div
+                ref={mobileDockRef}
+                className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-zinc-900/95 backdrop-blur lg:hidden pb-[env(safe-area-inset-bottom)]"
+            >
                 {mobileBlocksPanelOpen && (
                     <div className="scrollbar-thin max-h-[min(50vh,400px)] overflow-y-auto border-b border-zinc-800 p-3">
-                        {hasBlocks ? (
-                            <DndContext
-                                sensors={sensors}
-                                collisionDetection={closestCenter}
-                                onDragEnd={handleBlocksDragEnd}
-                            >
-                                <SortableContext
-                                    items={sortedBlocks.map((b) => b.id)}
-                                    strategy={verticalListSortingStrategy}
-                                >
-                                    {sortedBlocks.map((block) => (
-                                        <SortableBlockCard
-                                            key={block.id}
-                                            block={block}
-                                            isSelected={selectedBlockId === block.id}
-                                            onSelect={handleSelectBlock}
-                                            onDelete={handleDeleteBlock}
-                                            onDuplicate={handleDuplicateBlock}
-                                        />
-                                    ))}
-                                </SortableContext>
-                            </DndContext>
-                        ) : (
+                        {hasBlocks && !isLargeScreen ? (
+                            sortableBlockList
+                        ) : !hasBlocks ? (
                             <p className="py-4 text-center text-sm text-zinc-500">
                                 Блоков пока нет — добавьте кнопками ниже
                             </p>
-                        )}
+                        ) : null}
                     </div>
                 )}
                 <div className="space-y-2 p-3">
@@ -1196,17 +1301,14 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 </div>
             </div>
 
-            <ConfirmDialog
-                open={blockToDeleteId !== null}
-                onOpenChange={(open) => {
-                    if (!open) setBlockToDeleteId(null);
-                }}
-                title="Удалить блок?"
-                description="Блок будет удалён из черновика. Изменения сохранятся при следующей синхронизации."
-                confirmLabel="Удалить"
-                variant="destructive"
-                onConfirm={confirmDeleteBlock}
-            />
+            <DragOverlay dropAnimation={null}>
+                {activeBlock ? (
+                    <div className="w-[min(100vw-2rem,20rem)]">
+                        <BlockListCard block={activeBlock} isDragOverlay />
+                    </div>
+                ) : null}
+            </DragOverlay>
+            </DndContext>
 
             <AlertDialog open={publishSuccessOpen} onOpenChange={setPublishSuccessOpen}>
                 <AlertDialogContent className="border-zinc-700 bg-zinc-900 text-zinc-100 sm:max-w-md">
@@ -1223,6 +1325,19 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <ConfirmDialog
+                open={blockToDeleteId !== null}
+                onOpenChange={(open) => {
+                    if (!open) setBlockToDeleteId(null);
+                }}
+                title="Удалить блок?"
+                description="Блок будет удалён из черновика. Изменения сохранятся при следующей синхронизации."
+                confirmLabel="Удалить"
+                variant="destructive"
+                onConfirm={confirmDeleteBlock}
+            />
+
         </div>
     );
 }

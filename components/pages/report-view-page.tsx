@@ -64,10 +64,10 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
 
     const [report, setReport] = useState<ReportFromDB | null>(null);
     const [ancestors, setAncestors] = useState<GroupAncestor[]>([]);
-    const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
     const [pdfErrorOpen, setPdfErrorOpen] = useState(false);
+    const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
     const [showFloatingEdit, setShowFloatingEdit] = useState(false);
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
@@ -142,7 +142,6 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 const data = await response.json();
                 setReport(data.report);
                 setAncestors(data.ancestors || []);
-                setHasUnpublishedChanges(Boolean(data.hasUnpublishedChanges));
             } else {
                 setReport(null);
                 setAncestors([]);
@@ -159,8 +158,18 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
     const handleExportPDF = async () => {
         try {
             setIsExporting(true);
+            setPdfErrorMessage(null);
             const response = await fetch(`/api/reports/${report?.id ?? ''}/pdf`);
-            if (!response.ok) throw new Error('Ошибка при генерации PDF');
+            if (!response.ok) {
+                let details = '';
+                try {
+                    const body = (await response.json()) as { details?: string; error?: string };
+                    details = body.details || body.error || '';
+                } catch {
+                    /* ignore */
+                }
+                throw new Error(details || 'Ошибка при генерации PDF');
+            }
 
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -183,6 +192,9 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
             document.body.removeChild(a);
         } catch (error) {
             console.error('Error exporting PDF:', error);
+            setPdfErrorMessage(
+                error instanceof Error ? error.message : 'Неизвестная ошибка'
+            );
             setPdfErrorOpen(true);
         } finally {
             setIsExporting(false);
@@ -292,12 +304,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 }
             />
 
-            <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-                {canEdit && hasUnpublishedChanges && (
-                    <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                        Есть неопубликованные изменения. Просмотр показывает последнюю опубликованную версию.
-                    </div>
-                )}
+            <main className="mx-auto max-w-7xl px-4 py-10 pb-24 sm:px-6 sm:pb-10 lg:px-8">
                 {(() => {
                     const sortedBlocks = sortBlocksByPosition(report.blocks ?? []);
                     if (sortedBlocks.length === 0) {
@@ -359,7 +366,13 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 </button>
             )}
 
-            <AlertDialog open={pdfErrorOpen} onOpenChange={setPdfErrorOpen}>
+            <AlertDialog
+                open={pdfErrorOpen}
+                onOpenChange={(open) => {
+                    setPdfErrorOpen(open);
+                    if (!open) setPdfErrorMessage(null);
+                }}
+            >
                 <AlertDialogContent className="border-zinc-700 bg-zinc-900 text-zinc-100 sm:max-w-md">
                     <AlertDialogHeader>
                         <AlertDialogTitle className="text-zinc-100">
@@ -368,6 +381,11 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                         <AlertDialogDescription className="text-zinc-400">
                             Попробуйте ещё раз через минуту. Если ошибка повторяется, обновите
                             страницу или обратитесь к администратору.
+                            {pdfErrorMessage ? (
+                                <span className="mt-2 block text-xs text-zinc-500">
+                                    {pdfErrorMessage}
+                                </span>
+                            ) : null}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
