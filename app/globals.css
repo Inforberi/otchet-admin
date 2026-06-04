@@ -217,6 +217,17 @@ h2 {
     font-size: revert !important;
 }
 
+/* Кликабельные ссылки в rich-text (просмотр отчёта) */
+.report-rich-text a {
+    color: #60a5fa;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.report-rich-text a:hover {
+    color: #93c5fd;
+}
+
 /* Тонкая полоса прокрутки (редактор и тёмные панели) */
 .scrollbar-thin {
     scrollbar-width: thin;

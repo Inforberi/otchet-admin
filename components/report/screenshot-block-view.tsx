@@ -140,7 +140,7 @@ export function ScreenshotBlockView({
                 <section className="space-y-8">
                     {hasTitle && (
                         <h2
-                            className="font-semibold text-zinc-100 mb-8 tracking-tight"
+                            className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
                             dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
@@ -148,7 +148,7 @@ export function ScreenshotBlockView({
 
                     {hasDescription && (
                         <div
-                            className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                            className="report-rich-text text-zinc-300 whitespace-pre-wrap leading-relaxed"
                             style={{ fontSize: `${descriptionFontSize}px` }}
                             dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                         />
@@ -183,7 +183,7 @@ export function ScreenshotBlockView({
                 <section className="space-y-8">
                     {hasTitle && (
                         <h2
-                            className="font-semibold text-zinc-100 mb-8 tracking-tight"
+                            className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
                             style={{ fontSize: `${titleFontSize}px` }}
                             dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
@@ -191,7 +191,7 @@ export function ScreenshotBlockView({
 
                     {hasDescription && (
                         <div
-                            className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                            className="report-rich-text text-zinc-300 whitespace-pre-wrap leading-relaxed"
                             style={{ fontSize: `${descriptionFontSize}px` }}
                             dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                         />
@@ -232,7 +232,7 @@ export function ScreenshotBlockView({
                 <section className="space-y-6">
                     {hasTitle && (
                         <h2
-                            className="text-[20px] font-semibold text-white mb-8 tracking-tight"
+                            className="report-rich-text text-[20px] font-semibold text-white mb-8 tracking-tight"
                             dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
@@ -241,7 +241,7 @@ export function ScreenshotBlockView({
                         {hasDescription && (
                             <div className="md:w-[40%]">
                                 <div
-                                    className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                                    className="report-rich-text text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
                                     dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                                 />
                             </div>
@@ -280,7 +280,7 @@ export function ScreenshotBlockView({
                 <section className="space-y-6">
                     {hasTitle && (
                         <h2
-                            className="text-[20px] font-semibold text-white mb-8 tracking-tight"
+                            className="report-rich-text text-[20px] font-semibold text-white mb-8 tracking-tight"
                             dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                         />
                     )}
@@ -300,7 +300,7 @@ export function ScreenshotBlockView({
                         {hasDescription && (
                             <div className="md:w-[40%]">
                                 <div
-                                    className="text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                                    className="report-rich-text text-[18px] text-zinc-300 whitespace-pre-wrap leading-relaxed"
                                     dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                                 />
                             </div>
@@ -326,7 +326,7 @@ export function ScreenshotBlockView({
         <section className="space-y-8">
             {hasTitle && (
                 <h2
-                    className="font-semibold text-zinc-100 mb-8 tracking-tight"
+                    className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
                     style={{ fontSize: `${titleFontSize}px` }}
                     dangerouslySetInnerHTML={{ __html: data.title ?? '' }}
                 />
@@ -334,7 +334,7 @@ export function ScreenshotBlockView({
 
             {hasDescription && (
                 <div
-                    className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                    className="report-rich-text text-zinc-300 whitespace-pre-wrap leading-relaxed"
                     style={{ fontSize: `${descriptionFontSize}px` }}
                     dangerouslySetInnerHTML={{ __html: data.description ?? '' }}
                 />

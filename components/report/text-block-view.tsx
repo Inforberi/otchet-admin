@@ -27,7 +27,7 @@ export function TextBlockView({ data, titleFontSize = '40', contentFontSize = '2
         <section className="space-y-8">
             {hasTitle && (
                 <h2
-                    className="font-semibold text-zinc-100 mb-8 tracking-tight"
+                    className="report-rich-text font-semibold text-zinc-100 mb-8 tracking-tight"
                     style={{ fontSize: `${titleFontSize}px` }}
                     dangerouslySetInnerHTML={{ __html: data.title }}
                 />
@@ -35,7 +35,7 @@ export function TextBlockView({ data, titleFontSize = '40', contentFontSize = '2
 
             {hasContent && (
                 <div
-                    className="text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                    className="report-rich-text text-zinc-300 whitespace-pre-wrap leading-relaxed"
                     style={{ fontSize: `${contentFontSize}px` }}
                     dangerouslySetInnerHTML={{ __html: data.content }}
                 />

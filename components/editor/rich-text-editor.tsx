@@ -9,7 +9,8 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
 import { Extension } from '@tiptap/core';
-import { Bold, Italic, Palette, AlignCenter } from 'lucide-react';
+import Link from '@tiptap/extension-link';
+import { Bold, Italic, Palette, AlignCenter, Link2, Unlink } from 'lucide-react';
 import {
     extractFontSizeFromHtml,
     normalizeRichTextHtml,
@@ -161,29 +162,49 @@ const resolveToolbarFontSize = (
     return defaultFontSize;
 };
 
-const getEditorExtensions = (mode: 'inline' | 'block') => [
-    StarterKit.configure({
-        hardBreak: false,
-        heading: mode === 'block' ? { levels: [1, 2, 3] } : false,
-        bulletList: mode === 'block' ? {} : false,
-        orderedList: mode === 'block' ? {} : false,
-        blockquote: mode === 'block' ? {} : false,
-    }),
-    Placeholder.configure({
-        placeholder: '',
-        emptyEditorClass: 'is-editor-empty',
-    }),
-    HardBreak.configure({
-        keepMarks: true,
-    }),
-    TextStyle,
-    Color,
-    FontSize,
-    TextAlign.configure({
-        types: mode === 'block' ? ['heading', 'paragraph'] : ['paragraph'],
-        alignments: ['left', 'center', 'right'],
-    }),
-];
+const getEditorExtensions = (mode: 'inline' | 'block') => {
+    const base = [
+        StarterKit.configure({
+            hardBreak: false,
+            heading: mode === 'block' ? { levels: [1, 2, 3] } : false,
+            bulletList: mode === 'block' ? {} : false,
+            orderedList: mode === 'block' ? {} : false,
+            blockquote: mode === 'block' ? {} : false,
+        }),
+        Placeholder.configure({
+            placeholder: '',
+            emptyEditorClass: 'is-editor-empty',
+        }),
+        HardBreak.configure({
+            keepMarks: true,
+        }),
+        TextStyle,
+        Color,
+        FontSize,
+        TextAlign.configure({
+            types: mode === 'block' ? ['heading', 'paragraph'] : ['paragraph'],
+            alignments: ['left', 'center', 'right'],
+        }),
+    ];
+
+    if (mode === 'block') {
+        return [
+            ...base,
+            Link.configure({
+                openOnClick: false,
+                autolink: true,
+                linkOnPaste: true,
+                HTMLAttributes: {
+                    target: '_blank',
+                    rel: 'noopener noreferrer',
+                    class: 'text-blue-400 underline',
+                },
+            }),
+        ];
+    }
+
+    return base;
+};
 
 const syncToolbarState = (
     editor: NonNullable<ReturnType<typeof useEditor>>,
@@ -203,6 +224,7 @@ const syncToolbarState = (
         storedFontSize,
         defaultFontSize
     ),
+    linkHref: (editor.getAttributes('link').href as string | undefined) ?? '',
 });
 
 export default function RichTextEditor({
@@ -217,6 +239,9 @@ export default function RichTextEditor({
     mode = 'block',
 }: RichTextEditorProps) {
     const [showColorPicker, setShowColorPicker] = useState(false);
+    const [showLinkEditor, setShowLinkEditor] = useState(false);
+    const [linkUrl, setLinkUrl] = useState('');
+    const linkEditorRef = useRef<HTMLDivElement>(null);
     const [customColor, setCustomColor] = useState(DEFAULT_COLOR);
     const [recentColors, setRecentColors] = useState<string[]>([]);
     const [toolbarState, setToolbarState] = useState({
@@ -225,6 +250,7 @@ export default function RichTextEditor({
         isCentered: false,
         color: DEFAULT_COLOR,
         fontSize: '',
+        linkHref: '',
     });
     const colorPickerRef = useRef<HTMLDivElement>(null);
     const emitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -379,21 +405,28 @@ export default function RichTextEditor({
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as Node;
             if (
                 colorPickerRef.current &&
-                !colorPickerRef.current.contains(event.target as Node)
+                !colorPickerRef.current.contains(target)
             ) {
                 setShowColorPicker(false);
             }
+            if (
+                linkEditorRef.current &&
+                !linkEditorRef.current.contains(target)
+            ) {
+                setShowLinkEditor(false);
+            }
         };
 
-        if (!showColorPicker) return;
+        if (!showColorPicker && !showLinkEditor) return;
 
         document.addEventListener('mousedown', handleClickOutside);
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [showColorPicker]);
+    }, [showColorPicker, showLinkEditor]);
 
     const applyColor = (color: string) => {
         if (!editor) return;
@@ -422,6 +455,33 @@ export default function RichTextEditor({
         const nextPx = String(parsed);
         setToolbarState((prev) => ({ ...prev, fontSize: nextPx }));
         onFontSizeChange?.(nextPx);
+    };
+
+    const applyLink = (rawHref: string) => {
+        if (!editor || mode !== 'block') return;
+
+        const trimmed = rawHref.trim();
+        if (!trimmed) {
+            editor.chain().focus().extendMarkRange('link').unsetLink().run();
+            setShowLinkEditor(false);
+            setLinkUrl('');
+            return;
+        }
+
+        const href =
+            /^https?:\/\//i.test(trimmed) || /^mailto:/i.test(trimmed)
+                ? trimmed
+                : `https://${trimmed}`;
+
+        editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
+        setShowLinkEditor(false);
+    };
+
+    const removeLink = () => {
+        if (!editor) return;
+        editor.chain().focus().extendMarkRange('link').unsetLink().run();
+        setLinkUrl('');
+        setShowLinkEditor(false);
     };
 
     if (!editor) {
@@ -483,6 +543,70 @@ export default function RichTextEditor({
                 >
                     <AlignCenter className="h-4 w-4" />
                 </button>
+                {mode === 'block' && (
+                    <div className="relative" ref={linkEditorRef}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowLinkEditor((open) => {
+                                    const next = !open;
+                                    if (next) {
+                                        setLinkUrl(toolbarState.linkHref || '');
+                                    }
+                                    return next;
+                                });
+                                setShowColorPicker(false);
+                            }}
+                            className={`cursor-pointer rounded p-1.5 transition-colors ${
+                                toolbarState.linkHref || showLinkEditor
+                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                    : 'text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                            title="Ссылка"
+                        >
+                            <Link2 className="h-4 w-4" />
+                        </button>
+                        {showLinkEditor && (
+                            <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded border border-zinc-700 bg-zinc-800 p-3 shadow-lg">
+                                <label className="mb-1 block text-xs text-zinc-400">
+                                    URL
+                                </label>
+                                <input
+                                    type="url"
+                                    value={linkUrl}
+                                    onChange={(e) => setLinkUrl(e.target.value)}
+                                    placeholder="https://example.com"
+                                    className="mb-2 w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-xs text-zinc-200"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            applyLink(linkUrl);
+                                        }
+                                    }}
+                                />
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => applyLink(linkUrl)}
+                                        className="flex-1 rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 cursor-pointer"
+                                    >
+                                        Применить
+                                    </button>
+                                    {toolbarState.linkHref && (
+                                        <button
+                                            type="button"
+                                            onClick={removeLink}
+                                            className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700 cursor-pointer"
+                                            title="Убрать ссылку"
+                                        >
+                                            <Unlink className="h-3.5 w-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className="relative" ref={colorPickerRef}>
                     <button
                         type="button"

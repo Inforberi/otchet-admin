@@ -8,6 +8,7 @@ import {
     Clock,
     AlertTriangle,
     RotateCcw,
+    Trash2,
     User,
     Upload,
     X,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import type { TaskBlockData, ImageData, ScreenshotBlockData, PhotoBlockLayout } from '@/lib/db-types';
 import { ScreenshotBlockView } from '@/components/report/screenshot-block-view';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const FormattedTextEditor = dynamic(
     () => import('@/components/editor/rich-text-editor'),
@@ -354,6 +356,8 @@ export function TaskBlockCard({
     const [formClosedAt, setFormClosedAt] = useState(todayDateInputValue);
     const [completionUploading, setCompletionUploading] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
+    const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
+    const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false);
     const [isCompletionDragOver, setIsCompletionDragOver] = useState(false);
     const completionFileRef = useRef<HTMLInputElement>(null);
 
@@ -601,16 +605,45 @@ export function TaskBlockCard({
                 const savedClosedAt = completedAt;
                 setCompleted(false);
                 setCompletedAt(null);
+                setNotes(savedNotes);
+                setCompletionImages(savedImages);
+                setCompletionLayout(savedLayout);
                 setFormNotes(savedNotes ?? '');
                 setFormImages(savedImages);
                 setFormLayout(savedLayout);
                 setFormClosedAt(isoToDateInput(savedClosedAt));
                 setShowForm(true);
+                setReopenConfirmOpen(false);
             }
         } finally {
             setActionLoading(false);
         }
     }, [blockId, reportId, notes, completionImages, completionLayout, completedAt]);
+
+    const handleClearCompletion = useCallback(async () => {
+        setActionLoading(true);
+        try {
+            const res = await fetch(
+                `/api/reports/${reportId}/blocks/${blockId}/complete?purge=true`,
+                { method: 'DELETE' }
+            );
+            if (res.ok) {
+                setCompleted(false);
+                setCompletedAt(null);
+                setNotes(null);
+                setCompletionImages([]);
+                setCompletionLayout('full-width');
+                setFormNotes('');
+                setFormImages([]);
+                setFormLayout('full-width');
+                setFormClosedAt(todayDateInputValue());
+                setShowForm(false);
+                setPurgeConfirmOpen(false);
+            }
+        } finally {
+            setActionLoading(false);
+        }
+    }, [blockId, reportId]);
 
     // --- Shared style helpers ---
     const inputCls = 'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500';
@@ -670,18 +703,49 @@ export function TaskBlockCard({
                         </span>
                     </div>
                 </div>
-                {/* Reopen button */}
                 {showActions && isCompleted && canReopen && (
-                    <button
-                        onClick={handleReopen}
-                        disabled={actionLoading}
-                        className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors cursor-pointer"
-                    >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        Переоткрыть
-                    </button>
+                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => setReopenConfirmOpen(true)}
+                            disabled={actionLoading}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Переоткрыть
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setPurgeConfirmOpen(true)}
+                            disabled={actionLoading}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Удалить выполнение
+                        </button>
+                    </div>
                 )}
             </div>
+
+            <ConfirmDialog
+                open={reopenConfirmOpen}
+                onOpenChange={setReopenConfirmOpen}
+                title="Переоткрыть задачу?"
+                description="Задача снова станет открытой. Черновик отчёта о выполнении сохранится — вы сможете отредактировать и закрыть заново."
+                confirmLabel="Переоткрыть"
+                loading={actionLoading}
+                onConfirm={handleReopen}
+            />
+            <ConfirmDialog
+                open={purgeConfirmOpen}
+                onOpenChange={setPurgeConfirmOpen}
+                title="Удалить выполнение?"
+                description="Отчёт о выполнении и дата закрытия будут удалены безвозвратно. Задача вернётся в состояние «не выполнена»."
+                confirmLabel="Удалить"
+                variant="destructive"
+                loading={actionLoading}
+                onConfirm={handleClearCompletion}
+            />
 
             <div className={isClosedReportView ? 'px-4 pb-4 space-y-3' : undefined}>
             {/* Zone 1 — Task details */}

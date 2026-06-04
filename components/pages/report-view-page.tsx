@@ -16,6 +16,15 @@ import { TextBlockView } from '@/components/report/text-block-view';
 import { DividerBlockView } from '@/components/report/divider-block-view';
 import { TaskBlockCard } from '@/components/report/task-block-card';
 import { Download, Edit } from 'lucide-react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { AppPageHeader } from '@/components/layout/app-page-header';
 import { useUserRole } from '@/hooks/use-user-role';
 import {
@@ -57,6 +66,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
     const [hasUnpublishedChanges, setHasUnpublishedChanges] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
+    const [pdfErrorOpen, setPdfErrorOpen] = useState(false);
     const [showFloatingEdit, setShowFloatingEdit] = useState(false);
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
@@ -172,7 +182,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
             document.body.removeChild(a);
         } catch (error) {
             console.error('Error exporting PDF:', error);
-            alert('Ошибка при генерации PDF. Попробуйте позже.');
+            setPdfErrorOpen(true);
         } finally {
             setIsExporting(false);
         }
@@ -238,7 +248,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 title={
                     !isEmptyHtml(report.title) ? (
                         <span
-                            className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
+                            className="report-rich-text text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
                             dangerouslySetInnerHTML={{ __html: report.title ?? '' }}
                         />
                     ) : (
@@ -249,7 +259,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     <div className="space-y-2">
                         {!isEmptyHtml(report.subtitle) && (
                             <div
-                                className="text-lg text-zinc-300 whitespace-pre-wrap"
+                                className="report-rich-text text-lg text-zinc-300 whitespace-pre-wrap"
                                 dangerouslySetInnerHTML={{ __html: report.subtitle ?? '' }}
                             />
                         )}
@@ -369,6 +379,25 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     <Edit className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 </button>
             )}
+
+            <AlertDialog open={pdfErrorOpen} onOpenChange={setPdfErrorOpen}>
+                <AlertDialogContent className="border-zinc-700 bg-zinc-900 text-zinc-100 sm:max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-zinc-100">
+                            Не удалось сформировать PDF
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-zinc-400">
+                            Попробуйте ещё раз через минуту. Если ошибка повторяется, обновите
+                            страницу или обратитесь к администратору.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction className="bg-zinc-700 text-white hover:bg-zinc-600">
+                            Понятно
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

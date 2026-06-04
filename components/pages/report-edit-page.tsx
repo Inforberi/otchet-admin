@@ -38,6 +38,16 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { TaskBlockCard } from '@/components/report/task-block-card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { ReportAutosaveControl } from '@/components/report/report-autosave-control';
 import { generateClientId } from '@/lib/generate-id';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
@@ -632,6 +642,8 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const reportId = resolvedReportId ?? '';
 
     const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+    const [blockToDeleteId, setBlockToDeleteId] = useState<string | null>(null);
+    const [publishSuccessOpen, setPublishSuccessOpen] = useState(false);
     const [ancestors, setAncestors] = useState<GroupAncestor[]>([]);
     const draftLoadedForReportIdRef = useRef<string | null>(null);
     const normalizationReportIdRef = useRef<string | null>(null);
@@ -725,7 +737,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
 
     const handlePublish = useCallback(async () => {
         const ok = await publish();
-        if (ok) alert('Отчёт опубликован');
+        if (ok) setPublishSuccessOpen(true);
     }, [publish]);
 
     const handleTaskDragEnd = useCallback(
@@ -758,18 +770,21 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         [blocks, replaceBlocksLocally]
     );
 
-    const handleDeleteBlock = useCallback(
-        (id: string) => {
-            if (!confirm('Удалить блок?')) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-            const nextTasks = tasks.filter((block) => block.id !== id);
-            const nextContent = content.filter((block) => block.id !== id);
-            const nextBlocks = mergeWithPositions(nextTasks, nextContent);
-            replaceBlocksLocally(nextBlocks);
-            setSelectedBlockId((cur) => (cur === id ? nextBlocks[0]?.id || null : cur));
-        },
-        [blocks, replaceBlocksLocally]
-    );
+    const handleDeleteBlock = useCallback((id: string) => {
+        setBlockToDeleteId(id);
+    }, []);
+
+    const confirmDeleteBlock = useCallback(() => {
+        const id = blockToDeleteId;
+        if (!id) return;
+        const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
+        const nextTasks = tasks.filter((block) => block.id !== id);
+        const nextContent = content.filter((block) => block.id !== id);
+        const nextBlocks = mergeWithPositions(nextTasks, nextContent);
+        replaceBlocksLocally(nextBlocks);
+        setSelectedBlockId((cur) => (cur === id ? nextBlocks[0]?.id || null : cur));
+        setBlockToDeleteId(null);
+    }, [blockToDeleteId, blocks, replaceBlocksLocally]);
 
     const handleDuplicateBlock = useCallback(
         (id: string) => {
@@ -1173,6 +1188,34 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     </div>
                 </div>
             </div>
+
+            <ConfirmDialog
+                open={blockToDeleteId !== null}
+                onOpenChange={(open) => {
+                    if (!open) setBlockToDeleteId(null);
+                }}
+                title="Удалить блок?"
+                description="Блок будет удалён из черновика. Изменения сохранятся при следующей синхронизации."
+                confirmLabel="Удалить"
+                variant="destructive"
+                onConfirm={confirmDeleteBlock}
+            />
+
+            <AlertDialog open={publishSuccessOpen} onOpenChange={setPublishSuccessOpen}>
+                <AlertDialogContent className="border-zinc-700 bg-zinc-900 text-zinc-100 sm:max-w-md">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-zinc-100">Отчёт опубликован</AlertDialogTitle>
+                        <AlertDialogDescription className="text-zinc-400">
+                            Читатели увидят актуальную версию отчёта.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction className="bg-green-700 text-white hover:bg-green-600">
+                            OK
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
