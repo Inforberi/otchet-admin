@@ -179,6 +179,9 @@ export async function PATCH(
             ...(body.descriptionFontSize !== undefined && {
                 descriptionFontSize: body.descriptionFontSize,
             }),
+            ...(body.contentHeadingFontSize !== undefined && {
+                contentHeadingFontSize: body.contentHeadingFontSize,
+            }),
             ...(body.captionFontSize !== undefined && {
                 captionFontSize: body.captionFontSize,
             }),

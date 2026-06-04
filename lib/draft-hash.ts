@@ -7,6 +7,7 @@ export type DraftMetadata = {
     date: string | null;
     titleFontSize: string | null;
     descriptionFontSize: string | null;
+    contentHeadingFontSize: string | null;
     captionFontSize: string | null;
 };
 
@@ -28,6 +29,7 @@ export type DraftMetadataPatch = Partial<{
     date: string | null;
     titleFontSize: string | null;
     descriptionFontSize: string | null;
+    contentHeadingFontSize: string | null;
     captionFontSize: string | null;
 }>;
 
@@ -38,6 +40,7 @@ export const METADATA_FIELDS = [
     'date',
     'titleFontSize',
     'descriptionFontSize',
+    'contentHeadingFontSize',
     'captionFontSize',
 ] as const;
 
@@ -70,6 +73,7 @@ export const buildDraftPayload = (
         | 'date'
         | 'titleFontSize'
         | 'descriptionFontSize'
+        | 'contentHeadingFontSize'
         | 'captionFontSize'
     >,
     blocks: ReportBlockFromDB[]
@@ -81,6 +85,7 @@ export const buildDraftPayload = (
         date: report.date ?? null,
         titleFontSize: report.titleFontSize ?? null,
         descriptionFontSize: report.descriptionFontSize ?? null,
+        contentHeadingFontSize: report.contentHeadingFontSize ?? null,
         captionFontSize: report.captionFontSize ?? null,
     },
     blocks: [...blocks]

@@ -9,6 +9,8 @@ import type {
     ScreenshotBlockData,
     TextBlockData,
     TaskBlockData,
+    ImageData,
+    PhotoBlockLayout,
 } from '@/lib/db-types';
 import {
     applyStoredDraftSnapshot,
@@ -51,6 +53,23 @@ const hasUnpublishedChanges = (report: ReportFromDB | null): boolean =>
 const sortBlocks = (blocks: ReportBlockFromDB[]): ReportBlockFromDB[] =>
     [...blocks].sort((a, b) => a.position - b.position);
 
+const serializeTaskCompletedAt = (
+    value: Date | string | null | undefined
+): string | null => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    return value.toISOString();
+};
+
+export type TaskBlockDirtyPatch = {
+    data?: TaskBlockData;
+    taskCompletedAt?: Date | string | null;
+    taskCompletedByUserId?: string | null;
+    taskCompletionNotes?: string | null;
+    taskCompletionImages?: ImageData[] | null;
+    taskCompletionLayout?: PhotoBlockLayout | null;
+};
+
 const toDraftRequest = (
     report: ReportFromDB,
     blocks: ReportBlockFromDB[],
@@ -64,15 +83,29 @@ const toDraftRequest = (
         date: report.date ?? null,
         titleFontSize: report.titleFontSize ?? null,
         descriptionFontSize: report.descriptionFontSize ?? null,
+        contentHeadingFontSize: report.contentHeadingFontSize ?? null,
         captionFontSize: report.captionFontSize ?? null,
     },
-    blocks: sortBlocks(blocks).map((block) => ({
-        id: block.id,
-        type: block.type,
-        position: block.position,
-        parentId: block.parentId ?? null,
-        data: block.data,
-    })),
+    blocks: sortBlocks(blocks).map((block) => {
+        const base = {
+            id: block.id,
+            type: block.type,
+            position: block.position,
+            parentId: block.parentId ?? null,
+            data: block.data,
+        };
+
+        if (block.type !== 'task') return base;
+
+        return {
+            ...base,
+            taskCompletedAt: serializeTaskCompletedAt(block.taskCompletedAt),
+            taskCompletedByUserId: block.taskCompletedByUserId ?? null,
+            taskCompletionNotes: block.taskCompletionNotes ?? null,
+            taskCompletionImages: block.taskCompletionImages ?? null,
+            taskCompletionLayout: block.taskCompletionLayout ?? null,
+        };
+    }),
 });
 
 export const useReportDraftSync = (
@@ -179,12 +212,25 @@ export const useReportDraftSync = (
 
     const commitServerState = useCallback(
         (nextReport: ReportFromDB) => {
-            const nextBlocks = sortBlocks((nextReport.blocks || []) as ReportBlockFromDB[]);
+            const nextBlocks = sortBlocks(
+                (nextReport.blocks || []) as ReportBlockFromDB[]
+            );
+            const prevBlocks = blocksRef.current;
+            const mergedBlocks = nextBlocks.map((block) => {
+                const prev = prevBlocks.find((item) => item.id === block.id);
+                if (
+                    prev &&
+                    JSON.stringify(prev.data) === JSON.stringify(block.data)
+                ) {
+                    return prev;
+                }
+                return block;
+            });
             baseVersionRef.current = nextReport.version;
             reportRef.current = nextReport;
-            blocksRef.current = nextBlocks;
+            blocksRef.current = mergedBlocks;
             setReport(nextReport);
-            setBlocks(nextBlocks);
+            setBlocks(mergedBlocks);
             setHasLocalChanges(false);
             setSyncStatus('synced');
             clearLocalDraft();
@@ -370,6 +416,22 @@ export const useReportDraftSync = (
         [markDirty]
     );
 
+    const markTaskBlockDirty = useCallback(
+        (blockId: string, patch: TaskBlockDirtyPatch) => {
+            setBlocks((prev) =>
+                sortBlocks(
+                    prev.map((block) =>
+                        block.id === blockId && block.type === 'task'
+                            ? { ...block, ...patch }
+                            : block
+                    )
+                )
+            );
+            markDirty();
+        },
+        [markDirty]
+    );
+
     const markMetadataDirty = useCallback(
         (patch: Partial<
             Pick<
@@ -380,6 +442,7 @@ export const useReportDraftSync = (
                 | 'date'
                 | 'titleFontSize'
                 | 'descriptionFontSize'
+                | 'contentHeadingFontSize'
                 | 'captionFontSize'
             >
         >) => {
@@ -470,6 +533,7 @@ export const useReportDraftSync = (
         hasUnpublishedChanges: hasUnpublishedChanges(report) || hasLocalChanges,
         loadReport,
         markBlockDirty,
+        markTaskBlockDirty,
         markMetadataDirty,
         replaceBlocksLocally,
         flush,

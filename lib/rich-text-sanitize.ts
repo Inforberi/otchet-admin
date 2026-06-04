@@ -18,7 +18,7 @@ const ALLOWED_TAGS = [
 ];
 
 const ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions['allowedAttributes'] = {
-    p: ['style'],
+    p: ['style', 'class'],
     span: ['style'],
     a: ['href', 'target', 'rel'],
     h1: ['style'],

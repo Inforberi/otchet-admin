@@ -12,6 +12,7 @@ type PublishedSnapshot = {
         date: string | null;
         titleFontSize: string | null;
         descriptionFontSize: string | null;
+        contentHeadingFontSize: string | null;
         captionFontSize: string | null;
     };
     blocks: Array<{
@@ -42,6 +43,7 @@ export const buildPublishedReportResponse = (report: ReportWithBlocks) => {
         date: snapshot.metadata.date,
         titleFontSize: snapshot.metadata.titleFontSize,
         descriptionFontSize: snapshot.metadata.descriptionFontSize,
+        contentHeadingFontSize: snapshot.metadata.contentHeadingFontSize,
         captionFontSize: snapshot.metadata.captionFontSize,
         blocks: snapshot.blocks.map((block) => ({
             id: block.id,

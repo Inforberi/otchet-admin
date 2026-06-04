@@ -93,7 +93,7 @@ export function SectionGroupEditor({
                         }
                         placeholder="Заголовок раздела..."
                         minHeight="60px"
-                        defaultFontSize="40"
+                        titleFontSize="40"
                         mode="inline"
                     />
                 </div>

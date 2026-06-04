@@ -358,11 +358,23 @@ function BlockEditor({
     onLocalChange,
     reportId,
     groupId,
+    contentFontSize = '20',
+    contentHeadingFontSize = '24',
+    titleFontSize = '40',
+    onContentFontSizeChange,
+    onContentHeadingFontSizeChange,
+    onTitleFontSizeChange,
 }: {
     block: ReportBlockFromDB;
     onLocalChange: (id: string, data: ReportBlockFromDB['data']) => void;
     reportId: string;
     groupId?: string;
+    contentFontSize?: string;
+    contentHeadingFontSize?: string;
+    titleFontSize?: string;
+    onContentFontSizeChange?: (px: string) => void;
+    onContentHeadingFontSizeChange?: (px: string) => void;
+    onTitleFontSizeChange?: (px: string) => void;
 }) {
     const [localData, setLocalData] = useState(block.data);
     const [uploading, setUploading] = useState(false);
@@ -371,7 +383,12 @@ function BlockEditor({
     const skipNextChangeRef = useRef(true);
 
     useEffect(() => {
-        setLocalData(block.data);
+        setLocalData((current) => {
+            if (JSON.stringify(current) === JSON.stringify(block.data)) {
+                return current;
+            }
+            return block.data;
+        });
         skipNextChangeRef.current = true;
     }, [block.id, block.data]);
 
@@ -536,7 +553,8 @@ function BlockEditor({
                                     onChange={(value) => setLocalData({ ...(localData as TextBlockData), title: value } as TextBlockData)}
                                     placeholder="Заголовок раздела..."
                                     minHeight="60px"
-                                    defaultFontSize="40"
+                                    titleFontSize={titleFontSize}
+                                    onTitleFontSizeChange={onTitleFontSizeChange}
                                     mode="inline"
                                 />
                             </div>
@@ -548,7 +566,10 @@ function BlockEditor({
                                     onChange={(value) => setLocalData({ ...(localData as TextBlockData), content: value } as TextBlockData)}
                                     placeholder="Основной текст..."
                                     minHeight="200px"
-                                    defaultFontSize="20"
+                                    baseFontSize={contentFontSize}
+                                    headingPresetPx={contentHeadingFontSize}
+                                    onBasePresetChange={onContentFontSizeChange}
+                                    onHeadingPresetChange={onContentHeadingFontSizeChange}
                                     mode="block"
                                 />
                             </div>
@@ -563,7 +584,8 @@ function BlockEditor({
                                     onChange={(value) => setLocalData({ ...(localData as ScreenshotBlockData), title: value } as ScreenshotBlockData)}
                                     placeholder="Заголовок блока..."
                                     minHeight="60px"
-                                    defaultFontSize="40"
+                                    titleFontSize={titleFontSize}
+                                    onTitleFontSizeChange={onTitleFontSizeChange}
                                     mode="inline"
                                 />
                             </div>
@@ -575,7 +597,10 @@ function BlockEditor({
                                     onChange={(value) => setLocalData({ ...(localData as ScreenshotBlockData), description: value } as ScreenshotBlockData)}
                                     placeholder="Описание..."
                                     minHeight="200px"
-                                    defaultFontSize="20"
+                                    baseFontSize={contentFontSize}
+                                    headingPresetPx={contentHeadingFontSize}
+                                    onBasePresetChange={onContentFontSizeChange}
+                                    onHeadingPresetChange={onContentHeadingFontSizeChange}
                                     mode="block"
                                 />
                             </div>
@@ -702,6 +727,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         hasUnpublishedChanges,
         loadReport,
         markBlockDirty,
+        markTaskBlockDirty,
         markMetadataDirty,
         replaceBlocksLocally,
         flush,
@@ -898,6 +924,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     );
 
     const handleSaveDraft = useCallback(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 200));
         await flush({ reason: 'manual' });
     }, [flush]);
 
@@ -1183,8 +1210,16 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     showActions={true}
                     titleFontSize={report.titleFontSize || '40'}
                     descriptionFontSize={report.descriptionFontSize || '20'}
+                    contentHeadingFontSize={report.contentHeadingFontSize || '24'}
                     captionFontSize={report.captionFontSize || '16'}
-                    onDataChange={(data) => markBlockDirty(block.id, data)}
+                    onContentFontSizeChange={(px) =>
+                        markMetadataDirty({ descriptionFontSize: px })
+                    }
+                    onContentHeadingFontSizeChange={(px) =>
+                        markMetadataDirty({ contentHeadingFontSize: px })
+                    }
+                    syncStatus={syncStatus}
+                    onTaskChange={(patch) => markTaskBlockDirty(block.id, patch)}
                 />
             ) : (
                 <BlockEditor
@@ -1192,6 +1227,18 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     onLocalChange={markBlockDirty}
                     reportId={reportId}
                     groupId={report?.groupId}
+                    contentFontSize={report.descriptionFontSize || '20'}
+                    contentHeadingFontSize={report.contentHeadingFontSize || '24'}
+                    titleFontSize={report.titleFontSize || '40'}
+                    onContentFontSizeChange={(px) =>
+                        markMetadataDirty({ descriptionFontSize: px })
+                    }
+                    onContentHeadingFontSizeChange={(px) =>
+                        markMetadataDirty({ contentHeadingFontSize: px })
+                    }
+                    onTitleFontSizeChange={(px) =>
+                        markMetadataDirty({ titleFontSize: px })
+                    }
                 />
             )}
         </div>
@@ -1244,11 +1291,36 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-zinc-300 mb-1.5">Название отчёта *</label>
-                                    <FormattedTextEditor editorId="report:title" value={report.title} onChange={(value) => markMetadataDirty({ title: value })} placeholder="Отчёт по аудиту сайта" minHeight="60px" defaultFontSize="40" mode="inline" />
+                                    <FormattedTextEditor
+                                        editorId="report:title"
+                                        value={report.title}
+                                        onChange={(value) => markMetadataDirty({ title: value })}
+                                        placeholder="Отчёт по аудиту сайта"
+                                        minHeight="60px"
+                                        titleFontSize={report.titleFontSize || '40'}
+                                        onTitleFontSizeChange={(px) =>
+                                            markMetadataDirty({ titleFontSize: px })
+                                        }
+                                        mode="inline"
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-zinc-300 mb-1.5">Описание (опционально)</label>
-                                    <FormattedTextEditor editorId="report:subtitle" value={report.subtitle || ''} onChange={(value) => markMetadataDirty({ subtitle: value })} placeholder="Анализ производительности и SEO" mode="block" />
+                                    <FormattedTextEditor
+                                        editorId="report:subtitle"
+                                        value={report.subtitle || ''}
+                                        onChange={(value) => markMetadataDirty({ subtitle: value })}
+                                        placeholder="Анализ производительности и SEO"
+                                        baseFontSize={report.descriptionFontSize || '20'}
+                                        headingPresetPx={report.contentHeadingFontSize || '24'}
+                                        onBasePresetChange={(px) =>
+                                            markMetadataDirty({ descriptionFontSize: px })
+                                        }
+                                        onHeadingPresetChange={(px) =>
+                                            markMetadataDirty({ contentHeadingFontSize: px })
+                                        }
+                                        mode="block"
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-zinc-300 mb-1.5">Дата</label>
@@ -1258,10 +1330,15 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                     <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
                                         Размеры шрифта
                                     </p>
-                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                                         {[
                                             { label: 'Заголовок', field: 'titleFontSize' as const, default: '40' },
                                             { label: 'Описание', field: 'descriptionFontSize' as const, default: '20' },
+                                            {
+                                                label: 'Заголовок в тексте',
+                                                field: 'contentHeadingFontSize' as const,
+                                                default: '24',
+                                            },
                                             { label: 'Подпись', field: 'captionFontSize' as const, default: '16' },
                                         ].map(({ label, field, default: def }) => (
                                             <div key={field}>
