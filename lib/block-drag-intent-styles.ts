@@ -1,18 +1,14 @@
 import type { BlockDragIntent } from '@/lib/block-tree';
 
+/** Только border/bg — без outline/ring, чтобы не дёргал layout при drag */
 export const BLOCK_DRAG_INTENT_CARD_CLASS: Record<BlockDragIntent, string> = {
     none: '',
-    enterGroup:
-        'ring-2 ring-amber-500/80 border-amber-500/60 bg-amber-500/15 shadow-[0_0_0_1px_rgba(245,158,11,0.2)]',
-    exitGroup:
-        'ring-2 ring-sky-500/80 border-sky-500/60 bg-sky-500/15 shadow-[0_0_0_1px_rgba(14,165,233,0.2)]',
-    moveBetweenGroups:
-        'ring-2 ring-amber-400/70 border-amber-400/50 bg-amber-500/10',
-    reorderInGroup:
-        'ring-2 ring-violet-500/50 border-violet-500/40 bg-violet-500/10',
-    reorderTop: 'ring-2 ring-zinc-400/50 border-zinc-500/40 bg-zinc-500/10',
-    moveGroup:
-        'ring-2 ring-amber-500/60 border-amber-500/40 bg-amber-500/10',
+    enterGroup: 'border-amber-500/55 bg-amber-500/10',
+    exitGroup: 'border-sky-500/55 bg-sky-500/10',
+    moveBetweenGroups: 'border-amber-400/50 bg-amber-500/8',
+    reorderInGroup: 'border-violet-500/45 bg-violet-500/8',
+    reorderTop: 'border-zinc-500/45 bg-zinc-500/8',
+    moveGroup: 'border-amber-500/50 bg-amber-500/8',
 };
 
 export const BLOCK_DRAG_INTENT_LABEL_CLASS: Record<

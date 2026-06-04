@@ -6,17 +6,23 @@ import {
     verticalListSortingStrategy,
     useSortable,
 } from '@dnd-kit/sortable';
+import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import type { ReportBlockFromDB } from '@/lib/db-types';
 import {
     buildEditorTree,
-    buildFlatSidebarSortableIds,
+    buildTopLevelSortableIds,
     getBlockDragIntent,
-    isSectionCollapsed,
+    isSectionSidebarCollapsed,
+    makeGroupExitDropId,
+    parseGroupExitDropId,
     type BlockDragIntent,
     type EditorTreeNode,
 } from '@/lib/block-tree';
-import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
+import type {
+    DraggableAttributes,
+    DraggableSyntheticListeners,
+} from '@dnd-kit/core';
 
 export type BlockListCardProps = {
     block: ReportBlockFromDB;
@@ -32,6 +38,8 @@ export type BlockListCardProps = {
     subtitle?: string;
     collapseToggle?: { collapsed: boolean; onToggle: () => void };
     dropIntent?: BlockDragIntent;
+    showDropIntentHint?: boolean;
+    indented?: boolean;
 };
 
 type EditorBlocksSidebarTreeProps = {
@@ -42,9 +50,15 @@ type EditorBlocksSidebarTreeProps = {
     onSelect: (id: string) => void;
     onDelete: (id: string) => void;
     onDuplicate: (id: string) => void;
-    onToggleSectionCollapsed: (sectionId: string) => void;
+    onToggleSectionSidebarCollapsed: (sectionId: string) => void;
     BlockListCard: React.ComponentType<BlockListCardProps>;
 };
+
+const CROSS_LEVEL_DRAG_INTENTS: BlockDragIntent[] = [
+    'enterGroup',
+    'exitGroup',
+    'moveBetweenGroups',
+];
 
 const noLayoutAnimation = () => false;
 
@@ -52,13 +66,55 @@ const resolveDropIntent = (
     blocks: ReportBlockFromDB[],
     activeBlockId: string | null,
     overBlockId: string | null,
-    blockId: string
+    targetId: string,
 ): BlockDragIntent => {
-    if (!activeBlockId || !overBlockId || overBlockId !== blockId) {
+    if (!activeBlockId || !overBlockId || overBlockId !== targetId) {
         return 'none';
     }
     return getBlockDragIntent(blocks, activeBlockId, overBlockId);
 };
+
+const GroupExitDropZone = memo(function GroupExitDropZone({
+    sectionId,
+    blocks,
+    activeBlockId,
+    overBlockId,
+}: {
+    sectionId: string;
+    blocks: ReportBlockFromDB[];
+    activeBlockId: string | null;
+    overBlockId: string | null;
+}) {
+    const dropId = makeGroupExitDropId(sectionId);
+    const { setNodeRef } = useDroppable({
+        id: dropId,
+        data: { type: 'group-exit', sectionId },
+    });
+    const intent = resolveDropIntent(
+        blocks,
+        activeBlockId,
+        overBlockId,
+        dropId,
+    );
+    const highlighted = intent === 'exitGroup';
+    const isDragging = Boolean(activeBlockId);
+
+    return (
+        <div
+            ref={setNodeRef}
+            className={`ml-2 rounded ${
+                isDragging ? 'h-2.5 min-h-[10px]' : 'h-1'
+            } ${
+                highlighted
+                    ? 'bg-sky-500/45'
+                    : isDragging
+                      ? 'bg-zinc-700/25'
+                      : 'bg-transparent'
+            }`}
+            aria-hidden
+        />
+    );
+});
 
 const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
     block,
@@ -69,6 +125,8 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
     BlockListCard,
     collapseToggle,
     dropIntent,
+    freezeSortableTransforms,
+    showDropIntentHint,
     indented,
 }: {
     block: ReportBlockFromDB;
@@ -79,6 +137,8 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
     BlockListCard: React.ComponentType<BlockListCardProps>;
     collapseToggle?: BlockListCardProps['collapseToggle'];
     dropIntent: BlockDragIntent;
+    freezeSortableTransforms: boolean;
+    showDropIntentHint: boolean;
     indented?: boolean;
 }) {
     const {
@@ -90,23 +150,30 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
         isDragging,
     } = useSortable({
         id: block.id,
+        data: {
+            parentId: block.parentId ?? null,
+            type: block.type,
+        },
         animateLayoutChanges: noLayoutAnimation,
     });
 
     const style = useMemo(
         () => ({
-            transform: CSS.Transform.toString(transform),
-            transition: isDragging ? undefined : transition,
-            opacity: isDragging ? 0.35 : 1,
+            transform:
+                isDragging || freezeSortableTransforms
+                    ? undefined
+                    : CSS.Transform.toString(transform),
+            transition: undefined,
+            opacity: isDragging ? 0 : 1,
         }),
-        [transform, transition, isDragging]
+        [transform, isDragging, freezeSortableTransforms],
     );
 
     return (
         <div
             ref={setNodeRef}
             style={style}
-            className={undefined}
+            className={isDragging ? 'relative z-0' : undefined}
         >
             <BlockListCard
                 block={block}
@@ -117,6 +184,8 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
                 dragHandleProps={{ attributes, listeners }}
                 collapseToggle={collapseToggle}
                 dropIntent={dropIntent}
+                showDropIntentHint={showDropIntentHint}
+                indented={indented}
             />
         </div>
     );
@@ -129,9 +198,11 @@ const SortableSectionHeader = memo(function SortableSectionHeader({
     onSelect,
     onDelete,
     onDuplicate,
-    onToggleSectionCollapsed,
+    onToggleSectionSidebarCollapsed,
     BlockListCard,
     dropIntent,
+    freezeSortableTransforms,
+    showDropIntentHint,
 }: {
     section: ReportBlockFromDB;
     childCount: number;
@@ -139,9 +210,11 @@ const SortableSectionHeader = memo(function SortableSectionHeader({
     onSelect: (id: string) => void;
     onDelete: (id: string) => void;
     onDuplicate: (id: string) => void;
-    onToggleSectionCollapsed: (sectionId: string) => void;
+    onToggleSectionSidebarCollapsed: (sectionId: string) => void;
     BlockListCard: React.ComponentType<BlockListCardProps>;
     dropIntent: BlockDragIntent;
+    freezeSortableTransforms: boolean;
+    showDropIntentHint: boolean;
 }) {
     const {
         attributes,
@@ -152,22 +225,30 @@ const SortableSectionHeader = memo(function SortableSectionHeader({
         isDragging,
     } = useSortable({
         id: section.id,
+        data: { parentId: null, type: 'section' },
         animateLayoutChanges: noLayoutAnimation,
     });
 
     const style = useMemo(
         () => ({
-            transform: CSS.Transform.toString(transform),
-            transition: isDragging ? undefined : transition,
-            opacity: isDragging ? 0.35 : 1,
+            transform:
+                isDragging || freezeSortableTransforms
+                    ? undefined
+                    : CSS.Transform.toString(transform),
+            transition: undefined,
+            opacity: isDragging ? 0 : 1,
         }),
-        [transform, transition, isDragging]
+        [transform, isDragging, freezeSortableTransforms],
     );
 
-    const collapsed = isSectionCollapsed(section);
+    const collapsed = isSectionSidebarCollapsed(section);
 
     return (
-        <div ref={setNodeRef} style={style} className="mb-1">
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={isDragging ? 'relative z-0' : undefined}
+        >
             <BlockListCard
                 block={section}
                 isSelected={selectedBlockId === section.id}
@@ -177,7 +258,7 @@ const SortableSectionHeader = memo(function SortableSectionHeader({
                 dragHandleProps={{ attributes, listeners }}
                 collapseToggle={{
                     collapsed,
-                    onToggle: () => onToggleSectionCollapsed(section.id),
+                    onToggle: () => onToggleSectionSidebarCollapsed(section.id),
                 }}
                 subtitle={
                     childCount > 0
@@ -191,6 +272,7 @@ const SortableSectionHeader = memo(function SortableSectionHeader({
                         : undefined
                 }
                 dropIntent={dropIntent}
+                showDropIntentHint={showDropIntentHint}
             />
         </div>
     );
@@ -204,26 +286,40 @@ export const EditorBlocksSidebarTree = memo(function EditorBlocksSidebarTree({
     onSelect,
     onDelete,
     onDuplicate,
-    onToggleSectionCollapsed,
+    onToggleSectionSidebarCollapsed,
     BlockListCard,
 }: EditorBlocksSidebarTreeProps) {
     const tree = useMemo(() => buildEditorTree(blocks), [blocks]);
-    const flatIds = useMemo(() => buildFlatSidebarSortableIds(tree), [tree]);
+    const topLevelIds = useMemo(
+        () => buildTopLevelSortableIds(tree),
+        [tree],
+    );
+    const showDropIntentHint = Boolean(activeBlockId);
+
+    const dragIntent = useMemo(() => {
+        if (!activeBlockId || !overBlockId) return 'none' as BlockDragIntent;
+        return getBlockDragIntent(blocks, activeBlockId, overBlockId);
+    }, [blocks, activeBlockId, overBlockId]);
+
+    const freezeSortableTransforms =
+        CROSS_LEVEL_DRAG_INTENTS.includes(dragIntent);
 
     const renderNode = useCallback(
         (node: EditorTreeNode) => {
             if (node.kind === 'section') {
-                const collapsed = isSectionCollapsed(node.section);
+                const collapsed = isSectionSidebarCollapsed(node.section);
+                const childIds = node.children.map((c) => c.id);
                 const showChildrenZoneHint =
                     !collapsed &&
                     node.children.length > 0 &&
                     activeBlockId &&
                     overBlockId &&
+                    !parseGroupExitDropId(overBlockId) &&
                     (() => {
                         const intent = getBlockDragIntent(
                             blocks,
                             activeBlockId,
-                            overBlockId
+                            overBlockId,
                         );
                         return (
                             intent === 'enterGroup' ||
@@ -241,42 +337,67 @@ export const EditorBlocksSidebarTree = memo(function EditorBlocksSidebarTree({
                             onSelect={onSelect}
                             onDelete={onDelete}
                             onDuplicate={onDuplicate}
-                            onToggleSectionCollapsed={onToggleSectionCollapsed}
+                            onToggleSectionSidebarCollapsed={
+                                onToggleSectionSidebarCollapsed
+                            }
                             BlockListCard={BlockListCard}
                             dropIntent={resolveDropIntent(
                                 blocks,
                                 activeBlockId,
                                 overBlockId,
-                                node.section.id
+                                node.section.id,
                             )}
+                            freezeSortableTransforms={freezeSortableTransforms}
+                            showDropIntentHint={showDropIntentHint}
                         />
                         {!collapsed && node.children.length > 0 && (
-                            <div
-                                className={`mb-1 ml-2 border-l pl-1.5 sm:pl-2 ${
-                                    showChildrenZoneHint
-                                        ? 'border-amber-500/50'
-                                        : 'border-zinc-800/60'
-                                }`}
-                            >
-                                {node.children.map((child) => (
-                                    <SortableBlockCardWrapper
-                                        key={child.id}
-                                        block={child}
-                                        isSelected={selectedBlockId === child.id}
-                                        onSelect={onSelect}
-                                        onDelete={onDelete}
-                                        onDuplicate={onDuplicate}
-                                        BlockListCard={BlockListCard}
-                                        dropIntent={resolveDropIntent(
-                                            blocks,
-                                            activeBlockId,
-                                            overBlockId,
-                                            child.id
-                                        )}
-                                        indented
-                                    />
-                                ))}
-                            </div>
+                            <>
+                                <SortableContext
+                                    items={childIds}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    <div
+                                        className={`ml-2 space-y-1 border-l border-zinc-700/40 py-0.5 pl-2 ${
+                                            showChildrenZoneHint
+                                                ? 'shadow-[inset_2px_0_0_0_rgba(245,158,11,0.35)]'
+                                                : ''
+                                        }`}
+                                    >
+                                        {node.children.map((child) => (
+                                            <SortableBlockCardWrapper
+                                                key={child.id}
+                                                block={child}
+                                                isSelected={
+                                                    selectedBlockId === child.id
+                                                }
+                                                onSelect={onSelect}
+                                                onDelete={onDelete}
+                                                onDuplicate={onDuplicate}
+                                                BlockListCard={BlockListCard}
+                                                dropIntent={resolveDropIntent(
+                                                    blocks,
+                                                    activeBlockId,
+                                                    overBlockId,
+                                                    child.id,
+                                                )}
+                                                freezeSortableTransforms={
+                                                    freezeSortableTransforms
+                                                }
+                                                showDropIntentHint={
+                                                    showDropIntentHint
+                                                }
+                                                indented
+                                            />
+                                        ))}
+                                    </div>
+                                </SortableContext>
+                                <GroupExitDropZone
+                                    sectionId={node.section.id}
+                                    blocks={blocks}
+                                    activeBlockId={activeBlockId}
+                                    overBlockId={overBlockId}
+                                />
+                            </>
                         )}
                     </Fragment>
                 );
@@ -295,8 +416,10 @@ export const EditorBlocksSidebarTree = memo(function EditorBlocksSidebarTree({
                         blocks,
                         activeBlockId,
                         overBlockId,
-                        node.block.id
+                        node.block.id,
                     )}
+                    freezeSortableTransforms={freezeSortableTransforms}
+                    showDropIntentHint={showDropIntentHint}
                 />
             );
         },
@@ -305,20 +428,22 @@ export const EditorBlocksSidebarTree = memo(function EditorBlocksSidebarTree({
             activeBlockId,
             overBlockId,
             blocks,
+            freezeSortableTransforms,
+            showDropIntentHint,
             onDelete,
             onDuplicate,
             onSelect,
-            onToggleSectionCollapsed,
+            onToggleSectionSidebarCollapsed,
             selectedBlockId,
-        ]
+        ],
     );
 
     return (
         <SortableContext
-            items={flatIds}
+            items={topLevelIds}
             strategy={verticalListSortingStrategy}
         >
-            {tree.map(renderNode)}
+            <div className="space-y-1">{tree.map(renderNode)}</div>
         </SortableContext>
     );
 });

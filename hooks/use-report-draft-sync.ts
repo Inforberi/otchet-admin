@@ -21,6 +21,7 @@ import {
 } from '@/lib/report-draft-storage';
 import { reportBlocksSemanticallyEqual } from '@/lib/block-data-equal';
 import { mergeTaskBlockAfterSave } from '@/lib/report-block-merge';
+import { normalizeBlockOrder } from '@/lib/block-tree';
 import { runDraftFlushHandlers } from '@/lib/report-draft-flush-registry';
 
 export type SyncStatus =
@@ -253,7 +254,7 @@ export const useReportDraftSync = (
             reportRef.current = nextReport;
             blocksRef.current = mergedBlocks;
             setReport(nextReport);
-            setBlocks(mergedBlocks);
+            setBlocks(normalizeBlockOrder(mergedBlocks));
             setHasLocalChanges(false);
             setSyncStatus('synced');
             clearLocalDraft();
@@ -272,7 +273,7 @@ export const useReportDraftSync = (
                     report: ReportFromDB;
                 };
 
-                const sortedBlocks = sortBlocks(
+                const sortedBlocks = normalizeBlockOrder(
                     (reportData.blocks || []) as ReportBlockFromDB[]
                 );
                 baseVersionRef.current = reportData.version;
@@ -293,8 +294,10 @@ export const useReportDraftSync = (
                         sortedBlocks,
                         localSnapshot
                     );
+                    const restoredBlocks = normalizeBlockOrder(restored.blocks);
+                    blocksRef.current = restoredBlocks;
                     setReport(restored.report);
-                    setBlocks(restored.blocks);
+                    setBlocks(restoredBlocks);
                     setHasLocalChanges(true);
                     setSyncStatus('local');
                     scheduleAutosave();
@@ -440,7 +443,7 @@ export const useReportDraftSync = (
 
     const replaceBlocksLocally = useCallback(
         (nextBlocks: ReportBlockFromDB[]) => {
-            setBlocks(sortBlocks(nextBlocks));
+            setBlocks(sortBlocks(normalizeBlockOrder(nextBlocks)));
             markDirty();
         },
         [markDirty]

@@ -54,7 +54,10 @@ export interface DividerBlockData {
 
 // Группа блоков (секция) — заголовок как у text-блока
 export interface SectionBlockData extends BaseBlockData {
+    /** @deprecated — используйте sidebarCollapsed / editorCollapsed */
     collapsed?: boolean;
+    sidebarCollapsed?: boolean;
+    editorCollapsed?: boolean;
 }
 
 export type TaskAssigneeKind = 'user' | 'person';
