@@ -19,8 +19,9 @@ const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
 type DraftBlockSnapshot = {
     id?: string;
-    type: 'text' | 'screenshot' | 'divider' | 'task';
+    type: 'text' | 'screenshot' | 'divider' | 'task' | 'section';
     position: number;
+    parentId?: string | null;
     data: ReportBlockFromDB['data'];
 };
 
@@ -133,6 +134,21 @@ const sanitizeDraftBlocks = (
             };
         }
 
+        if (block.type === 'section') {
+            const data = block.data as Extract<
+                ReportBlockFromDB['data'],
+                { title: string }
+            >;
+
+            return {
+                ...block,
+                data: {
+                    ...data,
+                    title: sanitizeRichTextHtml(data.title ?? ''),
+                } as Extract<ReportBlockFromDB['data'], { title: string }>,
+            };
+        }
+
         return block;
     });
 
@@ -221,6 +237,7 @@ export const PATCH = async (
                 reportId: currentReport.id,
                 type: block.type,
                 position: index,
+                parentId: block.parentId ?? null,
                 data: block.data,
                 version: 1,
                 createdAt: new Date(),
@@ -290,6 +307,7 @@ export const PATCH = async (
                         where: { id: existing.id },
                         data: {
                             type: block.type,
+                            parentId: block.parentId ?? null,
                             data: block.data as Prisma.InputJsonValue,
                             position: index,
                             version: {
@@ -305,6 +323,7 @@ export const PATCH = async (
                         id: block.id,
                         reportId: id,
                         type: block.type,
+                        parentId: block.parentId ?? null,
                         position: index,
                         data: block.data as Prisma.InputJsonValue,
                     },

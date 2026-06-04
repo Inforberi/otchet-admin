@@ -16,6 +16,7 @@ export type DraftPayload = {
         id: string;
         type: string;
         position: number;
+        parentId?: string | null;
         data: unknown;
     }>;
 };
@@ -88,6 +89,7 @@ export const buildDraftPayload = (
             id: block.id,
             type: block.type,
             position: block.position,
+            parentId: block.parentId ?? null,
             data: block.data,
         })),
 });

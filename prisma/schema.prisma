@@ -115,8 +115,9 @@ model Report {
 model ReportBlock {
   id                    String    @id @default(uuid())
   reportId              String    @map("report_id")
-  type                  String    // text | screenshot | divider | task
+  type                  String    // text | screenshot | divider | task | section
   position              Int       // порядок блока
+  parentId              String?   @map("parent_id")
   data                  Json      // содержимое блока (title, content, images, layout, etc.)
   version               Int       @default(1)
   taskCompletedAt         DateTime? @map("task_completed_at")
@@ -128,9 +129,12 @@ model ReportBlock {
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
   report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  parent    ReportBlock?  @relation("BlockChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children  ReportBlock[] @relation("BlockChildren")
 
   @@map("report_blocks")
   @@index([reportId])
+  @@index([parentId])
   @@unique([reportId, position])
 }
 

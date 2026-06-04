@@ -69,6 +69,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         data: {
           reportId,
           type: body.type,
+          parentId: body.parentId ?? null,
           position: (maxPosition?.position ?? -1) + 1,
           data: body.data as Prisma.InputJsonValue,
         },

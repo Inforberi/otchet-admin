@@ -5,6 +5,7 @@ import type {
     ReportBlockFromDB,
     ReportFromDB,
     DividerBlockData,
+    SectionBlockData,
     ScreenshotBlockData,
     TextBlockData,
     TaskBlockData,
@@ -25,7 +26,12 @@ export type SyncStatus =
     | 'conflict'
     | 'error';
 
-type BlockData = TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData;
+type BlockData =
+    | TextBlockData
+    | ScreenshotBlockData
+    | DividerBlockData
+    | TaskBlockData
+    | SectionBlockData;
 type FlushReason = 'manual' | 'autosave' | 'publish' | 'hidden';
 
 type DraftSaveResponse = {
@@ -64,6 +70,7 @@ const toDraftRequest = (
         id: block.id,
         type: block.type,
         position: block.position,
+        parentId: block.parentId ?? null,
         data: block.data,
     })),
 });

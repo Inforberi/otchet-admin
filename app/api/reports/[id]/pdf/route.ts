@@ -7,8 +7,11 @@ import type {
     TextBlockData,
     DividerBlockData,
     TaskBlockData,
+    SectionBlockData,
     ImageData,
 } from '@/lib/db-types';
+import { buildEditorTree, flattenTree } from '@/lib/block-tree';
+import { isEmptyRichHtml } from '@/lib/rich-text-empty';
 import { formatAssigneesList, normalizeTaskAssignees } from '@/lib/task-assignees';
 import { resolvePdfImageSrc } from '@/lib/pdf-embed-images';
 
@@ -53,8 +56,14 @@ export async function GET(
             publishedSnapshot: report.publishedSnapshot,
             blocks: report.blocks.map((block) => ({
                 ...block,
-                type: block.type as 'text' | 'screenshot' | 'divider' | 'task',
-                data: block.data as TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData,
+                type: block.type as 'text' | 'screenshot' | 'divider' | 'task' | 'section',
+                parentId: block.parentId ?? null,
+                data: block.data as
+                    | TextBlockData
+                    | ScreenshotBlockData
+                    | DividerBlockData
+                    | TaskBlockData
+                    | import('@/lib/db-types').SectionBlockData,
                 taskCompletionImages: block.taskCompletionImages as ImageData[] | null,
                 taskCompletionLayout: block.taskCompletionLayout as import('@/lib/db-types').PhotoBlockLayout | null,
             })),
@@ -208,11 +217,30 @@ async function generatePDFHTML(report: ReportFromDB, baseUrl: string): Promise<s
     const minReadableMm = 70;
 
     // Рендерим блоки с учётом накопленной высоты: «остаток страницы» передаём в блок со скриншотом
-    const blocks = report.blocks ?? [];
+    const blocks = flattenTree(buildEditorTree(report.blocks ?? []));
     let accumulatedMm = HEADER_MM;
 
     const blockHtmls: string[] = [];
     for (const block of blocks) {
+        if (block.type === 'section') {
+            const data = block.data as SectionBlockData;
+            if (!isEmptyRichHtml(data.title)) {
+                const h = estimateTextBlockHeightMm({
+                    title: data.title,
+                    content: '',
+                    titleFontSize,
+                    descriptionFontSize,
+                });
+                accumulatedMm += h + 10;
+                blockHtmls.push(`
+                    <section style="margin-bottom: 24px; orphans: 3; widows: 3;">
+                        <h2 style="font-size: ${titleFontSize}px; font-weight: 600; color: #111827; margin-bottom: 16px; margin-top: 0; page-break-after: avoid;">${data.title}</h2>
+                    </section>
+                `);
+            }
+            continue;
+        }
+
         if (block.type === 'divider') {
             accumulatedMm += 10;
             blockHtmls.push('<div style="margin: 30px 0; border-top: 1px solid #e5e7eb; page-break-inside: avoid;"></div>');

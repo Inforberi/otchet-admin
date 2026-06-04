@@ -7,6 +7,7 @@ export type StoredDraftBlock = {
     id: string;
     type: ReportBlockFromDB['type'];
     position: number;
+    parentId?: string | null;
     data: ReportBlockFromDB['data'];
     taskCompletedAt?: string | null;
     taskCompletedByUserId?: string | null;
@@ -74,6 +75,7 @@ export const buildStoredDraftSnapshot = (
             id: block.id,
             type: block.type,
             position: block.position,
+            parentId: block.parentId ?? null,
             data: block.data,
             ...(block.type === 'task'
                 ? {
@@ -149,11 +151,14 @@ export const loadStoredDraftSnapshot = (
                     block?.type === 'divider' ||
                     block?.type === 'screenshot' ||
                     block?.type === 'text' ||
-                    block?.type === 'task'
+                    block?.type === 'task' ||
+                    block?.type === 'section'
                         ? block.type
                         : 'text',
                 position:
                     typeof block?.position === 'number' ? block.position : index,
+                parentId:
+                    typeof block?.parentId === 'string' ? block.parentId : null,
                 data: block?.data as ReportBlockFromDB['data'],
                 taskCompletedAt:
                     typeof block?.taskCompletedAt === 'string'
@@ -212,6 +217,7 @@ export const applyStoredDraftSnapshot = (
                     reportId: report.id,
                     type: block.type,
                     position: block.position,
+                    parentId: block.parentId ?? existing?.parentId ?? null,
                     data: block.data,
                     version: existing?.version ?? 1,
                     createdAt: existing?.createdAt ?? savedAt,
