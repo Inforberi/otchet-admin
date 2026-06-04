@@ -419,6 +419,10 @@ export function TaskBlockCard({
     const isClosedReportView = isCompleted && !isEditable;
     const dlStatus = deadlineStatus(localData.deadline, isCompleted);
 
+    const taskTitleFontSize = localData.titleFontSize || titleFontSize || '40';
+    const taskDescriptionFontSize =
+        localData.descriptionFontSize || descriptionFontSize || '20';
+
     const isAssignee = currentUserId && localData.assigneeId
         ? currentUserId === localData.assigneeId
         : !localData.assigneeId;
@@ -703,6 +707,10 @@ export function TaskBlockCard({
                                 placeholder="Заголовок блока..."
                                 minHeight="60px"
                                 defaultFontSize="40"
+                                fontSize={taskTitleFontSize}
+                                onFontSizeChange={(px) =>
+                                    setLocalData((p) => ({ ...p, titleFontSize: px }))
+                                }
                                 mode="inline"
                             />
                         </div>
@@ -715,6 +723,10 @@ export function TaskBlockCard({
                                 placeholder="Описание..."
                                 minHeight="200px"
                                 defaultFontSize="20"
+                                fontSize={taskDescriptionFontSize}
+                                onFontSizeChange={(px) =>
+                                    setLocalData((p) => ({ ...p, descriptionFontSize: px }))
+                                }
                                 mode="block"
                             />
                         </div>
@@ -834,8 +846,8 @@ export function TaskBlockCard({
                     <div className="space-y-4">
                         <ScreenshotBlockView
                             data={screenshotViewData}
-                            titleFontSize={titleFontSize}
-                            descriptionFontSize={descriptionFontSize}
+                            titleFontSize={taskTitleFontSize}
+                            descriptionFontSize={taskDescriptionFontSize}
                             captionFontSize={captionFontSize}
                             variant="embedded"
                         />

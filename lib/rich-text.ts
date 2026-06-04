@@ -38,6 +38,15 @@ export const normalizeRichTextHtml = (
         .trim();
 };
 
+/** Первый font-size: Npx из HTML (span/p/h*) для синхронизации toolbar */
+export const extractFontSizeFromHtml = (
+    html: string | null | undefined
+): string | null => {
+    if (!html) return null;
+    const match = html.match(/font-size:\s*(\d{1,3})px/i);
+    return match ? match[1] : null;
+};
+
 export const plainTextToRichTextHtml = (
     value: string,
     mode: 'inline' | 'block'
