@@ -15,12 +15,33 @@ import type {
     ScreenshotBlockData,
     DividerBlockData,
     TaskBlockData,
+    SectionBlockData,
     ImageData,
 } from '@/lib/db-types';
+import {
+    buildEditorTree,
+    getBlocksToDeleteWithGroup,
+    getTargetSectionId,
+    insertBlockInGroup,
+    isSectionCollapsed,
+    applyBlockDrag,
+    BLOCK_DRAG_INTENT_LABELS,
+    getBlockDragIntent,
+    setSectionCollapsed,
+    type BlockDragIntent,
+} from '@/lib/block-tree';
+import {
+    BLOCK_DRAG_INTENT_BANNER_CLASS,
+    BLOCK_DRAG_INTENT_CARD_CLASS,
+    BLOCK_DRAG_INTENT_LABEL_CLASS,
+} from '@/lib/block-drag-intent-styles';
+import { EditorBlocksSidebarTree } from '@/components/report/editor-blocks-sidebar-tree';
+import { SectionGroupEditor } from '@/components/report/section-group-editor';
 import {
     GripVertical,
     Trash2,
     ChevronDown,
+    ChevronRight,
     ChevronUp,
     Copy,
     Upload,
@@ -33,6 +54,7 @@ import {
     ClipboardList,
     Minus,
     LayoutGrid,
+    Folder,
     type LucideIcon,
 } from 'lucide-react';
 import {
@@ -74,19 +96,13 @@ import {
     useSensor,
     useSensors,
     DragEndEvent,
+    DragOverEvent,
     DragStartEvent,
     type DraggableAttributes,
     type DraggableSyntheticListeners,
 } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
-import {
-    arrayMove,
-    SortableContext,
-    sortableKeyboardCoordinates,
-    verticalListSortingStrategy,
-    useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 
 const FormattedTextEditor = dynamic(
     () => import('@/components/editor/rich-text-editor'),
@@ -114,7 +130,8 @@ const truncateText = (value: string, maxLength = 48): string =>
 
 const EDITOR_CONTENT_MAX = 'max-w-7xl';
 
-type BlockTypeKey = ReportBlockFromDB['type'];
+type ContentBlockTypeKey = 'text' | 'screenshot' | 'divider' | 'task';
+type BlockTypeKey = ContentBlockTypeKey | 'section';
 
 const BLOCK_TYPE_META: Record<
     BlockTypeKey,
@@ -144,9 +161,15 @@ const BLOCK_TYPE_META: Record<
         accent: 'border-l-zinc-500',
         iconBg: 'bg-zinc-500/15 text-zinc-400',
     },
+    section: {
+        label: 'Группа',
+        Icon: Folder,
+        accent: 'border-l-amber-500',
+        iconBg: 'bg-amber-500/15 text-amber-400',
+    },
 };
 
-const ADD_BLOCK_BUTTONS: { type: BlockTypeKey; label: string; Icon: LucideIcon; ring: string }[] = [
+const ADD_BLOCK_BUTTONS: { type: ContentBlockTypeKey; label: string; Icon: LucideIcon; ring: string }[] = [
     { type: 'text', label: 'Текст', Icon: FileText, ring: 'hover:ring-green-500/40' },
     { type: 'screenshot', label: 'Фото', Icon: Image, ring: 'hover:ring-blue-500/40' },
     { type: 'task', label: 'Задача', Icon: ClipboardList, ring: 'hover:ring-purple-500/40' },
@@ -176,6 +199,11 @@ const getBlockPreview = (block: ReportBlockFromDB | { type: ReportBlockFromDB['t
         if (title) return title;
         return 'Задача';
     }
+    if (block.type === 'section') {
+        const data = block.data as SectionBlockData;
+        const title = stripHtml(data.title);
+        return title || 'Без заголовка';
+    }
     return 'Разделитель';
 };
 
@@ -187,6 +215,9 @@ const BlockListCard = memo(function BlockListCard({
     onSelect,
     dragHandleProps,
     isDragOverlay,
+    subtitle,
+    collapseToggle,
+    dropIntent = 'none',
 }: {
     block: ReportBlockFromDB;
     onDelete?: (id: string) => void;
@@ -198,8 +229,16 @@ const BlockListCard = memo(function BlockListCard({
         listeners: DraggableSyntheticListeners;
     };
     isDragOverlay?: boolean;
+    subtitle?: string;
+    collapseToggle?: { collapsed: boolean; onToggle: () => void };
+    dropIntent?: BlockDragIntent;
 }) {
     const blockTitle = useMemo(() => truncateText(getBlockPreview(block), 42), [block]);
+    const dropIntentClass = BLOCK_DRAG_INTENT_CARD_CLASS[dropIntent];
+    const dropIntentLabel =
+        dropIntent !== 'none' ? BLOCK_DRAG_INTENT_LABELS[dropIntent] : null;
+    const dropIntentLabelClass =
+        dropIntent !== 'none' ? BLOCK_DRAG_INTENT_LABEL_CLASS[dropIntent] : '';
     const meta = BLOCK_TYPE_META[block.type];
     const TypeIcon = meta.Icon;
     const handleSelect = useCallback(() => onSelect?.(block.id), [onSelect, block.id]);
@@ -229,9 +268,9 @@ const BlockListCard = memo(function BlockListCard({
             } ${
                 isDragOverlay
                     ? 'shadow-lg ring-1 ring-zinc-500 border-zinc-600'
-                    : isSelected
-                      ? 'ring-1 ring-zinc-500 border-zinc-600'
-                      : 'border-zinc-700/80 hover:border-zinc-600'
+                    : dropIntentClass || (isSelected
+                          ? 'ring-1 ring-zinc-500 border-zinc-600'
+                          : 'border-zinc-700/80 hover:border-zinc-600')
             }`}
         >
             <div className="flex min-w-0 items-center gap-2 overflow-x-auto touch-pan-x [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -250,12 +289,37 @@ const BlockListCard = memo(function BlockListCard({
                         <GripVertical className="h-4 w-4" aria-hidden />
                     </span>
                 )}
+                {collapseToggle ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            collapseToggle.onToggle();
+                        }}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-300 cursor-pointer"
+                        aria-expanded={!collapseToggle.collapsed}
+                        aria-label={
+                            collapseToggle.collapsed
+                                ? 'Развернуть группу'
+                                : 'Свернуть группу'
+                        }
+                    >
+                        {collapseToggle.collapsed ? (
+                            <ChevronRight className="h-4 w-4" />
+                        ) : (
+                            <ChevronDown className="h-4 w-4" />
+                        )}
+                    </button>
+                ) : null}
                 <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${meta.iconBg}`}>
                     <TypeIcon className="h-3.5 w-3.5" aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1 whitespace-nowrap">
                     <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{meta.label}</p>
                     <p className="text-sm text-zinc-200">{blockTitle}</p>
+                    {subtitle ? (
+                        <p className="text-[10px] text-zinc-500">{subtitle}</p>
+                    ) : null}
                 </div>
                 {onDuplicate && onDelete && (
                     <div className="flex shrink-0 items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
@@ -278,51 +342,13 @@ const BlockListCard = memo(function BlockListCard({
                     </div>
                 )}
             </div>
-        </div>
-    );
-});
-
-const SortableBlockCard = memo(function SortableBlockCard({
-    block,
-    onDelete,
-    onDuplicate,
-    isSelected,
-    onSelect,
-}: {
-    block: ReportBlockFromDB;
-    onDelete: (id: string) => void;
-    onDuplicate: (id: string) => void;
-    isSelected: boolean;
-    onSelect: (id: string) => void;
-}) {
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging,
-    } = useSortable({ id: block.id });
-
-    const style = useMemo(
-        () => ({
-            transform: CSS.Transform.toString(transform),
-            transition: isDragging ? undefined : transition,
-            opacity: isDragging ? 0.35 : 1,
-        }),
-        [transform, transition, isDragging]
-    );
-
-    return (
-        <div ref={setNodeRef} style={style}>
-            <BlockListCard
-                block={block}
-                isSelected={isSelected}
-                onSelect={onSelect}
-                onDelete={onDelete}
-                onDuplicate={onDuplicate}
-                dragHandleProps={{ attributes, listeners }}
-            />
+            {dropIntentLabel ? (
+                <p
+                    className={`mt-1.5 text-center text-[10px] font-semibold uppercase tracking-wide ${dropIntentLabelClass}`}
+                >
+                    {dropIntentLabel}
+                </p>
+            ) : null}
         </div>
     );
 });
@@ -334,7 +360,7 @@ function BlockEditor({
     groupId,
 }: {
     block: ReportBlockFromDB;
-    onLocalChange: (id: string, data: TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData) => void;
+    onLocalChange: (id: string, data: ReportBlockFromDB['data']) => void;
     reportId: string;
     groupId?: string;
 }) {
@@ -469,6 +495,10 @@ function BlockEditor({
             return { ...(prevData as ScreenshotBlockData), images } as ScreenshotBlockData;
         });
     }, []);
+
+    if (block.type === 'section') {
+        return null;
+    }
 
     if (block.type === 'divider') {
         return (
@@ -686,6 +716,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const [publishSuccessOpen, setPublishSuccessOpen] = useState(false);
     const [mobileBlocksPanelOpen, setMobileBlocksPanelOpen] = useState(false);
     const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+    const [overBlockId, setOverBlockId] = useState<string | null>(null);
     const [isLargeScreen, setIsLargeScreen] = useState(false);
     const [ancestors, setAncestors] = useState<GroupAncestor[]>([]);
     const draftLoadedForReportIdRef = useRef<string | null>(null);
@@ -718,11 +749,23 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     );
 
     const sortedBlocks = useMemo(() => sortBlocksByPosition(blocks), [blocks]);
+    const editorTree = useMemo(() => buildEditorTree(blocks), [blocks]);
     const hasBlocks = sortedBlocks.length > 0;
+    const blockToDelete = blockToDeleteId
+        ? blocks.find((b) => b.id === blockToDeleteId)
+        : null;
 
     const activeBlock = useMemo(
         () => (activeBlockId ? sortedBlocks.find((b) => b.id === activeBlockId) : null),
         [activeBlockId, sortedBlocks]
+    );
+
+    const dragIntentPreview = useMemo(
+        () =>
+            activeBlockId && overBlockId
+                ? getBlockDragIntent(blocks, activeBlockId, overBlockId)
+                : 'none',
+        [activeBlockId, overBlockId, blocks]
     );
 
     useEffect(() => {
@@ -911,19 +954,27 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
 
     const handleBlocksDragStart = useCallback((event: DragStartEvent) => {
         setActiveBlockId(String(event.active.id));
+        setOverBlockId(null);
+    }, []);
+
+    const handleBlocksDragOver = useCallback((event: DragOverEvent) => {
+        setOverBlockId(event.over?.id ? String(event.over.id) : null);
+    }, []);
+
+    const handleBlocksDragCancel = useCallback(() => {
+        setActiveBlockId(null);
+        setOverBlockId(null);
     }, []);
 
     const handleBlocksDragEnd = useCallback(
         (event: DragEndEvent) => {
             setActiveBlockId(null);
+            setOverBlockId(null);
             const { active, over } = event;
             if (!over || active.id === over.id) return;
-            const sorted = sortBlocksByPosition(blocks);
-            const oldIndex = sorted.findIndex((b) => b.id === active.id);
-            const newIndex = sorted.findIndex((b) => b.id === over.id);
-            if (oldIndex === -1 || newIndex === -1) return;
+
             replaceBlocksLocally(
-                reindexBlockPositions(arrayMove(sorted, oldIndex, newIndex))
+                applyBlockDrag(blocks, String(active.id), String(over.id))
             );
         },
         [blocks, replaceBlocksLocally]
@@ -936,11 +987,14 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const confirmDeleteBlock = useCallback(() => {
         const id = blockToDeleteId;
         if (!id) return;
+        const idsToDelete = new Set(getBlocksToDeleteWithGroup(blocks, id));
         const nextBlocks = reindexBlockPositions(
-            sortBlocksByPosition(blocks).filter((block) => block.id !== id)
+            sortBlocksByPosition(blocks).filter((block) => !idsToDelete.has(block.id))
         );
         replaceBlocksLocally(nextBlocks);
-        setSelectedBlockId((cur) => (cur === id ? nextBlocks[0]?.id || null : cur));
+        setSelectedBlockId((cur) =>
+            cur && idsToDelete.has(cur) ? nextBlocks[0]?.id ?? null : cur
+        );
         setBlockToDeleteId(null);
     }, [blockToDeleteId, blocks, replaceBlocksLocally]);
 
@@ -953,6 +1007,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 id: generateClientId(),
                 position: 0,
                 version: 1,
+                parentId: blockToDup.type === 'section' ? null : blockToDup.parentId ?? null,
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 data: JSON.parse(JSON.stringify(blockToDup.data)) as ReportBlockFromDB['data'],
@@ -989,15 +1044,47 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 type,
                 position: 0,
                 version: 1,
+                parentId: null,
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 data: defaultData(),
             };
-            const nextBlocks = insertBlockAt(blocks, newBlock, selectedBlockId);
+            const sectionId = getTargetSectionId(blocks, selectedBlockId);
+            const nextBlocks = sectionId
+                ? insertBlockInGroup(blocks, newBlock, sectionId, selectedBlockId)
+                : insertBlockAt(blocks, newBlock, selectedBlockId);
             replaceBlocksLocally(nextBlocks);
             setSelectedBlockId(newBlock.id);
         },
         [blocks, report, reportId, replaceBlocksLocally, selectedBlockId]
+    );
+
+    const handleAddSection = useCallback(() => {
+        if (!reportId || !report) return;
+        const newBlock: ReportBlockFromDB = {
+            id: generateClientId(),
+            reportId,
+            type: 'section',
+            position: 0,
+            version: 1,
+            parentId: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            data: { title: '', collapsed: false } satisfies SectionBlockData,
+        };
+        const nextBlocks = insertBlockAt(blocks, newBlock, selectedBlockId);
+        replaceBlocksLocally(nextBlocks);
+        setSelectedBlockId(newBlock.id);
+    }, [blocks, report, reportId, replaceBlocksLocally, selectedBlockId]);
+
+    const handleToggleSectionCollapsed = useCallback(
+        (sectionId: string) => {
+            const section = blocks.find((b) => b.id === sectionId && b.type === 'section');
+            if (!section) return;
+            const next = setSectionCollapsed(section, !isSectionCollapsed(section));
+            markBlockDirty(sectionId, next.data as SectionBlockData);
+        },
+        [blocks, markBlockDirty]
     );
 
     const handleSelectBlock = useCallback((id: string) => {
@@ -1057,22 +1144,58 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     if (!report) return <div className="p-8 bg-zinc-950 text-white min-h-screen">Отчет не найден</div>;
 
     const sortableBlockList = hasBlocks ? (
-        <SortableContext
-            items={sortedBlocks.map((b) => b.id)}
-            strategy={verticalListSortingStrategy}
-        >
-            {sortedBlocks.map((block) => (
-                <SortableBlockCard
-                    key={block.id}
-                    block={block}
-                    isSelected={selectedBlockId === block.id}
-                    onSelect={handleSelectBlock}
-                    onDelete={handleDeleteBlock}
-                    onDuplicate={handleDuplicateBlock}
-                />
-            ))}
-        </SortableContext>
+        <EditorBlocksSidebarTree
+            blocks={blocks}
+            selectedBlockId={selectedBlockId}
+            activeBlockId={activeBlockId}
+            overBlockId={overBlockId}
+            onSelect={handleSelectBlock}
+            onDelete={handleDeleteBlock}
+            onDuplicate={handleDuplicateBlock}
+            onToggleSectionCollapsed={handleToggleSectionCollapsed}
+            BlockListCard={BlockListCard}
+        />
     ) : null;
+
+    const renderContentBlock = (block: ReportBlockFromDB) => (
+        <div
+            key={block.id}
+            id={`block-${block.id}`}
+            className={`isolate overflow-hidden transition-all rounded-xl ${
+                selectedBlockId === block.id
+                    ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950'
+                    : ''
+            }`}
+        >
+            {block.type === 'task' ? (
+                <TaskBlockCard
+                    blockId={block.id}
+                    reportId={reportId}
+                    groupId={report?.groupId}
+                    data={block.data as TaskBlockData}
+                    taskCompletedAt={block.taskCompletedAt}
+                    taskCompletedByUserId={block.taskCompletedByUserId}
+                    taskCompletionNotes={block.taskCompletionNotes}
+                    taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
+                    taskCompletionLayout={block.taskCompletionLayout ?? null}
+                    currentUserId={currentUser?.id}
+                    canEdit={canEdit}
+                    showActions={true}
+                    titleFontSize={report.titleFontSize || '40'}
+                    descriptionFontSize={report.descriptionFontSize || '20'}
+                    captionFontSize={report.captionFontSize || '16'}
+                    onDataChange={(data) => markBlockDirty(block.id, data)}
+                />
+            ) : (
+                <BlockEditor
+                    block={block}
+                    onLocalChange={markBlockDirty}
+                    reportId={reportId}
+                    groupId={report?.groupId}
+                />
+            )}
+        </div>
+    );
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
@@ -1104,6 +1227,8 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 collisionDetection={closestCenter}
                 modifiers={[restrictToVerticalAxis]}
                 onDragStart={handleBlocksDragStart}
+                onDragOver={handleBlocksDragOver}
+                onDragCancel={handleBlocksDragCancel}
                 onDragEnd={handleBlocksDragEnd}
             >
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row lg:items-stretch">
@@ -1176,41 +1301,45 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                {sortedBlocks.map((block) => (
-                                    <div
-                                        key={block.id}
-                                        id={`block-${block.id}`}
-                                        className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
-                                    >
-                                        {block.type === 'task' ? (
-                                            <TaskBlockCard
-                                                blockId={block.id}
-                                                reportId={reportId}
-                                                groupId={report?.groupId}
-                                                data={block.data as TaskBlockData}
-                                                taskCompletedAt={block.taskCompletedAt}
-                                                taskCompletedByUserId={block.taskCompletedByUserId}
-                                                taskCompletionNotes={block.taskCompletionNotes}
-                                                taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
-                                                taskCompletionLayout={block.taskCompletionLayout ?? null}
-                                                currentUserId={currentUser?.id}
-                                                canEdit={canEdit}
-                                                showActions={true}
-                                                titleFontSize={report.titleFontSize || '40'}
-                                                descriptionFontSize={report.descriptionFontSize || '20'}
-                                                captionFontSize={report.captionFontSize || '16'}
-                                                onDataChange={(data) => markBlockDirty(block.id, data)}
-                                            />
-                                        ) : (
-                                            <BlockEditor
-                                                block={block}
-                                                onLocalChange={markBlockDirty}
-                                                reportId={reportId}
-                                                groupId={report?.groupId}
-                                            />
-                                        )}
-                                    </div>
-                                ))}
+                                {editorTree.map((node) => {
+                                    if (node.kind === 'section') {
+                                        const collapsed = isSectionCollapsed(node.section);
+                                        return (
+                                            <div
+                                                key={node.section.id}
+                                                id={`block-${node.section.id}`}
+                                                className={`transition-all ${
+                                                    selectedBlockId === node.section.id
+                                                        ? 'rounded-xl ring-2 ring-amber-500/80 ring-offset-2 ring-offset-zinc-950'
+                                                        : ''
+                                                }`}
+                                            >
+                                                <SectionGroupEditor
+                                                    section={node.section}
+                                                    titlePreview={truncateText(
+                                                        getBlockPreview(node.section),
+                                                        72
+                                                    )}
+                                                    childCount={node.children.length}
+                                                    onDataChange={(data) =>
+                                                        markBlockDirty(node.section.id, data)
+                                                    }
+                                                    onToggleCollapsed={() =>
+                                                        handleToggleSectionCollapsed(node.section.id)
+                                                    }
+                                                />
+                                                {!collapsed && node.children.length > 0 && (
+                                                    <div className="ml-3 space-y-4 border-l border-zinc-800/60 pl-2 pb-4 sm:ml-4 sm:pl-3">
+                                                        {node.children.map((child) =>
+                                                            renderContentBlock(child)
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    }
+                                    return renderContentBlock(node.block);
+                                })}
                             </div>
                         )}
                     </div>
@@ -1238,8 +1367,25 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                 </button>
                             ))}
                         </div>
+                        <button
+                            type="button"
+                            onClick={handleAddSection}
+                            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-2 py-2.5 text-xs font-medium text-zinc-300 transition-all hover:bg-zinc-800 hover:ring-1 hover:ring-amber-500/40 cursor-pointer"
+                        >
+                            <Folder className="h-4 w-4 text-amber-400" aria-hidden />
+                            Группа
+                        </button>
                     </div>
                     <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-900 p-3 touch-pan-y">
+                        {activeBlockId && dragIntentPreview !== 'none' ? (
+                            <div
+                                className={`mb-2 rounded-md border px-2 py-1.5 text-center text-[11px] font-medium ${BLOCK_DRAG_INTENT_BANNER_CLASS[dragIntentPreview]}`}
+                                role="status"
+                                aria-live="polite"
+                            >
+                                {BLOCK_DRAG_INTENT_LABELS[dragIntentPreview]}
+                            </div>
+                        ) : null}
                         {hasBlocks && isLargeScreen ? (
                             sortableBlockList
                         ) : !hasBlocks ? (
@@ -1259,6 +1405,15 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
             >
                 {mobileBlocksPanelOpen && (
                     <div className="scrollbar-thin max-h-[min(50vh,400px)] overflow-y-auto border-b border-zinc-800 p-3">
+                        {activeBlockId && dragIntentPreview !== 'none' ? (
+                            <div
+                                className={`mb-2 rounded-md border px-2 py-1.5 text-center text-[11px] font-medium ${BLOCK_DRAG_INTENT_BANNER_CLASS[dragIntentPreview]}`}
+                                role="status"
+                                aria-live="polite"
+                            >
+                                {BLOCK_DRAG_INTENT_LABELS[dragIntentPreview]}
+                            </div>
+                        ) : null}
                         {hasBlocks && !isLargeScreen ? (
                             sortableBlockList
                         ) : !hasBlocks ? (
@@ -1298,13 +1453,33 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                             </button>
                         ))}
                     </div>
+                    <button
+                        type="button"
+                        onClick={handleAddSection}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-800/80 px-2 py-2 text-xs font-medium text-zinc-300 transition-all hover:bg-zinc-800 hover:ring-1 hover:ring-amber-500/40 cursor-pointer"
+                    >
+                        <Folder className="h-4 w-4 text-amber-400" aria-hidden />
+                        Группа
+                    </button>
                 </div>
             </div>
 
             <DragOverlay dropAnimation={null}>
                 {activeBlock ? (
                     <div className="w-[min(100vw-2rem,20rem)]">
-                        <BlockListCard block={activeBlock} isDragOverlay />
+                        <BlockListCard
+                            block={activeBlock}
+                            isDragOverlay
+                            dropIntent={
+                                overBlockId
+                                    ? getBlockDragIntent(
+                                          blocks,
+                                          activeBlock.id,
+                                          overBlockId
+                                      )
+                                    : 'none'
+                            }
+                        />
                     </div>
                 ) : null}
             </DragOverlay>
@@ -1331,8 +1506,14 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 onOpenChange={(open) => {
                     if (!open) setBlockToDeleteId(null);
                 }}
-                title="Удалить блок?"
-                description="Блок будет удалён из черновика. Изменения сохранятся при следующей синхронизации."
+                title={
+                    blockToDelete?.type === 'section' ? 'Удалить группу?' : 'Удалить блок?'
+                }
+                description={
+                    blockToDelete?.type === 'section'
+                        ? `Группа и все вложенные блоки (${getBlocksToDeleteWithGroup(blocks, blockToDelete.id).length - 1}) будут удалены из черновика.`
+                        : 'Блок будет удалён из черновика. Изменения сохранятся при следующей синхронизации.'
+                }
                 confirmLabel="Удалить"
                 variant="destructive"
                 onConfirm={confirmDeleteBlock}

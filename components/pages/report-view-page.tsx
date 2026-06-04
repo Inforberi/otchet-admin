@@ -40,6 +40,9 @@ import {
     joinGroupPathFromSegments,
 } from '@/lib/report-paths';
 import { sortBlocksByPosition } from '@/lib/report-block-order';
+import { buildEditorTree } from '@/lib/block-tree';
+import { BlockTitleView } from '@/components/report/block-title-view';
+import type { SectionBlockData } from '@/lib/db-types';
 
 function isEmptyHtml(html: string | null | undefined): boolean {
     if (!html) return true;
@@ -314,10 +317,60 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                             </div>
                         );
                     }
+                    const tree = buildEditorTree(sortedBlocks);
                     return (
                         <div className="space-y-20">
-                            {sortedBlocks.map((block) =>
-                                block.type === 'task' ? (
+                            {tree.map((node) => {
+                                if (node.kind === 'section') {
+                                    const sectionData = node.section.data as SectionBlockData;
+                                    return (
+                                        <div key={node.section.id} className="space-y-20">
+                                            <BlockTitleView
+                                                title={sectionData.title}
+                                                titleFontSize={report.titleFontSize || '40'}
+                                            />
+                                            {node.children.map((child) =>
+                                                child.type === 'task' ? (
+                                                    <TaskBlockCard
+                                                        key={child.id}
+                                                        blockId={child.id}
+                                                        reportId={report.id}
+                                                        groupId={report.group?.id}
+                                                        data={child.data as TaskBlockData}
+                                                        taskCompletedAt={child.taskCompletedAt}
+                                                        taskCompletedByUserId={
+                                                            child.taskCompletedByUserId
+                                                        }
+                                                        taskCompletionNotes={child.taskCompletionNotes}
+                                                        taskCompletionImages={
+                                                            child.taskCompletionImages as ImageData[] | null
+                                                        }
+                                                        taskCompletionLayout={
+                                                            child.taskCompletionLayout ?? null
+                                                        }
+                                                        currentUserId={currentUser?.id}
+                                                        canEdit={canEdit}
+                                                        showActions={false}
+                                                        titleFontSize={report.titleFontSize || '40'}
+                                                        descriptionFontSize={
+                                                            report.descriptionFontSize || '20'
+                                                        }
+                                                        captionFontSize={report.captionFontSize || '16'}
+                                                    />
+                                                ) : (
+                                                    <div key={child.id}>
+                                                        {renderBlock(child, report, {
+                                                            currentUserId: currentUser?.id,
+                                                            canEdit,
+                                                        })}
+                                                    </div>
+                                                )
+                                            )}
+                                        </div>
+                                    );
+                                }
+                                const block = node.block;
+                                return block.type === 'task' ? (
                                     <TaskBlockCard
                                         key={block.id}
                                         blockId={block.id}
@@ -327,7 +380,9 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                                         taskCompletedAt={block.taskCompletedAt}
                                         taskCompletedByUserId={block.taskCompletedByUserId}
                                         taskCompletionNotes={block.taskCompletionNotes}
-                                        taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
+                                        taskCompletionImages={
+                                            block.taskCompletionImages as ImageData[] | null
+                                        }
                                         taskCompletionLayout={block.taskCompletionLayout ?? null}
                                         currentUserId={currentUser?.id}
                                         canEdit={canEdit}
@@ -337,9 +392,14 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                                         captionFontSize={report.captionFontSize || '16'}
                                     />
                                 ) : (
-                                    <div key={block.id}>{renderBlock(block, report, { currentUserId: currentUser?.id, canEdit })}</div>
-                                )
-                            )}
+                                    <div key={block.id}>
+                                        {renderBlock(block, report, {
+                                            currentUserId: currentUser?.id,
+                                            canEdit,
+                                        })}
+                                    </div>
+                                );
+                            })}
                         </div>
                     );
                 })()}
@@ -404,6 +464,9 @@ function renderBlock(
     report: ReportFromDB,
     ctx: { currentUserId?: string; canEdit: boolean }
 ) {
+    if (block.type === 'section') {
+        return null;
+    }
     if (block.type === 'screenshot') {
         return (
             <ScreenshotBlockView

@@ -52,6 +52,11 @@ export interface DividerBlockData {
     [key: string]: never;
 }
 
+// Группа блоков (секция) — заголовок как у text-блока
+export interface SectionBlockData extends BaseBlockData {
+    collapsed?: boolean;
+}
+
 export type TaskAssigneeKind = 'user' | 'person';
 
 export interface TaskAssignee {
@@ -82,10 +87,16 @@ export interface TaskBlockData {
 export interface ReportBlockFromDB {
     id: string;
     reportId: string;
-    type: 'text' | 'screenshot' | 'divider' | 'task';
+    type: 'text' | 'screenshot' | 'divider' | 'task' | 'section';
     position: number;
+    parentId?: string | null;
     version: number;
-    data: TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData;
+    data:
+        | TextBlockData
+        | ScreenshotBlockData
+        | DividerBlockData
+        | TaskBlockData
+        | SectionBlockData;
     taskCompletedAt?: Date | string | null;
     taskCompletedByUserId?: string | null;
     taskCompletionNotes?: string | null;
@@ -145,9 +156,15 @@ export interface UpdateReportInput extends Partial<CreateReportInput> {
 
 export interface CreateBlockInput {
     reportId: string;
-    type: 'text' | 'screenshot' | 'divider' | 'task';
+    type: 'text' | 'screenshot' | 'divider' | 'task' | 'section';
     position: number;
-    data: TextBlockData | ScreenshotBlockData | DividerBlockData | TaskBlockData;
+    parentId?: string | null;
+    data:
+        | TextBlockData
+        | ScreenshotBlockData
+        | DividerBlockData
+        | TaskBlockData
+        | SectionBlockData;
 }
 
 export interface UpdateBlockInput {
