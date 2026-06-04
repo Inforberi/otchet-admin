@@ -7,8 +7,6 @@ import {
     Circle,
     Clock,
     AlertTriangle,
-    RotateCcw,
-    Trash2,
     User,
     Upload,
     X,
@@ -24,7 +22,6 @@ import {
 import type { TaskBlockData, ImageData, ScreenshotBlockData, PhotoBlockLayout } from '@/lib/db-types';
 import type { TaskBlockDirtyPatch } from '@/hooks/use-report-draft-sync';
 import {
-    canUserActOnTask,
     formatAssigneesList,
     normalizeTaskAssignees,
 } from '@/lib/task-assignees';
@@ -36,7 +33,6 @@ import {
     TaskAssigneesBadges,
     TaskAssigneesPicker,
 } from '@/components/report/task-assignees-picker';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 
 const FormattedTextEditor = dynamic(
@@ -381,8 +377,8 @@ export function TaskBlockCard({
     taskCompletionNotes,
     taskCompletionImages,
     taskCompletionLayout,
-    currentUserId,
-    canEdit = false,
+    currentUserId: _currentUserId,
+    canEdit: _canEdit = false,
     showActions,
     onTaskChange,
     titleFontSize = '40',
@@ -410,8 +406,6 @@ export function TaskBlockCard({
             : ''
     );
     const [completionUploading, setCompletionUploading] = useState(false);
-    const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
-    const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false);
     const [isCompletionDragOver, setIsCompletionDragOver] = useState(false);
     const completionFileRef = useRef<HTMLInputElement>(null);
 
@@ -585,9 +579,6 @@ export function TaskBlockCard({
     const taskDescriptionFontSize =
         localData.descriptionFontSize || descriptionFontSize || '20';
 
-    const canComplete = canUserActOnTask(currentUserId ?? undefined, assignees, canEdit);
-    const canReopen = canComplete;
-
     const collapsible = showActions;
     const [isExpanded, setIsExpanded] = useState(true);
     const blockPreview = useMemo(() => {
@@ -705,38 +696,6 @@ export function TaskBlockCard({
         setCompletionImages((prev) => prev.filter((_, i) => i !== idx));
     }, [completionImages]);
 
-    const handleReopen = useCallback(() => {
-        markCompletedRef.current = false;
-        completionClosedAtRef.current = '';
-        setMarkCompleted(false);
-        setCompletedAt(null);
-        setCompletionClosedAt('');
-        pushTaskChange({
-            taskCompletedAt: null,
-            taskCompletedByUserId: null,
-        });
-        setReopenConfirmOpen(false);
-    }, [pushTaskChange]);
-
-    const handleClearCompletion = useCallback(() => {
-        markCompletedRef.current = false;
-        completionClosedAtRef.current = '';
-        setMarkCompleted(false);
-        setCompletedAt(null);
-        setNotes(null);
-        setCompletionImages([]);
-        setCompletionLayout('full-width');
-        setCompletionClosedAt('');
-        pushTaskChange({
-            taskCompletedAt: null,
-            taskCompletedByUserId: null,
-            taskCompletionNotes: null,
-            taskCompletionImages: [],
-            taskCompletionLayout: 'full-width',
-        });
-        setPurgeConfirmOpen(false);
-    }, [pushTaskChange]);
-
     // --- Shared style helpers ---
     const inputCls = 'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500';
     const labelCls = 'block text-xs font-medium text-zinc-400 mb-1';
@@ -824,45 +783,7 @@ export function TaskBlockCard({
                     </div>
                 </div>
                 </div>
-                {showActions && isCompleted && canReopen && (
-                    <div className="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto sm:flex-row sm:flex-wrap">
-                        <button
-                            type="button"
-                            onClick={() => setReopenConfirmOpen(true)}
-                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 transition-colors cursor-pointer sm:w-auto"
-                        >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            Переоткрыть
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setPurgeConfirmOpen(true)}
-                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 transition-colors cursor-pointer sm:w-auto"
-                        >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Удалить выполнение
-                        </button>
-                    </div>
-                )}
             </div>
-
-            <ConfirmDialog
-                open={reopenConfirmOpen}
-                onOpenChange={setReopenConfirmOpen}
-                title="Переоткрыть задачу?"
-                description="Задача снова станет открытой. Черновик отчёта о выполнении сохранится — вы сможете отредактировать и закрыть заново."
-                confirmLabel="Переоткрыть"
-                onConfirm={handleReopen}
-            />
-            <ConfirmDialog
-                open={purgeConfirmOpen}
-                onOpenChange={setPurgeConfirmOpen}
-                title="Удалить выполнение?"
-                description="Отчёт о выполнении и дата закрытия будут удалены безвозвратно. Задача вернётся в состояние «не выполнена»."
-                confirmLabel="Удалить"
-                variant="destructive"
-                onConfirm={handleClearCompletion}
-            />
 
             <div className={isClosedReportView ? 'px-4 pb-4 space-y-3' : undefined}>
             {/* Zone 1 — Task details */}
@@ -1052,85 +973,92 @@ export function TaskBlockCard({
                     </span>
                 </div>
 
-                {isEditable && !isPersistedCompleted && (
+                {isEditable && (
                     <div className="space-y-4">
-                        {canComplete && (
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <div className="flex min-h-[4.25rem] items-center rounded-lg border border-green-800/30 bg-zinc-900/40 px-3">
-                                    <div className="flex items-center gap-2.5">
-                                        <Checkbox
-                                            id={`${blockId}-task-completed`}
-                                            checked={markCompleted}
-                                            onCheckedChange={(checked) => {
-                                                const next = checked === true;
-                                                const nextClosedAt =
-                                                    next && !completionClosedAtRef.current
-                                                        ? todayDateInputValue()
-                                                        : completionClosedAtRef.current;
-                                                markCompletedRef.current = next;
-                                                completionClosedAtRef.current = nextClosedAt;
-                                                setMarkCompleted(next);
-                                                if (next && !completionClosedAt) {
-                                                    setCompletionClosedAt(nextClosedAt);
-                                                }
-                                                if (!next) {
-                                                    setCompletionClosedAt('');
-                                                }
-                                                pushTaskChange({
-                                                    taskCompletedAt: completionAtIso(
-                                                        next,
-                                                        nextClosedAt
-                                                    ),
-                                                });
-                                            }}
-                                            className="border-zinc-600 data-[state=checked]:border-green-600 data-[state=checked]:bg-green-600"
-                                        />
-                                        <label
-                                            htmlFor={`${blockId}-task-completed`}
-                                            className="cursor-pointer select-none text-sm font-medium text-zinc-200"
-                                        >
-                                            Задача выполнена
-                                        </label>
-                                    </div>
-                                </div>
-                                <div
-                                    className={
-                                        !markCompleted
-                                            ? 'pointer-events-none opacity-45'
-                                            : undefined
-                                    }
-                                >
-                                    <label
-                                        htmlFor={`${blockId}-task-closed-at`}
-                                        className={labelCls}
-                                    >
-                                        <span className="flex items-center gap-1 text-green-400/90">
-                                            <CalendarDays className="h-3 w-3" />
-                                            Дата закрытия
-                                        </span>
-                                    </label>
-                                    <input
-                                        id={`${blockId}-task-closed-at`}
-                                        type="date"
-                                        value={completionClosedAt}
-                                        onChange={(e) => {
-                                            const nextClosedAt = e.target.value;
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="flex min-h-[4.25rem] items-center rounded-lg border border-green-800/30 bg-zinc-900/40 px-3">
+                                <div className="flex items-center gap-2.5">
+                                    <Checkbox
+                                        id={`${blockId}-task-completed`}
+                                        checked={markCompleted}
+                                        onCheckedChange={(checked) => {
+                                            const next = checked === true;
+                                            const nextClosedAt =
+                                                next && !completionClosedAtRef.current
+                                                    ? todayDateInputValue()
+                                                    : completionClosedAtRef.current;
+                                            markCompletedRef.current = next;
                                             completionClosedAtRef.current = nextClosedAt;
-                                            setCompletionClosedAt(nextClosedAt);
+                                            setMarkCompleted(next);
+                                            if (next && !completionClosedAt) {
+                                                setCompletionClosedAt(nextClosedAt);
+                                            }
+                                            if (!next) {
+                                                setCompletionClosedAt('');
+                                            }
                                             pushTaskChange({
                                                 taskCompletedAt: completionAtIso(
-                                                    markCompletedRef.current,
+                                                    next,
                                                     nextClosedAt
                                                 ),
                                             });
                                         }}
-                                        disabled={!markCompleted}
-                                        aria-label="Дата закрытия"
-                                        className={`${inputCls} [color-scheme:dark] focus:border-green-600 focus:ring-green-600`}
+                                        className="border-zinc-600 data-[state=checked]:border-green-600 data-[state=checked]:bg-green-600"
                                     />
+                                    <label
+                                        htmlFor={`${blockId}-task-completed`}
+                                        className="cursor-pointer select-none text-sm font-medium text-zinc-200"
+                                    >
+                                        Задача выполнена
+                                    </label>
                                 </div>
                             </div>
-                        )}
+                            <div>
+                                <label
+                                    htmlFor={`${blockId}-task-closed-at`}
+                                    className={labelCls}
+                                >
+                                    <span className="flex items-center gap-1 text-green-400/90">
+                                        <CalendarDays className="h-3 w-3" />
+                                        Дата закрытия
+                                    </span>
+                                </label>
+                                <input
+                                    id={`${blockId}-task-closed-at`}
+                                    type="date"
+                                    value={completionClosedAt}
+                                    onChange={(e) => {
+                                        const nextClosedAt = e.target.value;
+                                        if (!nextClosedAt) {
+                                            completionClosedAtRef.current = '';
+                                            setCompletionClosedAt('');
+                                            if (markCompletedRef.current) {
+                                                markCompletedRef.current = false;
+                                                setMarkCompleted(false);
+                                                pushTaskChange({
+                                                    taskCompletedAt: null,
+                                                });
+                                            }
+                                            return;
+                                        }
+                                        completionClosedAtRef.current = nextClosedAt;
+                                        setCompletionClosedAt(nextClosedAt);
+                                        if (!markCompletedRef.current) {
+                                            markCompletedRef.current = true;
+                                            setMarkCompleted(true);
+                                        }
+                                        pushTaskChange({
+                                            taskCompletedAt: completionAtIso(
+                                                true,
+                                                nextClosedAt
+                                            ),
+                                        });
+                                    }}
+                                    aria-label="Дата закрытия"
+                                    className={`${inputCls} [color-scheme:dark] focus:border-green-600 focus:ring-green-600`}
+                                />
+                            </div>
+                        </div>
                         <TaskRichTextField
                             label="Что было сделано"
                             editorId={`${blockId}:completion-notes`}
@@ -1196,7 +1124,7 @@ export function TaskBlockCard({
                     />
                 )}
 
-                {isPersistedCompleted && (
+                {!isEditable && isPersistedCompleted && (
                     <div className="space-y-4">
                         {hasCompletionContent ? (
                             <ScreenshotBlockView

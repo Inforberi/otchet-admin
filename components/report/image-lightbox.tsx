@@ -6,13 +6,29 @@ import { X, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface ImageLightboxProps {
   images: string[]
+  captions?: (string | null | undefined)[]
   currentIndex: number
   onClose: () => void
   onPrev: () => void
   onNext: () => void
 }
 
-export function ImageLightbox({ images, currentIndex, onClose, onPrev, onNext }: ImageLightboxProps) {
+const getCaption = (
+  captions: (string | null | undefined)[] | undefined,
+  index: number,
+): string | null => {
+  const value = captions?.[index]?.trim()
+  return value ? value : null
+}
+
+export function ImageLightbox({
+  images,
+  captions,
+  currentIndex,
+  onClose,
+  onPrev,
+  onNext,
+}: ImageLightboxProps) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -38,6 +54,13 @@ export function ImageLightbox({ images, currentIndex, onClose, onPrev, onNext }:
   }, [handleKeyDown])
 
   if (!mounted) return null
+
+  const currentCaption = getCaption(captions, currentIndex)
+  const showCounter = images.length > 1
+  const showFooter = Boolean(currentCaption) || showCounter
+  const imageMaxClass = showFooter
+    ? "max-h-[calc(90vh-5rem)] max-w-[90vw]"
+    : "max-h-[90vh] max-w-[90vw]"
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90" onClick={onClose}>
@@ -71,17 +94,29 @@ export function ImageLightbox({ images, currentIndex, onClose, onPrev, onNext }:
         </>
       )}
 
-      <div className="max-h-[90vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+      <div className={imageMaxClass} onClick={(e) => e.stopPropagation()}>
         <img
           src={images[currentIndex] || "/placeholder.svg"}
-          alt={`Изображение ${currentIndex + 1}`}
-          className="max-h-[90vh] max-w-[90vw] object-contain"
+          alt={currentCaption || `Изображение ${currentIndex + 1}`}
+          className={`${imageMaxClass} object-contain`}
         />
       </div>
 
-      {images.length > 1 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-4 py-2 text-sm text-white">
-          {currentIndex + 1} / {images.length}
+      {showFooter && (
+        <div
+          className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-4 pb-4 pt-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {currentCaption && (
+            <p className="max-w-3xl text-center text-sm leading-relaxed text-white/90">
+              {currentCaption}
+            </p>
+          )}
+          {showCounter && (
+            <div className="rounded-full bg-white/10 px-4 py-2 text-sm text-white">
+              {currentIndex + 1} / {images.length}
+            </div>
+          )}
         </div>
       )}
     </div>,

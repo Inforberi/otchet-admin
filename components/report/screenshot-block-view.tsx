@@ -77,6 +77,18 @@ export function ScreenshotBlockView({
         );
     };
 
+    const lightboxProps = {
+        images: data.images.map((img) => img.url),
+        captions: data.images.map((img) => img.caption),
+        currentIndex: currentImageIndex,
+        onClose: () => setLightboxOpen(false),
+        onPrev: goToPrev,
+        onNext: goToNext,
+    };
+
+    const renderLightbox = () =>
+        lightboxOpen ? <ImageLightbox {...lightboxProps} /> : null;
+
     const layout = data.layout || 'full-width';
     const imageSize = data.imageSize || 'medium';
     const customWidth = data.customWidth;
@@ -183,15 +195,7 @@ export function ScreenshotBlockView({
                     </div>
                 </section>
 
-                {lightboxOpen && (
-                    <ImageLightbox
-                        images={data.images.map((img) => img.url)}
-                        currentIndex={currentImageIndex}
-                        onClose={() => setLightboxOpen(false)}
-                        onPrev={goToPrev}
-                        onNext={goToNext}
-                    />
-                )}
+                {renderLightbox()}
             </>
         );
     }
@@ -233,15 +237,7 @@ export function ScreenshotBlockView({
                     </div>
                 </section>
 
-                {lightboxOpen && (
-                    <ImageLightbox
-                        images={data.images.map((img) => img.url)}
-                        currentIndex={currentImageIndex}
-                        onClose={() => setLightboxOpen(false)}
-                        onPrev={goToPrev}
-                        onNext={goToNext}
-                    />
-                )}
+                {renderLightbox()}
             </>
         );
     }
@@ -288,15 +284,7 @@ export function ScreenshotBlockView({
                     </div>
                 </section>
 
-                {lightboxOpen && (
-                    <ImageLightbox
-                        images={data.images.map((img) => img.url)}
-                        currentIndex={currentImageIndex}
-                        onClose={() => setLightboxOpen(false)}
-                        onPrev={goToPrev}
-                        onNext={goToNext}
-                    />
-                )}
+                {renderLightbox()}
             </>
         );
     }
@@ -343,15 +331,7 @@ export function ScreenshotBlockView({
                     </div>
                 </section>
 
-                {lightboxOpen && (
-                    <ImageLightbox
-                        images={data.images.map((img) => img.url)}
-                        currentIndex={currentImageIndex}
-                        onClose={() => setLightboxOpen(false)}
-                        onPrev={goToPrev}
-                        onNext={goToNext}
-                    />
-                )}
+                {renderLightbox()}
             </>
         );
     }
@@ -392,15 +372,7 @@ export function ScreenshotBlockView({
                         )}
                     </div>
 
-                    {lightboxOpen && (
-                        <ImageLightbox
-                            images={data.images.map((img) => img.url)}
-                            currentIndex={currentImageIndex}
-                            onClose={() => setLightboxOpen(false)}
-                            onPrev={goToPrev}
-                            onNext={goToNext}
-                        />
-                    )}
+                    {renderLightbox()}
                 </>
             ) : null}
         </section>
