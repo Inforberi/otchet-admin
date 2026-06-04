@@ -39,6 +39,7 @@ import {
     getReportPublicPath,
     joinGroupPathFromSegments,
 } from '@/lib/report-paths';
+import { sortBlocksByPosition } from '@/lib/report-block-order';
 
 function isEmptyHtml(html: string | null | undefined): boolean {
     if (!html) return true;
@@ -259,7 +260,7 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     <div className="space-y-2">
                         {!isEmptyHtml(report.subtitle) && (
                             <div
-                                className="report-rich-text text-lg text-zinc-300 whitespace-pre-wrap"
+                                className="report-rich-text text-lg text-zinc-300 [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
                                 dangerouslySetInnerHTML={{ __html: report.subtitle ?? '' }}
                             />
                         )}
@@ -300,16 +301,8 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     </div>
                 )}
                 {(() => {
-                    const taskBlocks =
-                        report.blocks
-                            ?.filter((b) => b.type === 'task')
-                            .sort((a, b) => a.position - b.position) ?? [];
-                    const contentBlocks =
-                        report.blocks
-                            ?.filter((b) => b.type !== 'task')
-                            .sort((a, b) => a.position - b.position) ?? [];
-                    const hasAny = taskBlocks.length > 0 || contentBlocks.length > 0;
-                    if (!hasAny) {
+                    const sortedBlocks = sortBlocksByPosition(report.blocks ?? []);
+                    if (sortedBlocks.length === 0) {
                         return (
                             <div className="rounded-lg border border-dashed border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] px-6 py-16 text-center">
                                 <p className="text-[var(--color-grayscale-6)]">Блоки не добавлены</p>
@@ -318,39 +311,29 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                     }
                     return (
                         <div className="space-y-20">
-                            {taskBlocks.length > 0 && (
-                                <div>
-                                    <h2 className="mb-4 text-sm font-semibold uppercase tracking-widest text-zinc-500">
-                                        Задачи ({taskBlocks.length})
-                                    </h2>
-                                    <div className="space-y-4">
-                                        {taskBlocks.map((block) => (
-                                            <TaskBlockCard
-                                                key={block.id}
-                                                blockId={block.id}
-                                                reportId={report.id}
-                                                groupId={report.group?.id}
-                                                data={block.data as TaskBlockData}
-                                                taskCompletedAt={block.taskCompletedAt}
-                                                taskCompletedByUserId={block.taskCompletedByUserId}
-                                                taskCompletionNotes={block.taskCompletionNotes}
-                                                taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
-                                                taskCompletionLayout={block.taskCompletionLayout ?? null}
-                                                currentUserId={currentUser?.id}
-                                                canEdit={canEdit}
-                                                showActions={false}
-                                                titleFontSize={report.titleFontSize || '40'}
-                                                descriptionFontSize={report.descriptionFontSize || '20'}
-                                                captionFontSize={report.captionFontSize || '16'}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                            {contentBlocks.length > 0 && (
-                                <div className="space-y-20">
-                                    {contentBlocks.map((block) => renderBlock(block, report, { currentUserId: currentUser?.id, canEdit }))}
-                                </div>
+                            {sortedBlocks.map((block) =>
+                                block.type === 'task' ? (
+                                    <TaskBlockCard
+                                        key={block.id}
+                                        blockId={block.id}
+                                        reportId={report.id}
+                                        groupId={report.group?.id}
+                                        data={block.data as TaskBlockData}
+                                        taskCompletedAt={block.taskCompletedAt}
+                                        taskCompletedByUserId={block.taskCompletedByUserId}
+                                        taskCompletionNotes={block.taskCompletionNotes}
+                                        taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
+                                        taskCompletionLayout={block.taskCompletionLayout ?? null}
+                                        currentUserId={currentUser?.id}
+                                        canEdit={canEdit}
+                                        showActions={false}
+                                        titleFontSize={report.titleFontSize || '40'}
+                                        descriptionFontSize={report.descriptionFontSize || '20'}
+                                        captionFontSize={report.captionFontSize || '16'}
+                                    />
+                                ) : (
+                                    <div key={block.id}>{renderBlock(block, report, { currentUserId: currentUser?.id, canEdit })}</div>
+                                )
                             )}
                         </div>
                     );

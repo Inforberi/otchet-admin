@@ -9,6 +9,7 @@ import type {
     TaskBlockData,
     ImageData,
 } from '@/lib/db-types';
+import { formatAssigneesList, normalizeTaskAssignees } from '@/lib/task-assignees';
 
 // GET /api/reports/[id]/pdf - генерация PDF отчета
 export async function GET(
@@ -394,7 +395,10 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
             if (data.createdAt) metaParts.push(`Создано: ${formatDate(data.createdAt)}`);
             if (data.startDate) metaParts.push(`Начало: ${formatDate(data.startDate)}`);
             if (data.deadline) metaParts.push(`Дедлайн: ${formatDate(data.deadline)}`);
-            if (data.assigneeName) metaParts.push(`Исполнитель: ${escapeHTML(data.assigneeName)}`);
+            const assigneesList = formatAssigneesList(normalizeTaskAssignees(data));
+            if (assigneesList) {
+                metaParts.push(`Исполнители: ${escapeHTML(assigneesList)}`);
+            }
 
             const completedAt = block.taskCompletedAt
                 ? formatDate(
@@ -504,6 +508,25 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
         a {
             color: #2563eb;
             text-decoration: underline;
+        }
+        ol, ul {
+            margin: 12px 0;
+            padding-left: 24px;
+            list-style-position: outside;
+        }
+        ol {
+            list-style-type: decimal;
+        }
+        ul {
+            list-style-type: disc;
+        }
+        li {
+            display: list-item;
+            margin: 4px 0;
+            padding-left: 4px;
+        }
+        li > p {
+            margin: 0;
         }
         @media print {
             .header {

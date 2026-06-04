@@ -228,6 +228,67 @@ h2 {
     color: #93c5fd;
 }
 
+/* Списки в rich-text (просмотр и редактор TipTap) */
+.report-rich-text ol,
+.report-rich-text ul,
+.ProseMirror ol,
+.ProseMirror ul {
+    margin: 0.75rem 0;
+    padding-left: 1.5rem;
+    list-style-position: outside;
+}
+
+.report-rich-text ol,
+.ProseMirror ol {
+    list-style-type: decimal;
+}
+
+.report-rich-text ul,
+.ProseMirror ul {
+    list-style-type: disc;
+}
+
+.report-rich-text li,
+.ProseMirror li {
+    display: list-item;
+    margin: 0.25rem 0;
+    padding-left: 0.25rem;
+}
+
+.report-rich-text li > p,
+.ProseMirror li > p {
+    margin: 0;
+}
+
+.report-rich-text ol ol,
+.report-rich-text ul ul,
+.report-rich-text ol ul,
+.report-rich-text ul ol,
+.ProseMirror ol ol,
+.ProseMirror ul ul,
+.ProseMirror ol ul,
+.ProseMirror ul ol {
+    margin: 0.25rem 0;
+    padding-left: 1.25rem;
+}
+
+.report-rich-text p,
+.ProseMirror p {
+    margin: 0;
+}
+
+.report-rich-text p,
+.report-rich-text li,
+.ProseMirror p,
+.ProseMirror li {
+    white-space: pre-wrap;
+}
+
+.report-rich-text p + p,
+.ProseMirror p + p {
+    margin-top: 0.5rem;
+}
+
 /* Тонкая полоса прокрутки (редактор и тёмные панели) */
 .scrollbar-thin {
     scrollbar-width: thin;

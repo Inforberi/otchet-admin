@@ -20,7 +20,16 @@ import {
     AlignRight,
 } from 'lucide-react';
 import type { TaskBlockData, ImageData, ScreenshotBlockData, PhotoBlockLayout } from '@/lib/db-types';
+import {
+    canUserActOnTask,
+    formatAssigneesList,
+    normalizeTaskAssignees,
+} from '@/lib/task-assignees';
 import { ScreenshotBlockView } from '@/components/report/screenshot-block-view';
+import {
+    TaskAssigneesBadges,
+    TaskAssigneesPicker,
+} from '@/components/report/task-assignees-picker';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const FormattedTextEditor = dynamic(
@@ -265,11 +274,11 @@ function TaskImageListEditor({
     );
 }
 
-interface UserOption {
-    id: string;
-    firstName: string;
-    lastName: string;
-    email: string;
+function withNormalizedAssignees(data: TaskBlockData): TaskBlockData {
+    return {
+        ...data,
+        assignees: normalizeTaskAssignees(data),
+    };
 }
 
 interface TaskBlockCardProps {
@@ -363,10 +372,9 @@ export function TaskBlockCard({
 
     // --- Edit state (only when onDataChange is provided) ---
     const isEditable = !!onDataChange;
-    const [localData, setLocalData] = useState<TaskBlockData>(data);
-    const [users, setUsers] = useState<UserOption[]>([]);
-    const [loadingUsers, setLoadingUsers] = useState(false);
-    const [usersLoadError, setUsersLoadError] = useState(false);
+    const [localData, setLocalData] = useState<TaskBlockData>(() =>
+        withNormalizedAssignees(data)
+    );
     const [taskUploading, setTaskUploading] = useState(false);
     const [isTaskDragOver, setIsTaskDragOver] = useState(false);
     const taskFileRef = useRef<HTMLInputElement>(null);
@@ -374,9 +382,14 @@ export function TaskBlockCard({
     onDataChangeRef.current = onDataChange;
 
     // Sync localData when block data changes externally (e.g. after draft load)
+    const externalDataKey = useMemo(
+        () => JSON.stringify(normalizeTaskAssignees(data)),
+        [data]
+    );
+
     useEffect(() => {
-        setLocalData(data);
-    }, [blockId]); // only on block id change, not every render
+        setLocalData(withNormalizedAssignees(data));
+    }, [blockId, externalDataKey, data]);
 
     useEffect(() => {
         setCompleted(!!taskCompletedAt);
@@ -396,28 +409,10 @@ export function TaskBlockCard({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [localData]);
 
-    // Load users list for assignee select
-    useEffect(() => {
-        if (!isEditable) return;
-        setLoadingUsers(true);
-        setUsersLoadError(false);
-        fetch('/api/users/assignees')
-            .then((r) => {
-                if (!r.ok) {
-                    console.warn('Failed to load assignees:', r.status);
-                    setUsersLoadError(true);
-                    return { users: [] as UserOption[] };
-                }
-                return r.json() as Promise<{ users: UserOption[] }>;
-            })
-            .then((d) => setUsers(d.users ?? []))
-            .catch((err) => {
-                console.warn('Failed to load assignees:', err);
-                setUsers([]);
-                setUsersLoadError(true);
-            })
-            .finally(() => setLoadingUsers(false));
-    }, [isEditable]);
+    const assignees = useMemo(
+        () => normalizeTaskAssignees(localData),
+        [localData]
+    );
 
     const isCompleted = completed;
     const isClosedReportView = isCompleted && !isEditable;
@@ -427,11 +422,8 @@ export function TaskBlockCard({
     const taskDescriptionFontSize =
         localData.descriptionFontSize || descriptionFontSize || '20';
 
-    const isAssignee = currentUserId && localData.assigneeId
-        ? currentUserId === localData.assigneeId
-        : !localData.assigneeId;
-    const canComplete = isAssignee || canEdit;
-    const canReopen = isAssignee || canEdit;
+    const canComplete = canUserActOnTask(currentUserId ?? undefined, assignees, canEdit);
+    const canReopen = canComplete;
 
     // --- Upload helpers ---
     const uploadFiles = useCallback(async (files: FileList | File[]): Promise<ImageData[]> => {
@@ -697,9 +689,11 @@ export function TaskBlockCard({
                 <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                         {deadlineBadge()}
-                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-400">
-                            <User className="w-3 h-3" />
-                            {localData.assigneeName || '— Не назначен —'}
+                        <span className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-400">
+                            <User className="w-3 h-3 shrink-0" />
+                            {assignees.length > 0
+                                ? formatAssigneesList(assignees)
+                                : '— Не назначен —'}
                         </span>
                     </div>
                 </div>
@@ -840,46 +834,20 @@ export function TaskBlockCard({
                             </div>
                         </div>
 
-                        {/* Assignee */}
+                        {/* Assignees */}
                         <div>
                             <label className={labelCls}>
                                 <span className="flex items-center gap-1">
                                     <User className="w-3 h-3" />
-                                    Исполнитель
+                                    Исполнители
                                 </span>
                             </label>
-                            {loadingUsers ? (
-                                <div className="text-xs text-zinc-500 py-2">Загрузка пользователей...</div>
-                            ) : (
-                                <>
-                                <select
-                                    value={localData.assigneeId || ''}
-                                    onChange={(e) => {
-                                        const uid = e.target.value;
-                                        const u = users.find((x) => x.id === uid);
-                                        setLocalData((p) => ({
-                                            ...p,
-                                            assigneeId: uid || null,
-                                            assigneeName: u ? `${u.firstName} ${u.lastName}` : null,
-                                        }));
-                                    }}
-                                    aria-label="Исполнитель"
-                                    className={`${inputCls} cursor-pointer`}
-                                >
-                                    <option value="">— Не назначен —</option>
-                                    {users.map((u) => (
-                                        <option key={u.id} value={u.id}>
-                                            {u.firstName} {u.lastName} ({u.email})
-                                        </option>
-                                    ))}
-                                </select>
-                                {usersLoadError && (
-                                    <p className="mt-1 text-xs text-amber-400/90">
-                                        Не удалось загрузить список пользователей
-                                    </p>
-                                )}
-                                </>
-                            )}
+                            <TaskAssigneesPicker
+                                value={assignees}
+                                onChange={(next) =>
+                                    setLocalData((p) => ({ ...p, assignees: next }))
+                                }
+                            />
                         </div>
 
                         <div>
@@ -915,27 +883,27 @@ export function TaskBlockCard({
                             captionFontSize={captionFontSize}
                             variant="embedded"
                         />
-                        <div className="select-none grid grid-cols-1 gap-3 rounded-lg border border-zinc-700/50 bg-zinc-800/60 px-4 py-3 sm:grid-cols-3">
-                            <div className="flex items-center gap-2 text-sm text-zinc-300">
-                                <CalendarDays className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
-                                <span>
-                                    <span className="text-zinc-400">Начало: </span>
-                                    {localData.startDate ? formatDate(localData.startDate) : '—'}
-                                </span>
+                        <div className="select-none space-y-3 rounded-lg border border-zinc-700/50 bg-zinc-800/60 px-4 py-3">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                                    <CalendarDays className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
+                                    <span>
+                                        <span className="text-zinc-400">Начало: </span>
+                                        {localData.startDate ? formatDate(localData.startDate) : '—'}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                                    <Clock className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
+                                    <span>
+                                        <span className="text-zinc-400">Дедлайн: </span>
+                                        {localData.deadline ? formatDate(localData.deadline) : '—'}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-300">
-                                <Clock className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
-                                <span>
-                                    <span className="text-zinc-400">Дедлайн: </span>
-                                    {localData.deadline ? formatDate(localData.deadline) : '—'}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-zinc-300">
-                                <User className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
-                                <span>
-                                    <span className="text-zinc-400">Исполнитель: </span>
-                                    {localData.assigneeName || '—'}
-                                </span>
+                            <div className="flex flex-wrap items-start gap-2 text-sm text-zinc-300">
+                                <User className="w-3.5 h-3.5 shrink-0 text-zinc-400 mt-0.5" />
+                                <span className="text-zinc-400 shrink-0">Исполнители:</span>
+                                <TaskAssigneesBadges assignees={assignees} />
                             </div>
                         </div>
                     </div>

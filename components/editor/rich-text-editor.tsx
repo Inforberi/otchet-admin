@@ -10,7 +10,16 @@ import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
 import { Extension, type Editor } from '@tiptap/core';
 import Link from '@tiptap/extension-link';
-import { Bold, Italic, Palette, AlignCenter, Link2, Unlink } from 'lucide-react';
+import {
+    Bold,
+    Italic,
+    Palette,
+    AlignCenter,
+    Link2,
+    Unlink,
+    List,
+    ListOrdered,
+} from 'lucide-react';
 import {
     extractFontSizeFromHtml,
     normalizeRichTextHtml,
@@ -225,6 +234,8 @@ const syncToolbarState = (
         defaultFontSize
     ),
     linkHref: (editor.getAttributes('link').href as string | undefined) ?? '',
+    isBulletList: editor.isActive('bulletList'),
+    isOrderedList: editor.isActive('orderedList'),
 });
 
 export default function RichTextEditor({
@@ -251,6 +262,8 @@ export default function RichTextEditor({
         color: DEFAULT_COLOR,
         fontSize: '',
         linkHref: '',
+        isBulletList: false,
+        isOrderedList: false,
     });
     const colorPickerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<Editor | null>(null);
@@ -273,8 +286,8 @@ export default function RichTextEditor({
             editorProps: {
                 attributes: {
                     class:
-                        'min-h-full px-3 py-2 text-zinc-200 outline-none [&_p]:my-0 [&_blockquote]:my-3 [&_blockquote]:border-l-4 [&_blockquote]:border-zinc-600 [&_blockquote]:pl-4 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_strong]:font-semibold [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6',
-                    style: `white-space: pre-wrap; word-break: break-word; min-height: ${minHeight}; color: rgb(228, 228, 231);`,
+                        'min-h-full px-3 py-2 text-zinc-200 outline-none [&_blockquote]:my-3 [&_blockquote]:border-l-4 [&_blockquote]:border-zinc-600 [&_blockquote]:pl-4 [&_strong]:font-semibold',
+                    style: `word-break: break-word; min-height: ${minHeight}; color: rgb(228, 228, 231);`,
                 },
                 handlePaste: (_view, event) => {
                     const text = event.clipboardData?.getData('text/plain');
@@ -536,6 +549,38 @@ export default function RichTextEditor({
                 >
                     <AlignCenter className="h-4 w-4" />
                 </button>
+                {mode === 'block' && (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() =>
+                                editor.chain().focus().toggleBulletList().run()
+                            }
+                            className={`cursor-pointer rounded p-1.5 transition-colors ${
+                                toolbarState.isBulletList
+                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                    : 'text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                            title="Маркированный список"
+                        >
+                            <List className="h-4 w-4" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() =>
+                                editor.chain().focus().toggleOrderedList().run()
+                            }
+                            className={`cursor-pointer rounded p-1.5 transition-colors ${
+                                toolbarState.isOrderedList
+                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                    : 'text-zinc-300 hover:bg-zinc-700'
+                            }`}
+                            title="Нумерованный список"
+                        >
+                            <ListOrdered className="h-4 w-4" />
+                        </button>
+                    </>
+                )}
                 {mode === 'block' && (
                     <div className="relative" ref={linkEditorRef}>
                         <button

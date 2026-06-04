@@ -35,7 +35,7 @@ export function TextBlockView({ data, titleFontSize = '40', contentFontSize = '2
 
             {hasContent && (
                 <div
-                    className="report-rich-text text-zinc-300 whitespace-pre-wrap leading-relaxed"
+                    className="report-rich-text text-zinc-300 leading-relaxed [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
                     style={{ fontSize: `${contentFontSize}px` }}
                     dangerouslySetInnerHTML={{ __html: data.content }}
                 />

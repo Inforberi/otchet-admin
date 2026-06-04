@@ -63,6 +63,11 @@ import {
     joinGroupPathFromSegments,
 } from '@/lib/report-paths';
 import {
+    insertBlockAt,
+    reindexBlockPositions,
+    sortBlocksByPosition,
+} from '@/lib/report-block-order';
+import {
     DndContext,
     closestCenter,
     KeyboardSensor,
@@ -145,33 +150,6 @@ const ADD_BLOCK_BUTTONS: { type: BlockTypeKey; label: string; Icon: LucideIcon; 
     { type: 'task', label: 'Задача', Icon: ClipboardList, ring: 'hover:ring-purple-500/40' },
     { type: 'divider', label: 'HR', Icon: Minus, ring: 'hover:ring-zinc-500/40' },
 ];
-
-const splitBlocks = (blocks: ReportBlockFromDB[]) => {
-    const sorted = [...blocks].sort((a, b) => a.position - b.position);
-    return {
-        taskBlocks: sorted.filter((b) => b.type === 'task'),
-        contentBlocks: sorted.filter((b) => b.type !== 'task'),
-    };
-};
-
-const mergeWithPositions = (
-    taskBlocks: ReportBlockFromDB[],
-    contentBlocks: ReportBlockFromDB[]
-): ReportBlockFromDB[] =>
-    [...taskBlocks, ...contentBlocks].map((block, index) => ({
-        ...block,
-        position: index,
-    }));
-
-const blocksNeedNormalization = (blocks: ReportBlockFromDB[]): boolean => {
-    const sorted = [...blocks].sort((a, b) => a.position - b.position);
-    let seenContent = false;
-    for (const block of sorted) {
-        if (block.type !== 'task') seenContent = true;
-        else if (seenContent) return true;
-    }
-    return false;
-};
 
 const getBlockPreview = (block: ReportBlockFromDB | { type: ReportBlockFromDB['type']; data: ReportBlockFromDB['data'] }): string => {
     if (block.type === 'text') {
@@ -646,7 +624,6 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const [publishSuccessOpen, setPublishSuccessOpen] = useState(false);
     const [ancestors, setAncestors] = useState<GroupAncestor[]>([]);
     const draftLoadedForReportIdRef = useRef<string | null>(null);
-    const normalizationReportIdRef = useRef<string | null>(null);
 
     useEffect(() => {
         if (!reportApiUrl) return;
@@ -669,8 +646,8 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
-    const { taskBlocks, contentBlocks } = useMemo(() => splitBlocks(blocks), [blocks]);
-    const hasBlocks = taskBlocks.length > 0 || contentBlocks.length > 0;
+    const sortedBlocks = useMemo(() => sortBlocksByPosition(blocks), [blocks]);
+    const hasBlocks = sortedBlocks.length > 0;
 
     const handleLogout = useCallback(async () => {
         try {
@@ -740,31 +717,16 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         if (ok) setPublishSuccessOpen(true);
     }, [publish]);
 
-    const handleTaskDragEnd = useCallback(
+    const handleBlocksDragEnd = useCallback(
         (event: DragEndEvent) => {
             const { active, over } = event;
             if (!over || active.id === over.id) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-            const oldIndex = tasks.findIndex((b) => b.id === active.id);
-            const newIndex = tasks.findIndex((b) => b.id === over.id);
+            const sorted = sortBlocksByPosition(blocks);
+            const oldIndex = sorted.findIndex((b) => b.id === active.id);
+            const newIndex = sorted.findIndex((b) => b.id === over.id);
             if (oldIndex === -1 || newIndex === -1) return;
             replaceBlocksLocally(
-                mergeWithPositions(arrayMove(tasks, oldIndex, newIndex), content)
-            );
-        },
-        [blocks, replaceBlocksLocally]
-    );
-
-    const handleContentDragEnd = useCallback(
-        (event: DragEndEvent) => {
-            const { active, over } = event;
-            if (!over || active.id === over.id) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-            const oldIndex = content.findIndex((b) => b.id === active.id);
-            const newIndex = content.findIndex((b) => b.id === over.id);
-            if (oldIndex === -1 || newIndex === -1) return;
-            replaceBlocksLocally(
-                mergeWithPositions(tasks, arrayMove(content, oldIndex, newIndex))
+                reindexBlockPositions(arrayMove(sorted, oldIndex, newIndex))
             );
         },
         [blocks, replaceBlocksLocally]
@@ -777,10 +739,9 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const confirmDeleteBlock = useCallback(() => {
         const id = blockToDeleteId;
         if (!id) return;
-        const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-        const nextTasks = tasks.filter((block) => block.id !== id);
-        const nextContent = content.filter((block) => block.id !== id);
-        const nextBlocks = mergeWithPositions(nextTasks, nextContent);
+        const nextBlocks = reindexBlockPositions(
+            sortBlocksByPosition(blocks).filter((block) => block.id !== id)
+        );
         replaceBlocksLocally(nextBlocks);
         setSelectedBlockId((cur) => (cur === id ? nextBlocks[0]?.id || null : cur));
         setBlockToDeleteId(null);
@@ -790,7 +751,6 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         (id: string) => {
             const blockToDup = blocks.find((b) => b.id === id);
             if (!blockToDup) return;
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
             const duplicatedBlock: ReportBlockFromDB = {
                 ...blockToDup,
                 id: generateClientId(),
@@ -800,10 +760,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 updatedAt: new Date(),
                 data: JSON.parse(JSON.stringify(blockToDup.data)) as ReportBlockFromDB['data'],
             };
-            const nextBlocks =
-                blockToDup.type === 'task'
-                    ? mergeWithPositions([...tasks, duplicatedBlock], content)
-                    : mergeWithPositions(tasks, [...content, duplicatedBlock]);
+            const nextBlocks = insertBlockAt(blocks, duplicatedBlock, id);
             replaceBlocksLocally(nextBlocks);
             setSelectedBlockId(duplicatedBlock.id);
         },
@@ -824,13 +781,11 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         createdAt: new Date().toISOString().slice(0, 10),
                         startDate: null,
                         deadline: null,
-                        assigneeId: null,
-                        assigneeName: null,
+                        assignees: [],
                         layout: 'full-width',
                     } satisfies TaskBlockData;
                 return { title: '', description: '', images: [], layout: 'full-width' };
             };
-            const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
             const newBlock: ReportBlockFromDB = {
                 id: generateClientId(),
                 reportId,
@@ -841,14 +796,11 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                 updatedAt: new Date(),
                 data: defaultData(),
             };
-            const nextBlocks =
-                type === 'task'
-                    ? mergeWithPositions([...tasks, newBlock], content)
-                    : mergeWithPositions(tasks, [...content, newBlock]);
+            const nextBlocks = insertBlockAt(blocks, newBlock, selectedBlockId);
             replaceBlocksLocally(nextBlocks);
             setSelectedBlockId(newBlock.id);
         },
-        [blocks, report, reportId, replaceBlocksLocally]
+        [blocks, report, reportId, replaceBlocksLocally, selectedBlockId]
     );
 
     const handleSelectBlock = useCallback((id: string) => setSelectedBlockId(id), []);
@@ -881,26 +833,13 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         if (!resolvedReportId) return;
         if (draftLoadedForReportIdRef.current === resolvedReportId) return;
         draftLoadedForReportIdRef.current = resolvedReportId;
-        normalizationReportIdRef.current = null;
         void loadReport().then((merged) => {
             if (merged && merged.blocks.length > 0) {
-                const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(merged.blocks);
-                setSelectedBlockId(tasks[0]?.id ?? content[0]?.id ?? merged.blocks[0].id);
+                const sorted = sortBlocksByPosition(merged.blocks);
+                setSelectedBlockId(sorted[0]?.id ?? null);
             }
         });
     }, [resolvedReportId, canEdit, roleLoading, router, loadReport, groupPathStr, reportSlug, report]);
-
-    useEffect(() => {
-        if (!resolvedReportId || blocks.length === 0) return;
-        if (!blocksNeedNormalization(blocks)) {
-            normalizationReportIdRef.current = resolvedReportId;
-            return;
-        }
-        if (normalizationReportIdRef.current === resolvedReportId) return;
-        const { taskBlocks: tasks, contentBlocks: content } = splitBlocks(blocks);
-        replaceBlocksLocally(mergeWithPositions(tasks, content));
-        normalizationReportIdRef.current = resolvedReportId;
-    }, [blocks, resolvedReportId, replaceBlocksLocally]);
 
     useEffect(() => {
         if (report && !report.date) markMetadataDirty({ date: new Date().toISOString().split('T')[0] });
@@ -1058,66 +997,43 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                 <p className="text-sm text-zinc-600 mt-2">Добавьте первый блок через панель справа</p>
                             </div>
                         ) : (
-                            <>
-                                {taskBlocks.length > 0 && (
-                                    <div className="space-y-4">
-                                        {contentBlocks.length > 0 && (
-                                            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-purple-400">
-                                                Задачи ({taskBlocks.length})
-                                            </h2>
+                            <div className="space-y-4">
+                                {sortedBlocks.map((block) => (
+                                    <div
+                                        key={block.id}
+                                        id={`block-${block.id}`}
+                                        className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
+                                    >
+                                        {block.type === 'task' ? (
+                                            <TaskBlockCard
+                                                blockId={block.id}
+                                                reportId={reportId}
+                                                groupId={report?.groupId}
+                                                data={block.data as TaskBlockData}
+                                                taskCompletedAt={block.taskCompletedAt}
+                                                taskCompletedByUserId={block.taskCompletedByUserId}
+                                                taskCompletionNotes={block.taskCompletionNotes}
+                                                taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
+                                                taskCompletionLayout={block.taskCompletionLayout ?? null}
+                                                currentUserId={currentUser?.id}
+                                                canEdit={canEdit}
+                                                showActions={true}
+                                                titleFontSize={report.titleFontSize || '40'}
+                                                descriptionFontSize={report.descriptionFontSize || '20'}
+                                                captionFontSize={report.captionFontSize || '16'}
+                                                onDataChange={(data) => markBlockDirty(block.id, data)}
+                                            />
+                                        ) : (
+                                            <BlockEditor
+                                                block={block}
+                                                onLocalChange={markBlockDirty}
+                                                reportId={reportId}
+                                                groupId={report?.groupId}
+                                            />
                                         )}
-                                        {taskBlocks.map((block) => (
-                                            <div
-                                                key={block.id}
-                                                id={`block-${block.id}`}
-                                                className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
-                                            >
-                                                <TaskBlockCard
-                                                    blockId={block.id}
-                                                    reportId={reportId}
-                                                    groupId={report?.groupId}
-                                                    data={block.data as TaskBlockData}
-                                                    taskCompletedAt={block.taskCompletedAt}
-                                                    taskCompletedByUserId={block.taskCompletedByUserId}
-                                                    taskCompletionNotes={block.taskCompletionNotes}
-                                                    taskCompletionImages={block.taskCompletionImages as ImageData[] | null}
-                                                    taskCompletionLayout={block.taskCompletionLayout ?? null}
-                                                    currentUserId={currentUser?.id}
-                                                    canEdit={canEdit}
-                                                    showActions={true}
-                                                    titleFontSize={report.titleFontSize || '40'}
-                                                    descriptionFontSize={report.descriptionFontSize || '20'}
-                                                    captionFontSize={report.captionFontSize || '16'}
-                                                    onDataChange={(data) => markBlockDirty(block.id, data)}
-                                                />
-                                            </div>
-                                        ))}
                                     </div>
-                                )}
-                                {contentBlocks.length > 0 && (
-                                    <div className={`space-y-4 ${taskBlocks.length > 0 ? 'pt-2' : ''}`}>
-                                        {taskBlocks.length > 0 && (
-                                            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-zinc-500">
-                                                Блоки ({contentBlocks.length})
-                                            </h2>
-                                        )}
-                                        {contentBlocks.map((block) => (
-                                            <div
-                                                key={block.id}
-                                                id={`block-${block.id}`}
-                                                className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
-                                            >
-                                                <BlockEditor
-                                                    block={block}
-                                                    onLocalChange={markBlockDirty}
-                                                    reportId={reportId}
-                                                    groupId={report?.groupId}
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </>
+                                ))}
+                            </div>
                         )}
                     </div>
                 </div>
@@ -1146,37 +1062,28 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         </div>
                     </div>
                     <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
-                        {taskBlocks.length > 0 && (
-                            <>
-                                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-purple-400/90">
-                                    Задачи ({taskBlocks.length})
-                                </p>
-                                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleTaskDragEnd}>
-                                    <SortableContext items={taskBlocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                                        {taskBlocks.map((block) => (
-                                            <SortableBlockCard key={block.id} block={block} isSelected={selectedBlockId === block.id} onSelect={handleSelectBlock} onDelete={handleDeleteBlock} onDuplicate={handleDuplicateBlock} />
-                                        ))}
-                                    </SortableContext>
-                                </DndContext>
-                            </>
-                        )}
-
-                        {contentBlocks.length > 0 && (
-                            <>
-                                {taskBlocks.length > 0 && (
-                                    <div className="my-4 border-t border-zinc-700/50" />
-                                )}
-                                <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                                    Блоки ({contentBlocks.length})
-                                </p>
-                                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleContentDragEnd}>
-                                    <SortableContext items={contentBlocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                                        {contentBlocks.map((block) => (
-                                            <SortableBlockCard key={block.id} block={block} isSelected={selectedBlockId === block.id} onSelect={handleSelectBlock} onDelete={handleDeleteBlock} onDuplicate={handleDuplicateBlock} />
-                                        ))}
-                                    </SortableContext>
-                                </DndContext>
-                            </>
+                        {hasBlocks && (
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={handleBlocksDragEnd}
+                            >
+                                <SortableContext
+                                    items={sortedBlocks.map((b) => b.id)}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    {sortedBlocks.map((block) => (
+                                        <SortableBlockCard
+                                            key={block.id}
+                                            block={block}
+                                            isSelected={selectedBlockId === block.id}
+                                            onSelect={handleSelectBlock}
+                                            onDelete={handleDeleteBlock}
+                                            onDuplicate={handleDuplicateBlock}
+                                        />
+                                    ))}
+                                </SortableContext>
+                            </DndContext>
                         )}
 
                         {!hasBlocks && (

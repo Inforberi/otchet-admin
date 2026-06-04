@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getRequestUser } from '@/lib/auth-helpers';
 import { canEditContent } from '@/lib/auth';
 import type { TaskBlockData, ImageData, PhotoBlockLayout } from '@/lib/db-types';
+import { canUserActOnTask, normalizeTaskAssignees } from '@/lib/task-assignees';
 import { sanitizeRichTextHtml } from '@/lib/rich-text-sanitize';
 
 const VALID_LAYOUTS: PhotoBlockLayout[] = [
@@ -57,8 +58,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const data = block.data as unknown as TaskBlockData;
         const isEditor = canEditContent(user);
 
-        // Only the assignee or an editor can complete
-        if (!isEditor && data.assigneeId && data.assigneeId !== user.id) {
+        const assignees = normalizeTaskAssignees(data);
+        if (!canUserActOnTask(user.id, assignees, isEditor)) {
             return NextResponse.json(
                 { error: 'Только исполнитель может закрыть задачу.' },
                 { status: 403 }
@@ -138,8 +139,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         const data = block.data as unknown as TaskBlockData;
         const isEditor = canEditContent(user);
 
-        // Only the assignee or an editor can reopen
-        if (!isEditor && data.assigneeId && data.assigneeId !== user.id) {
+        const assignees = normalizeTaskAssignees(data);
+        if (!canUserActOnTask(user.id, assignees, isEditor)) {
             return NextResponse.json(
                 { error: 'Только исполнитель может переоткрыть задачу.' },
                 { status: 403 }

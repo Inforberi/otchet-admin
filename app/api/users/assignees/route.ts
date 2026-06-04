@@ -8,8 +8,21 @@ export async function GET(request: NextRequest) {
     if (authError) return authError;
 
     try {
+        const q = request.nextUrl.searchParams.get('q')?.trim() ?? '';
+
         const users = await prisma.user.findMany({
-            where: { isActive: true },
+            where: {
+                isActive: true,
+                ...(q
+                    ? {
+                          OR: [
+                              { firstName: { contains: q, mode: 'insensitive' } },
+                              { lastName: { contains: q, mode: 'insensitive' } },
+                              { email: { contains: q, mode: 'insensitive' } },
+                          ],
+                      }
+                    : {}),
+            },
             orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
             select: {
                 id: true,
