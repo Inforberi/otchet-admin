@@ -52,7 +52,11 @@ export function ReportEditorToolbarActions({
             role="toolbar"
             aria-label="Действия редактора"
         >
-            <span className={`${syncStatusBadge.className} max-w-[11rem] shrink-0 truncate xl:max-w-none`}>
+            <span
+                className={`${syncStatusBadge.className} inline-flex min-w-[10.5rem] shrink-0 items-center justify-center truncate xl:min-w-[19rem]`}
+                title={syncStatusBadge.text}
+                aria-live="polite"
+            >
                 <span className="xl:hidden">{syncStatusBadge.shortText}</span>
                 <span className="hidden xl:inline">{syncStatusBadge.text}</span>
             </span>
@@ -67,7 +71,7 @@ export function ReportEditorToolbarActions({
                 type="button"
                 onClick={onSave}
                 disabled={saveDisabled}
-                className={TOOLBAR_BTN}
+                className={`${TOOLBAR_BTN} min-w-[8.75rem]`}
                 title={saveLabel}
             >
                 <Save className="h-4 w-4 shrink-0" aria-hidden />

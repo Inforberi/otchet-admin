@@ -119,6 +119,7 @@ export interface ReportFromDB {
     slug?: string | null;
     titleFontSize?: string | null; // размер шрифта заголовка в px (по умолчанию 40px)
     descriptionFontSize?: string | null; // размер шрифта описания в px (по умолчанию 20px)
+    contentHeadingFontSize?: string | null; // пресет «Заголовок» в описании блока (по умолчанию 24px)
     captionFontSize?: string | null; // размер шрифта подписи к изображениям в px (по умолчанию 16px)
     version: number;
     draftHash?: string | null;
@@ -150,6 +151,7 @@ export interface UpdateReportInput extends Partial<CreateReportInput> {
     id: string;
     titleFontSize?: string | null;
     descriptionFontSize?: string | null;
+    contentHeadingFontSize?: string | null;
     captionFontSize?: string | null;
     expectedVersion?: number;
 }

@@ -565,6 +565,17 @@ async function generatePDFHTML(report: ReportFromDB, baseUrl: string): Promise<s
         li > p {
             margin: 0;
         }
+        p {
+            margin: 0;
+        }
+        p + p {
+            margin-top: 0.75rem;
+        }
+        p.rich-text-spacer {
+            margin: 0;
+            min-height: 0.85em;
+            line-height: 0.85em;
+        }
         @media print {
             .header {
                 page-break-after: avoid;

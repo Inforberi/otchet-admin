@@ -92,6 +92,7 @@ model Report {
   status            String   @default("draft") // draft | published
   titleFontSize     String?  @default("40") @map("title_font_size") // размер шрифта заголовка в px
   descriptionFontSize String? @default("20") @map("description_font_size") // размер шрифта описания в px
+  contentHeadingFontSize String? @default("24") @map("content_heading_font_size") // пресет «Заголовок» в тексте блока, px
   captionFontSize   String?  @default("16") @map("caption_font_size") // размер шрифта подписи к изображениям в px
   groupId           String   @map("group_id")
   version           Int      @default(1)

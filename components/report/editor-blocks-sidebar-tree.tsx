@@ -106,7 +106,7 @@ const SortableBlockCardWrapper = memo(function SortableBlockCardWrapper({
         <div
             ref={setNodeRef}
             style={style}
-            className={indented ? 'ml-3 sm:ml-4' : undefined}
+            className={undefined}
         >
             <BlockListCard
                 block={block}
@@ -252,7 +252,7 @@ export const EditorBlocksSidebarTree = memo(function EditorBlocksSidebarTree({
                         />
                         {!collapsed && node.children.length > 0 && (
                             <div
-                                className={`mb-1 ml-3 border-l pl-2 sm:ml-4 sm:pl-3 ${
+                                className={`mb-1 ml-2 border-l pl-1.5 sm:pl-2 ${
                                     showChildrenZoneHint
                                         ? 'border-amber-500/50'
                                         : 'border-zinc-800/60'

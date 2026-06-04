@@ -6,7 +6,7 @@ import {
     type DraftMetadata,
 } from '@/lib/draft-hash';
 import type { ReportBlockFromDB } from '@/lib/db-types';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
     getRequestUser,
     isViewerRole,
@@ -14,6 +14,14 @@ import {
 } from '@/lib/auth-helpers';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 import { sanitizeRichTextHtml } from '@/lib/rich-text-sanitize';
+import { canEditContent } from '@/lib/auth';
+import { canUserActOnTask, normalizeTaskAssignees } from '@/lib/task-assignees';
+import {
+    buildTaskBlockPrismaData,
+    sanitizeTaskDraftSnapshot,
+    taskCompletionStatusChanged,
+} from '@/lib/task-draft-block';
+import type { ImageData, TaskBlockData } from '@/lib/db-types';
 
 const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
@@ -23,6 +31,11 @@ type DraftBlockSnapshot = {
     position: number;
     parentId?: string | null;
     data: ReportBlockFromDB['data'];
+    taskCompletedAt?: string | null;
+    taskCompletedByUserId?: string | null;
+    taskCompletionNotes?: string | null;
+    taskCompletionImages?: ImageData[] | null;
+    taskCompletionLayout?: string | null;
 };
 
 type DraftSnapshotBody = {
@@ -40,6 +53,7 @@ const selectReportDraftFields = {
     status: true,
     titleFontSize: true,
     descriptionFontSize: true,
+    contentHeadingFontSize: true,
     captionFontSize: true,
     groupId: true,
     slug: true,
@@ -79,6 +93,7 @@ const sanitizeDraftMetadata = (report: DraftMetadata): DraftMetadata => ({
     date: report.date,
     titleFontSize: report.titleFontSize,
     descriptionFontSize: report.descriptionFontSize,
+    contentHeadingFontSize: report.contentHeadingFontSize,
     captionFontSize: report.captionFontSize,
 });
 
@@ -124,14 +139,14 @@ const sanitizeDraftBlocks = (
                 { createdAt: string }
             >;
 
-            return {
+            return sanitizeTaskDraftSnapshot({
                 ...block,
                 data: {
                     ...data,
                     title: sanitizeRichTextHtml(data.title ?? ''),
                     description: sanitizeRichTextHtml(data.description ?? ''),
                 } as Extract<ReportBlockFromDB['data'], { createdAt: string }>,
-            };
+            });
         }
 
         if (block.type === 'section') {
@@ -186,6 +201,9 @@ export const PATCH = async (
             (a, b) => a.position - b.position
         );
 
+        const requestUser = await getRequestUser(request);
+        const isEditor = requestUser ? canEditContent(requestUser) : false;
+
         await prisma.$transaction(async (tx) => {
             const currentReport = await tx.report.findUnique({
                 where: { id },
@@ -226,6 +244,10 @@ export const PATCH = async (
                     sanitizedReport.descriptionFontSize !== undefined
                         ? sanitizedReport.descriptionFontSize
                         : currentReport.descriptionFontSize,
+                contentHeadingFontSize:
+                    sanitizedReport.contentHeadingFontSize !== undefined
+                        ? sanitizedReport.contentHeadingFontSize
+                        : currentReport.contentHeadingFontSize,
                 captionFontSize:
                     sanitizedReport.captionFontSize !== undefined
                         ? sanitizedReport.captionFontSize
@@ -302,6 +324,58 @@ export const PATCH = async (
                 const block = sortedBlocks[index];
                 const existing = block.id ? existingBlocksById.get(block.id) : null;
 
+                if (block.type === 'task') {
+                    const assignees = normalizeTaskAssignees(
+                        block.data as TaskBlockData
+                    );
+                    const canAct = requestUser
+                        ? canUserActOnTask(
+                              requestUser.id,
+                              assignees,
+                              isEditor
+                          )
+                        : false;
+
+                    if (
+                        existing &&
+                        taskCompletionStatusChanged(block, existing) &&
+                        !canAct
+                    ) {
+                        throw new Error('TASK_COMPLETION_FORBIDDEN');
+                    }
+
+                    const incomingAt = block.taskCompletedAt;
+                    if (
+                        incomingAt &&
+                        !existing?.taskCompletedAt &&
+                        !canAct
+                    ) {
+                        throw new Error('TASK_COMPLETION_FORBIDDEN');
+                    }
+                }
+
+                const taskPrismaFields =
+                    block.type === 'task'
+                        ? buildTaskBlockPrismaData(
+                              block,
+                              existing
+                                  ? {
+                                        taskCompletedAt:
+                                            existing.taskCompletedAt,
+                                        taskCompletedByUserId:
+                                            existing.taskCompletedByUserId,
+                                        taskCompletionNotes:
+                                            existing.taskCompletionNotes,
+                                        taskCompletionImages:
+                                            existing.taskCompletionImages,
+                                        taskCompletionLayout:
+                                            existing.taskCompletionLayout,
+                                    }
+                                  : null,
+                              requestUser?.id ?? null
+                          )
+                        : {};
+
                 if (existing) {
                     await tx.reportBlock.update({
                         where: { id: existing.id },
@@ -313,21 +387,43 @@ export const PATCH = async (
                             version: {
                                 increment: 1,
                             },
-                        },
+                            ...taskPrismaFields,
+                        } as Prisma.ReportBlockUpdateInput,
                     });
                     continue;
                 }
 
-                await tx.reportBlock.create({
-                    data: {
-                        id: block.id,
-                        reportId: id,
-                        type: block.type,
-                        parentId: block.parentId ?? null,
-                        position: index,
-                        data: block.data as Prisma.InputJsonValue,
-                    },
-                });
+                const createData: Prisma.ReportBlockUncheckedCreateInput = {
+                    id: block.id,
+                    reportId: id,
+                    type: block.type,
+                    parentId: block.parentId ?? null,
+                    position: index,
+                    data: block.data as Prisma.InputJsonValue,
+                };
+
+                if (block.type === 'task') {
+                    const tf = taskPrismaFields;
+                    createData.taskCompletedAt =
+                        (tf.taskCompletedAt as Date | null | undefined) ?? null;
+                    createData.taskCompletedByUserId =
+                        (tf.taskCompletedByUserId as string | null | undefined) ??
+                        null;
+                    createData.taskCompletionNotes =
+                        (tf.taskCompletionNotes as string | null | undefined) ??
+                        null;
+                    createData.taskCompletionLayout =
+                        (tf.taskCompletionLayout as string | null | undefined) ??
+                        null;
+                    if (tf.taskCompletionImages !== undefined) {
+                        createData.taskCompletionImages =
+                            tf.taskCompletionImages === null
+                                ? Prisma.DbNull
+                                : (tf.taskCompletionImages as Prisma.InputJsonValue);
+                    }
+                }
+
+                await tx.reportBlock.create({ data: createData });
             }
 
             const updateData: Prisma.ReportUpdateInput = {
@@ -337,6 +433,7 @@ export const PATCH = async (
                 date: nextReportState.date,
                 titleFontSize: nextReportState.titleFontSize,
                 descriptionFontSize: nextReportState.descriptionFontSize,
+                contentHeadingFontSize: nextReportState.contentHeadingFontSize,
                 captionFontSize: nextReportState.captionFontSize,
                 draftHash: nextDraftHash,
                 draftUpdatedAt: new Date(),
@@ -386,6 +483,20 @@ export const PATCH = async (
                 return NextResponse.json(
                     { error: 'Report not found' },
                     { status: 404 }
+                );
+            }
+
+            if (error.message === 'TASK_COMPLETION_FORBIDDEN') {
+                return NextResponse.json(
+                    { error: 'Только исполнитель может изменить статус задачи.' },
+                    { status: 403 }
+                );
+            }
+
+            if (error.message === 'TASK_COMPLETED_AT_REQUIRED') {
+                return NextResponse.json(
+                    { error: 'Укажите дату закрытия.' },
+                    { status: 400 }
                 );
             }
         }

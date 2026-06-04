@@ -22,6 +22,7 @@ import {
     AlignRight,
 } from 'lucide-react';
 import type { TaskBlockData, ImageData, ScreenshotBlockData, PhotoBlockLayout } from '@/lib/db-types';
+import type { SyncStatus, TaskBlockDirtyPatch } from '@/hooks/use-report-draft-sync';
 import {
     canUserActOnTask,
     formatAssigneesList,
@@ -33,6 +34,7 @@ import {
     TaskAssigneesPicker,
 } from '@/components/report/task-assignees-picker';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const FormattedTextEditor = dynamic(
     () => import('@/components/editor/rich-text-editor'),
@@ -129,7 +131,11 @@ function TaskRichTextField({
     onChange,
     placeholder,
     minHeight = '200px',
-    defaultFontSize = '20',
+    baseFontSize = '20',
+    headingPresetPx = '24',
+    titleFontSize = '40',
+    onBasePresetChange,
+    onHeadingPresetChange,
     mode = 'block' as 'block' | 'inline',
 }: {
     label: string;
@@ -138,7 +144,11 @@ function TaskRichTextField({
     onChange: (value: string) => void;
     placeholder: string;
     minHeight?: string;
-    defaultFontSize?: string;
+    baseFontSize?: string;
+    headingPresetPx?: string;
+    titleFontSize?: string;
+    onBasePresetChange?: (px: string) => void;
+    onHeadingPresetChange?: (px: string) => void;
     mode?: 'block' | 'inline';
 }) {
     return (
@@ -150,7 +160,13 @@ function TaskRichTextField({
                 onChange={onChange}
                 placeholder={placeholder}
                 minHeight={minHeight}
-                defaultFontSize={defaultFontSize}
+                baseFontSize={mode === 'block' ? baseFontSize : undefined}
+                headingPresetPx={mode === 'block' ? headingPresetPx : undefined}
+                onBasePresetChange={mode === 'block' ? onBasePresetChange : undefined}
+                onHeadingPresetChange={
+                    mode === 'block' ? onHeadingPresetChange : undefined
+                }
+                titleFontSize={mode === 'inline' ? titleFontSize : undefined}
                 mode={mode}
             />
         </div>
@@ -308,11 +324,16 @@ interface TaskBlockCardProps {
     canEdit?: boolean;
     /** true = editor working area (with actions + editing); false = view-only presentation */
     showActions: boolean;
-    /** Provided in editor mode — triggers draft save on change */
-    onDataChange?: (data: TaskBlockData) => void;
+    /** Редактор: поля задачи и отчёт о выполнении → черновик отчёта */
+    onTaskChange?: (patch: TaskBlockDirtyPatch) => void;
+    /** Статус синхронизации отчёта — для отображения закрытой задачи после save */
+    syncStatus?: SyncStatus;
     titleFontSize?: string;
     descriptionFontSize?: string;
+    contentHeadingFontSize?: string;
     captionFontSize?: string;
+    onContentFontSizeChange?: (px: string) => void;
+    onContentHeadingFontSizeChange?: (px: string) => void;
 }
 
 function todayDateInputValue(): string {
@@ -355,49 +376,70 @@ export function TaskBlockCard({
     currentUserId,
     canEdit = false,
     showActions,
-    onDataChange,
+    onTaskChange,
+    syncStatus = 'synced',
     titleFontSize = '40',
     descriptionFontSize = '20',
+    contentHeadingFontSize = '24',
     captionFontSize = '16',
+    onContentFontSizeChange,
+    onContentHeadingFontSizeChange,
 }: TaskBlockCardProps) {
     // --- Completion state ---
-    const [completed, setCompleted] = useState<boolean>(!!taskCompletedAt);
+    const [markCompleted, setMarkCompleted] = useState<boolean>(!!taskCompletedAt);
     const [completedAt, setCompletedAt] = useState<string | null>(
         taskCompletedAt ? String(taskCompletedAt) : null
     );
+    const isPersistedCompleted =
+        Boolean(taskCompletedAt) &&
+        (syncStatus === 'synced' ||
+            syncStatus === 'saving' ||
+            syncStatus === 'autosaving');
     const [notes, setNotes] = useState<string | null>(taskCompletionNotes ?? null);
     const [completionImages, setCompletionImages] = useState<ImageData[]>(taskCompletionImages ?? []);
     const [completionLayout, setCompletionLayout] = useState<PhotoBlockLayout>(
         taskCompletionLayout ?? 'full-width'
     );
 
-    const [showForm, setShowForm] = useState(false);
-    const [formNotes, setFormNotes] = useState('');
-    const [formImages, setFormImages] = useState<ImageData[]>([]);
-    const [formLayout, setFormLayout] = useState<PhotoBlockLayout>('full-width');
-    const [formClosedAt, setFormClosedAt] = useState(todayDateInputValue);
+    const [completionClosedAt, setCompletionClosedAt] = useState(() =>
+        isoToDateInput(taskCompletedAt ? String(taskCompletedAt) : null)
+    );
     const [completionUploading, setCompletionUploading] = useState(false);
-    const [actionLoading, setActionLoading] = useState(false);
     const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
     const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false);
     const [isCompletionDragOver, setIsCompletionDragOver] = useState(false);
     const completionFileRef = useRef<HTMLInputElement>(null);
 
-    // --- Edit state (only when onDataChange is provided) ---
-    const isEditable = !!onDataChange;
+    // --- Edit state (only when onTaskChange is provided) ---
+    const isEditable = !!onTaskChange;
     const [localData, setLocalData] = useState<TaskBlockData>(() =>
         withNormalizedAssignees(data)
     );
     const [taskUploading, setTaskUploading] = useState(false);
     const [isTaskDragOver, setIsTaskDragOver] = useState(false);
     const taskFileRef = useRef<HTMLInputElement>(null);
-    const onDataChangeRef = useRef(onDataChange);
-    onDataChangeRef.current = onDataChange;
+    const onTaskChangeRef = useRef(onTaskChange);
+    onTaskChangeRef.current = onTaskChange;
 
-    // Sync localData when block data changes externally (e.g. after draft load)
     const externalDataKey = useMemo(
         () => JSON.stringify(normalizeTaskAssignees(data)),
         [data]
+    );
+
+    const externalTaskKey = useMemo(
+        () =>
+            JSON.stringify({
+                taskCompletedAt,
+                taskCompletionNotes,
+                taskCompletionImages,
+                taskCompletionLayout,
+            }),
+        [
+            taskCompletedAt,
+            taskCompletionNotes,
+            taskCompletionImages,
+            taskCompletionLayout,
+        ]
     );
 
     useEffect(() => {
@@ -405,31 +447,61 @@ export function TaskBlockCard({
     }, [blockId, externalDataKey, data]);
 
     useEffect(() => {
-        setCompleted(!!taskCompletedAt);
+        setMarkCompleted(!!taskCompletedAt);
         setCompletedAt(taskCompletedAt ? String(taskCompletedAt) : null);
         setNotes(taskCompletionNotes ?? null);
         setCompletionImages(taskCompletionImages ?? []);
         setCompletionLayout(taskCompletionLayout ?? 'full-width');
-    }, [blockId, taskCompletedAt, taskCompletionNotes, taskCompletionImages, taskCompletionLayout]);
+        setCompletionClosedAt(
+            isoToDateInput(taskCompletedAt ? String(taskCompletedAt) : null)
+        );
+    }, [blockId, externalTaskKey, taskCompletedAt, taskCompletionNotes, taskCompletionImages, taskCompletionLayout]);
 
-    // Debounced propagation of edits to parent
+    const buildTaskPatch = useCallback(
+        (overrides?: Partial<TaskBlockDirtyPatch>): TaskBlockDirtyPatch => {
+            const base: TaskBlockDirtyPatch = {
+                data: localData,
+                taskCompletedAt:
+                    markCompleted && completionClosedAt
+                        ? `${completionClosedAt}T12:00:00.000Z`
+                        : null,
+                taskCompletionNotes: notes,
+                taskCompletionImages: completionImages,
+                taskCompletionLayout: completionLayout,
+            };
+            return { ...base, ...overrides };
+        },
+        [
+            localData,
+            markCompleted,
+            completionClosedAt,
+            notes,
+            completionImages,
+            completionLayout,
+        ]
+    );
+
+    const pushTaskChange = useCallback(
+        (overrides?: Partial<TaskBlockDirtyPatch>) => {
+            onTaskChangeRef.current?.(buildTaskPatch(overrides));
+        },
+        [buildTaskPatch]
+    );
+
     useEffect(() => {
         if (!isEditable) return;
-        const t = setTimeout(() => {
-            onDataChangeRef.current?.(localData);
-        }, 150);
+        const t = setTimeout(() => pushTaskChange(), 150);
         return () => clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [localData]);
+    }, [isEditable, pushTaskChange, buildTaskPatch]);
 
     const assignees = useMemo(
         () => normalizeTaskAssignees(localData),
         [localData]
     );
 
-    const isCompleted = completed;
-    const isClosedReportView = isCompleted && !isEditable;
-    const dlStatus = deadlineStatus(localData.deadline, isCompleted);
+    const isCompleted = isPersistedCompleted;
+    const isClosedReportView = isPersistedCompleted && !isEditable;
+    const dlStatus = deadlineStatus(localData.deadline, isPersistedCompleted);
 
     const taskTitleFontSize = localData.titleFontSize || titleFontSize || '40';
     const taskDescriptionFontSize =
@@ -533,7 +605,7 @@ export function TaskBlockCard({
         if (!e.target.files?.length) return;
         setCompletionUploading(true);
         const imgs = await uploadFiles(e.target.files);
-        setFormImages((prev) => [...prev, ...imgs]);
+        setCompletionImages((prev) => [...prev, ...imgs]);
         setCompletionUploading(false);
         e.target.value = '';
     }, [uploadFiles]);
@@ -543,119 +615,45 @@ export function TaskBlockCard({
         if (!e.dataTransfer.files?.length) return;
         setCompletionUploading(true);
         const imgs = await uploadFiles(e.dataTransfer.files);
-        setFormImages((prev) => [...prev, ...imgs]);
+        setCompletionImages((prev) => [...prev, ...imgs]);
         setCompletionUploading(false);
     }, [uploadFiles]);
 
-    const removeFormImage = useCallback((idx: number) => {
-        const img = formImages[idx];
+    const removeCompletionImage = useCallback((idx: number) => {
+        const img = completionImages[idx];
         if (img?.uploadId) {
             void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => { });
         }
-        setFormImages((prev) => prev.filter((_, i) => i !== idx));
-    }, [formImages]);
+        setCompletionImages((prev) => prev.filter((_, i) => i !== idx));
+    }, [completionImages]);
 
-    const openCompletionFormFromDraft = useCallback(() => {
-        setFormNotes(notes ?? '');
-        setFormImages(completionImages);
-        setFormLayout(completionLayout);
-        setFormClosedAt(isoToDateInput(completedAt));
-        setShowForm(true);
-    }, [notes, completionImages, completionLayout, completedAt]);
+    const handleReopen = useCallback(() => {
+        setMarkCompleted(false);
+        setCompletedAt(null);
+        setCompletionClosedAt(todayDateInputValue());
+        pushTaskChange({
+            taskCompletedAt: null,
+            taskCompletedByUserId: null,
+        });
+        setReopenConfirmOpen(false);
+    }, [pushTaskChange]);
 
-    const openEmptyCompletionForm = useCallback(() => {
-        setFormNotes('');
-        setFormImages([]);
-        setFormLayout('full-width');
-        setFormClosedAt(todayDateInputValue());
-        setShowForm(true);
-    }, []);
-
-    // Completion actions
-    const handleComplete = useCallback(async () => {
-        setActionLoading(true);
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks/${blockId}/complete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    notes: formNotes || null,
-                    images: formImages.length ? formImages : null,
-                    layout: formLayout,
-                    completedAt: formClosedAt,
-                }),
-            });
-            if (res.ok) {
-                const payload = await res.json() as { block?: { taskCompletedAt?: string | Date | null } };
-                const savedAt = payload.block?.taskCompletedAt
-                    ? String(payload.block.taskCompletedAt)
-                    : `${formClosedAt}T12:00:00.000Z`;
-                setCompleted(true);
-                setCompletedAt(savedAt);
-                setNotes(formNotes || null);
-                setCompletionImages(formImages);
-                setCompletionLayout(formLayout);
-                setShowForm(false);
-                setFormNotes('');
-                setFormImages([]);
-                setFormLayout('full-width');
-                setFormClosedAt(todayDateInputValue());
-            }
-        } finally {
-            setActionLoading(false);
-        }
-    }, [blockId, reportId, formNotes, formImages, formLayout, formClosedAt]);
-
-    const handleReopen = useCallback(async () => {
-        setActionLoading(true);
-        try {
-            const res = await fetch(`/api/reports/${reportId}/blocks/${blockId}/complete`, { method: 'DELETE' });
-            if (res.ok) {
-                const savedNotes = notes;
-                const savedImages = completionImages;
-                const savedLayout = completionLayout;
-                const savedClosedAt = completedAt;
-                setCompleted(false);
-                setCompletedAt(null);
-                setNotes(savedNotes);
-                setCompletionImages(savedImages);
-                setCompletionLayout(savedLayout);
-                setFormNotes(savedNotes ?? '');
-                setFormImages(savedImages);
-                setFormLayout(savedLayout);
-                setFormClosedAt(isoToDateInput(savedClosedAt));
-                setShowForm(true);
-                setReopenConfirmOpen(false);
-            }
-        } finally {
-            setActionLoading(false);
-        }
-    }, [blockId, reportId, notes, completionImages, completionLayout, completedAt]);
-
-    const handleClearCompletion = useCallback(async () => {
-        setActionLoading(true);
-        try {
-            const res = await fetch(
-                `/api/reports/${reportId}/blocks/${blockId}/complete?purge=true`,
-                { method: 'DELETE' }
-            );
-            if (res.ok) {
-                setCompleted(false);
-                setCompletedAt(null);
-                setNotes(null);
-                setCompletionImages([]);
-                setCompletionLayout('full-width');
-                setFormNotes('');
-                setFormImages([]);
-                setFormLayout('full-width');
-                setFormClosedAt(todayDateInputValue());
-                setShowForm(false);
-                setPurgeConfirmOpen(false);
-            }
-        } finally {
-            setActionLoading(false);
-        }
-    }, [blockId, reportId]);
+    const handleClearCompletion = useCallback(() => {
+        setMarkCompleted(false);
+        setCompletedAt(null);
+        setNotes(null);
+        setCompletionImages([]);
+        setCompletionLayout('full-width');
+        setCompletionClosedAt(todayDateInputValue());
+        pushTaskChange({
+            taskCompletedAt: null,
+            taskCompletedByUserId: null,
+            taskCompletionNotes: null,
+            taskCompletionImages: [],
+            taskCompletionLayout: 'full-width',
+        });
+        setPurgeConfirmOpen(false);
+    }, [pushTaskChange]);
 
     // --- Shared style helpers ---
     const inputCls = 'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500';
@@ -749,8 +747,7 @@ export function TaskBlockCard({
                         <button
                             type="button"
                             onClick={() => setReopenConfirmOpen(true)}
-                            disabled={actionLoading}
-                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors cursor-pointer sm:w-auto"
+                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 transition-colors cursor-pointer sm:w-auto"
                         >
                             <RotateCcw className="w-3.5 h-3.5" />
                             Переоткрыть
@@ -758,8 +755,7 @@ export function TaskBlockCard({
                         <button
                             type="button"
                             onClick={() => setPurgeConfirmOpen(true)}
-                            disabled={actionLoading}
-                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 disabled:opacity-50 transition-colors cursor-pointer sm:w-auto"
+                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 transition-colors cursor-pointer sm:w-auto"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             Удалить выполнение
@@ -774,7 +770,6 @@ export function TaskBlockCard({
                 title="Переоткрыть задачу?"
                 description="Задача снова станет открытой. Черновик отчёта о выполнении сохранится — вы сможете отредактировать и закрыть заново."
                 confirmLabel="Переоткрыть"
-                loading={actionLoading}
                 onConfirm={handleReopen}
             />
             <ConfirmDialog
@@ -784,15 +779,14 @@ export function TaskBlockCard({
                 description="Отчёт о выполнении и дата закрытия будут удалены безвозвратно. Задача вернётся в состояние «не выполнена»."
                 confirmLabel="Удалить"
                 variant="destructive"
-                loading={actionLoading}
                 onConfirm={handleClearCompletion}
             />
 
             <div className={isClosedReportView ? 'px-4 pb-4 space-y-3' : undefined}>
             {/* Zone 1 — Task details */}
             <div
-                className={`rounded-lg border border-zinc-700/60 px-4 py-3 bg-zinc-800/50 overflow-x-visible overflow-y-hidden ${
-                    isClosedReportView ? 'mb-0' : 'mx-2 mb-3 sm:mx-4'
+                className={`rounded-lg border border-purple-800/25 bg-zinc-800/50 px-4 py-3 overflow-x-visible overflow-y-hidden ${
+                    isClosedReportView ? 'mb-0' : 'mx-2 mb-4 sm:mx-4'
                 }`}
             >
                 <div className="flex items-center gap-1.5 mb-3">
@@ -811,9 +805,8 @@ export function TaskBlockCard({
                                 onChange={(value) => setLocalData((p) => ({ ...p, title: value }))}
                                 placeholder="Заголовок блока..."
                                 minHeight="60px"
-                                defaultFontSize="40"
-                                fontSize={taskTitleFontSize}
-                                onFontSizeChange={(px) =>
+                                titleFontSize={taskTitleFontSize}
+                                onTitleFontSizeChange={(px) =>
                                     setLocalData((p) => ({ ...p, titleFontSize: px }))
                                 }
                                 mode="inline"
@@ -827,11 +820,10 @@ export function TaskBlockCard({
                                 onChange={(value) => setLocalData((p) => ({ ...p, description: value }))}
                                 placeholder="Описание..."
                                 minHeight="200px"
-                                defaultFontSize="20"
-                                fontSize={taskDescriptionFontSize}
-                                onFontSizeChange={(px) =>
-                                    setLocalData((p) => ({ ...p, descriptionFontSize: px }))
-                                }
+                                baseFontSize={descriptionFontSize}
+                                headingPresetPx={contentHeadingFontSize}
+                                onBasePresetChange={onContentFontSizeChange}
+                                onHeadingPresetChange={onContentHeadingFontSizeChange}
                                 mode="block"
                             />
                         </div>
@@ -959,101 +951,111 @@ export function TaskBlockCard({
 
             {isClosedReportView && <div className="h-px bg-zinc-700/40" aria-hidden />}
 
-            {/* Zone 2 — Completion report */}
+            {/* Zone 2 — Completion report (визуально отдельно от задания) */}
             <div
-                className={`px-4 py-3 rounded-lg border ${
+                className={`rounded-lg border px-4 py-3 ${
                     isClosedReportView
-                        ? 'border-green-700/30 bg-green-950/20'
-                        : isCompleted
-                          ? 'mx-2 mb-4 border-green-700/30 bg-green-950/20 sm:mx-4'
-                          : 'mx-2 mb-4 border-zinc-700/40 bg-zinc-800/20 sm:mx-4'
+                        ? 'border-green-700/40 bg-green-950/25'
+                        : isEditable
+                          ? 'mx-2 mb-4 border-green-800/45 bg-green-950/20 shadow-[inset_0_1px_0_0_rgba(34,197,94,0.08)] sm:mx-4'
+                          : isCompleted
+                            ? 'mx-2 mb-4 border-green-700/35 bg-green-950/20 sm:mx-4'
+                            : 'mx-2 mb-4 border-green-900/30 bg-green-950/10 sm:mx-4'
                 }`}
             >
-                <div className="flex items-center justify-between mb-2.5">
-                    <div className="flex items-center gap-1.5">
-                        <ClipboardCheck className={`w-3.5 h-3.5 ${isCompleted ? 'text-green-400' : 'text-zinc-600'}`} />
-                        <span className={`text-xs font-semibold uppercase tracking-wider ${isCompleted ? 'text-green-400' : 'text-zinc-600'}`}>
-                            Отчёт о выполнении
-                        </span>
-                    </div>
-                    {showActions && !isCompleted && canComplete && !showForm && (
-                        <button
-                            onClick={hasCompletionContent ? openCompletionFormFromDraft : openEmptyCompletionForm}
-                            disabled={actionLoading}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-green-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50 transition-colors cursor-pointer"
-                        >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            {hasCompletionContent ? 'Закрыть задачу' : 'Выполнить'}
-                        </button>
-                    )}
+                <div className="mb-3 flex items-center gap-1.5 border-b border-green-800/30 pb-2.5">
+                    <ClipboardCheck className="h-3.5 w-3.5 shrink-0 text-green-400" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-green-400">
+                        Отчёт о выполнении
+                    </span>
                 </div>
 
-                {/* Черновик отчёта (переоткрыта или не закрыта) */}
-                {!isCompleted && !showForm && hasCompletionContent && (
-                    <div className="space-y-3">
-                        <ScreenshotBlockView
-                            data={completionViewData}
-                            titleFontSize={titleFontSize}
-                            descriptionFontSize={descriptionFontSize}
-                            captionFontSize={captionFontSize}
-                            variant="embedded"
-                        />
-                        {showActions && canComplete && (
-                            <button
-                                type="button"
-                                onClick={openCompletionFormFromDraft}
-                                disabled={actionLoading}
-                                className="text-xs font-medium text-green-400 hover:text-green-300 transition-colors cursor-pointer"
-                            >
-                                Редактировать отчёт
-                            </button>
-                        )}
-                    </div>
-                )}
-
-                {!isCompleted && !showForm && !hasCompletionContent && (
-                    <p className="text-xs text-zinc-600 italic">Задача ещё не выполнена</p>
-                )}
-
-                {/* Completion form */}
-                {!isCompleted && showForm && (
+                {isEditable && !isPersistedCompleted && (
                     <div className="space-y-4">
-                        <div>
-                            <label className={labelCls}>
-                                <span className="flex items-center gap-1 text-sm font-medium text-zinc-300">
-                                    <CalendarDays className="w-3 h-3 text-green-400" />
-                                    Дата закрытия
-                                </span>
-                            </label>
-                            <input
-                                type="date"
-                                value={formClosedAt}
-                                onChange={(e) => setFormClosedAt(e.target.value)}
-                                aria-label="Дата закрытия"
-                                required
-                                className={`${inputCls} mt-1 [color-scheme:dark] focus:border-green-500 focus:ring-green-500`}
-                            />
-                        </div>
+                        {canComplete && (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <div className="flex min-h-[4.25rem] items-center rounded-lg border border-green-800/30 bg-zinc-900/40 px-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <Checkbox
+                                            id={`${blockId}-task-completed`}
+                                            checked={markCompleted}
+                                            onCheckedChange={(checked) => {
+                                                const next = checked === true;
+                                                setMarkCompleted(next);
+                                                if (next && !completionClosedAt) {
+                                                    setCompletionClosedAt(
+                                                        todayDateInputValue()
+                                                    );
+                                                }
+                                            }}
+                                            className="border-zinc-600 data-[state=checked]:border-green-600 data-[state=checked]:bg-green-600"
+                                        />
+                                        <label
+                                            htmlFor={`${blockId}-task-completed`}
+                                            className="cursor-pointer select-none text-sm font-medium text-zinc-200"
+                                        >
+                                            Задача выполнена
+                                        </label>
+                                    </div>
+                                </div>
+                                <div
+                                    className={
+                                        !markCompleted
+                                            ? 'pointer-events-none opacity-45'
+                                            : undefined
+                                    }
+                                >
+                                    <label
+                                        htmlFor={`${blockId}-task-closed-at`}
+                                        className={labelCls}
+                                    >
+                                        <span className="flex items-center gap-1 text-green-400/90">
+                                            <CalendarDays className="h-3 w-3" />
+                                            Дата закрытия
+                                        </span>
+                                    </label>
+                                    <input
+                                        id={`${blockId}-task-closed-at`}
+                                        type="date"
+                                        value={completionClosedAt}
+                                        onChange={(e) =>
+                                            setCompletionClosedAt(e.target.value)
+                                        }
+                                        disabled={!markCompleted}
+                                        aria-label="Дата закрытия"
+                                        className={`${inputCls} [color-scheme:dark] focus:border-green-600 focus:ring-green-600`}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <TaskRichTextField
                             label="Что было сделано"
                             editorId={`${blockId}:completion-notes`}
-                            value={formNotes}
-                            onChange={setFormNotes}
+                            value={notes ?? ''}
+                            onChange={(value) => setNotes(value || null)}
                             placeholder="Опишите что сделано, результаты работы..."
                             minHeight="200px"
-                            defaultFontSize="20"
+                            baseFontSize={descriptionFontSize}
+                            headingPresetPx={contentHeadingFontSize}
+                            onBasePresetChange={onContentFontSizeChange}
+                            onHeadingPresetChange={onContentHeadingFontSizeChange}
                             mode="block"
                         />
                         <div>
-                            <label className="block text-sm font-medium text-zinc-300 mb-2">Изображения</label>
+                            <label className="block text-sm font-medium text-zinc-300 mb-2">
+                                Изображения
+                            </label>
                             <TaskImageListEditor
-                                images={formImages}
-                                onImagesChange={setFormImages}
-                                onRemoveAt={removeFormImage}
+                                images={completionImages}
+                                onImagesChange={setCompletionImages}
+                                onRemoveAt={removeCompletionImage}
                                 accent="green"
                                 uploading={completionUploading}
                                 isDragOver={isCompletionDragOver}
-                                onDragOver={(e) => { e.preventDefault(); setIsCompletionDragOver(true); }}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setIsCompletionDragOver(true);
+                                }}
                                 onDragLeave={() => setIsCompletionDragOver(false)}
                                 onDrop={handleCompletionDrop}
                                 fileInputRef={completionFileRef}
@@ -1061,31 +1063,33 @@ export function TaskBlockCard({
                                 uploadAriaLabel="Загрузить фото результата"
                             />
                             <PhotoLayoutSelect
-                                value={formLayout}
-                                onChange={setFormLayout}
+                                value={completionLayout}
+                                onChange={setCompletionLayout}
                                 accent="green"
                             />
                         </div>
-                        <div className="flex gap-2 justify-end">
-                            <button
-                                onClick={() => setShowForm(false)}
-                                className="px-3 py-1.5 text-xs rounded-lg border border-zinc-600 text-zinc-400 hover:bg-zinc-800 transition-colors cursor-pointer"
-                            >
-                                Отмена
-                            </button>
-                            <button
-                                onClick={handleComplete}
-                                disabled={actionLoading || completionUploading || !formClosedAt}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-green-700 text-white hover:bg-green-600 disabled:opacity-50 transition-colors cursor-pointer font-medium"
-                            >
-                                {actionLoading ? 'Сохранение...' : 'Подтвердить выполнение'}
-                            </button>
-                        </div>
+                        <p className="text-xs text-green-400/50">
+                            Сохранится при сохранении отчёта (кнопка «Сохранить» или
+                            автосохранение).
+                        </p>
                     </div>
                 )}
 
-                {/* Completed — report */}
-                {isCompleted && (
+                {!isEditable && !isPersistedCompleted && !hasCompletionContent && (
+                    <p className="text-xs text-zinc-600 italic">Задача ещё не выполнена</p>
+                )}
+
+                {!isEditable && !isPersistedCompleted && hasCompletionContent && (
+                    <ScreenshotBlockView
+                        data={completionViewData}
+                        titleFontSize={titleFontSize}
+                        descriptionFontSize={descriptionFontSize}
+                        captionFontSize={captionFontSize}
+                        variant="embedded"
+                    />
+                )}
+
+                {isPersistedCompleted && (
                     <div className="space-y-4">
                         {hasCompletionContent ? (
                             <ScreenshotBlockView

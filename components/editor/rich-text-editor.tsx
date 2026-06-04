@@ -21,9 +21,11 @@ import {
     ListOrdered,
 } from 'lucide-react';
 import {
-    extractFontSizeFromHtml,
+    canonicalRichTextValue,
+    DESCRIPTION_HEADING_FONT_SIZE_PX,
     normalizeRichTextHtml,
     plainTextToRichTextHtml,
+    sanitizePastedHtml,
 } from '@/lib/rich-text';
 
 declare module '@tiptap/core' {
@@ -38,18 +40,28 @@ declare module '@tiptap/core' {
 const RECENT_COLORS_KEY = 'formattedTextEditor_recentColors';
 const DEFAULT_COLOR = '#ffffff';
 
-const normalizeOutput = (
-    html: string,
-    mode: 'inline' | 'block'
-): string => {
-    const normalized = normalizeRichTextHtml(html);
-    if (!normalized || mode === 'block') return normalized;
+const ParagraphClassAttribute = Extension.create({
+    name: 'paragraphClassAttribute',
 
-    return normalized
-        .replace(/^<p>/i, '')
-        .replace(/<\/p>$/i, '')
-        .replace(/<\/p>\s*<p>/gi, '<br>');
-};
+    addGlobalAttributes() {
+        return [
+            {
+                types: ['paragraph'],
+                attributes: {
+                    class: {
+                        default: null,
+                        parseHTML: (element: HTMLElement) =>
+                            element.getAttribute('class'),
+                        renderHTML: (attributes: { class?: string | null }) =>
+                            attributes.class
+                                ? { class: attributes.class }
+                                : {},
+                    },
+                },
+            },
+        ];
+    },
+});
 
 const FontSize = Extension.create({
     name: 'fontSize',
@@ -145,41 +157,61 @@ type RichTextEditorProps = {
     onChange: (value: string) => void;
     placeholder?: string;
     minHeight?: string;
-    defaultFontSize?: string;
-    /** Сохранённый размер блока (px), отображается в toolbar если нет mark в HTML */
-    fontSize?: string;
-    onFontSizeChange?: (px: string) => void;
+    /** Пресет «Текст» (px), из «Описание» отчёта */
+    baseFontSize?: string;
+    /** Пресет «Заголовок» (px) в описании блока */
+    headingPresetPx?: string;
+    onBasePresetChange?: (px: string) => void;
+    onHeadingPresetChange?: (px: string) => void;
+    /** Размер обёртки для inline-заголовков блока (из «Заголовок» отчёта) */
+    titleFontSize?: string;
+    onTitleFontSizeChange?: (px: string) => void;
     mode?: 'inline' | 'block';
 };
 
-const resolveToolbarFontSize = (
-    editor: NonNullable<ReturnType<typeof useEditor>>,
-    html: string,
-    storedFontSize?: string,
-    defaultFontSize = '20'
-): string => {
-    const fromMark = (
-        editor.getAttributes('textStyle').fontSize as string | undefined
-    )?.replace('px', '');
-    if (fromMark) return fromMark;
+type SizePreset = 'text' | 'heading';
 
-    const fromHtml = extractFontSizeFromHtml(html);
-    if (fromHtml) return fromHtml;
-
-    if (storedFontSize) return storedFontSize.replace(/px$/i, '');
-
-    return defaultFontSize;
+const parsePx = (value: string | undefined, fallback: string): string => {
+    const raw = (value ?? fallback).replace(/px$/i, '').trim();
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? String(Math.round(n)) : fallback;
 };
+
+const clampPresetPx = (value: string, fallback: string): string => {
+    const n = Number(parsePx(value, fallback));
+    if (!Number.isFinite(n)) return fallback;
+    return String(Math.min(200, Math.max(8, Math.round(n))));
+};
+
+const isHeadingFontMark = (
+    fontSize: string | undefined | null,
+    headingPx: string
+): boolean => {
+    if (!fontSize) return false;
+    return parsePx(fontSize, '') === parsePx(headingPx, '24');
+};
+
+const resolveSizePreset = (
+    editor: NonNullable<ReturnType<typeof useEditor>>,
+    headingPx: string
+): SizePreset =>
+    isHeadingFontMark(
+        editor.getAttributes('textStyle').fontSize as string | undefined,
+        headingPx
+    )
+        ? 'heading'
+        : 'text';
 
 const getEditorExtensions = (mode: 'inline' | 'block') => {
     const base = [
         StarterKit.configure({
             hardBreak: false,
-            heading: mode === 'block' ? { levels: [1, 2, 3] } : false,
+            heading: false,
             bulletList: mode === 'block' ? {} : false,
             orderedList: mode === 'block' ? {} : false,
             blockquote: mode === 'block' ? {} : false,
         }),
+        ParagraphClassAttribute,
         Placeholder.configure({
             placeholder: '',
             emptyEditorClass: 'is-editor-empty',
@@ -191,7 +223,7 @@ const getEditorExtensions = (mode: 'inline' | 'block') => {
         Color,
         FontSize,
         TextAlign.configure({
-            types: mode === 'block' ? ['heading', 'paragraph'] : ['paragraph'],
+            types: ['paragraph'],
             alignments: ['left', 'center', 'right'],
         }),
     ];
@@ -217,9 +249,7 @@ const getEditorExtensions = (mode: 'inline' | 'block') => {
 
 const syncToolbarState = (
     editor: NonNullable<ReturnType<typeof useEditor>>,
-    html: string,
-    storedFontSize?: string,
-    defaultFontSize = '20'
+    headingPx: string
 ) => ({
     isBold: editor.isActive('bold'),
     isItalic: editor.isActive('italic'),
@@ -227,12 +257,7 @@ const syncToolbarState = (
     color:
         (editor.getAttributes('textStyle').color as string | undefined) ||
         DEFAULT_COLOR,
-    fontSize: resolveToolbarFontSize(
-        editor,
-        html,
-        storedFontSize,
-        defaultFontSize
-    ),
+    sizePreset: resolveSizePreset(editor, headingPx),
     linkHref: (editor.getAttributes('link').href as string | undefined) ?? '',
     isBulletList: editor.isActive('bulletList'),
     isOrderedList: editor.isActive('orderedList'),
@@ -244,11 +269,20 @@ export default function RichTextEditor({
     onChange,
     placeholder,
     minHeight = '200px',
-    defaultFontSize = '20',
-    fontSize: storedFontSize,
-    onFontSizeChange,
+    baseFontSize = '20',
+    headingPresetPx = DESCRIPTION_HEADING_FONT_SIZE_PX,
+    onBasePresetChange,
+    onHeadingPresetChange,
+    titleFontSize = '40',
+    onTitleFontSizeChange,
     mode = 'block',
 }: RichTextEditorProps) {
+    const bodyPx = parsePx(baseFontSize, '20');
+    const headingPx = parsePx(headingPresetPx, DESCRIPTION_HEADING_FONT_SIZE_PX);
+    const titlePx = parsePx(titleFontSize, '40');
+    const wrapperFontPx = mode === 'block' ? bodyPx : titlePx;
+    const headingPxRef = useRef(headingPx);
+    headingPxRef.current = headingPx;
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [showLinkEditor, setShowLinkEditor] = useState(false);
     const [linkUrl, setLinkUrl] = useState('');
@@ -260,7 +294,7 @@ export default function RichTextEditor({
         isItalic: false,
         isCentered: false,
         color: DEFAULT_COLOR,
-        fontSize: '',
+        sizePreset: 'text' as SizePreset,
         linkHref: '',
         isBulletList: false,
         isOrderedList: false,
@@ -268,8 +302,14 @@ export default function RichTextEditor({
     const colorPickerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<Editor | null>(null);
     const emitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastEmittedRef = useRef('');
 
-    const normalizedValue = useMemo(
+    const canonicalValue = useMemo(
+        () => canonicalRichTextValue(value, mode),
+        [value, mode]
+    );
+
+    const editorContent = useMemo(
         () => normalizeRichTextHtml(value),
         [value]
     );
@@ -282,62 +322,56 @@ export default function RichTextEditor({
                     ? extension.configure({ placeholder: placeholder || '' })
                     : extension
             ),
-            content: normalizedValue,
+            content: editorContent,
             editorProps: {
                 attributes: {
                     class:
                         'min-h-full px-3 py-2 text-zinc-200 outline-none [&_blockquote]:my-3 [&_blockquote]:border-l-4 [&_blockquote]:border-zinc-600 [&_blockquote]:pl-4 [&_strong]:font-semibold',
-                    style: `word-break: break-word; min-height: ${minHeight}; color: rgb(228, 228, 231);`,
+                    style: `word-break: break-word; min-height: ${minHeight}; color: rgb(228, 228, 231); font-size: ${wrapperFontPx}px;`,
                 },
                 handlePaste: (_view, event) => {
-                    const text = event.clipboardData?.getData('text/plain');
-                    const html = event.clipboardData?.getData('text/html');
-                    if (!text?.trim() || html) return false;
+                    const clipboard = event.clipboardData;
+                    const ed = editorRef.current;
+                    if (!clipboard || !ed) return false;
 
-                    editorRef.current
-                        ?.chain()
-                        .focus()
-                        .insertContent(plainTextToRichTextHtml(text, mode))
-                        .run();
+                    const html = clipboard.getData('text/html');
+                    const text = clipboard.getData('text/plain');
+                    if (!html?.trim() && !text?.trim()) return false;
+
+                    event.preventDefault();
+
+                    if (html?.trim()) {
+                        const clean = sanitizePastedHtml(html);
+                        ed.chain().focus().insertContent(clean).run();
+                    } else if (text?.trim()) {
+                        ed.chain()
+                            .focus()
+                            .insertContent(plainTextToRichTextHtml(text, mode))
+                            .run();
+                    }
+
                     return true;
                 },
             },
             onCreate: ({ editor: currentEditor }) => {
                 editorRef.current = currentEditor;
-                setToolbarState(
-                    syncToolbarState(
-                        currentEditor,
-                        normalizedValue,
-                        storedFontSize,
-                        defaultFontSize
-                    )
-                );
+                setToolbarState(syncToolbarState(currentEditor, headingPx));
             },
             onSelectionUpdate: ({ editor: currentEditor }) => {
-                setToolbarState(
-                    syncToolbarState(
-                        currentEditor,
-                        normalizeOutput(currentEditor.getHTML(), mode),
-                        storedFontSize,
-                        defaultFontSize
-                    )
-                );
+                setToolbarState(syncToolbarState(currentEditor, headingPx));
             },
             onTransaction: ({ editor: currentEditor }) => {
-                setToolbarState(
-                    syncToolbarState(
-                        currentEditor,
-                        normalizeOutput(currentEditor.getHTML(), mode),
-                        storedFontSize,
-                        defaultFontSize
-                    )
-                );
+                setToolbarState(syncToolbarState(currentEditor, headingPx));
             },
             onUpdate: ({ editor: currentEditor }) => {
-                const nextValue = normalizeOutput(currentEditor.getHTML(), mode);
+                const nextValue = canonicalRichTextValue(
+                    currentEditor.getHTML(),
+                    mode
+                );
 
                 if (emitTimerRef.current) clearTimeout(emitTimerRef.current);
                 emitTimerRef.current = setTimeout(() => {
+                    lastEmittedRef.current = nextValue;
                     onChange(nextValue);
                 }, 120);
             },
@@ -354,35 +388,32 @@ export default function RichTextEditor({
 
     useEffect(() => {
         if (!editor) return;
-
-        const currentValue = normalizeOutput(editor.getHTML(), mode);
-        if (currentValue === normalizedValue) return;
-
-        editor.commands.setContent(normalizedValue, {
-            emitUpdate: false,
-        });
-        setToolbarState(
-            syncToolbarState(
-                editor,
-                normalizedValue,
-                storedFontSize,
-                defaultFontSize
-            )
-        );
-    }, [editor, mode, normalizedValue, storedFontSize, defaultFontSize]);
+        editor.view.dom.style.fontSize = `${wrapperFontPx}px`;
+    }, [editor, wrapperFontPx]);
 
     useEffect(() => {
         if (!editor) return;
-        setToolbarState((prev) => ({
-            ...prev,
-            fontSize: resolveToolbarFontSize(
-                editor,
-                normalizedValue,
-                storedFontSize,
-                defaultFontSize
-            ),
-        }));
-    }, [editor, normalizedValue, storedFontSize, defaultFontSize]);
+
+        const currentValue = canonicalRichTextValue(editor.getHTML(), mode);
+        if (currentValue === canonicalValue) return;
+        if (
+            editor.isFocused &&
+            canonicalValue === lastEmittedRef.current
+        ) {
+            return;
+        }
+
+        const { from, to } = editor.state.selection;
+        editor.commands.setContent(editorContent, {
+            emitUpdate: false,
+        });
+        const docSize = editor.state.doc.content.size;
+        const safeFrom = Math.min(from, docSize);
+        const safeTo = Math.min(to, docSize);
+        editor.commands.setTextSelection({ from: safeFrom, to: safeTo });
+
+        setToolbarState(syncToolbarState(editor, headingPx));
+    }, [editor, mode, canonicalValue, editorContent, headingPx]);
 
     useEffect(() => {
         if (!editor || mode !== 'inline') return;
@@ -444,23 +475,35 @@ export default function RichTextEditor({
         setShowColorPicker(false);
     };
 
-    const applyFontSize = (size: string) => {
-        if (!editor) return;
+    const applySizePreset = (preset: SizePreset) => {
+        if (!editor || mode !== 'block') return;
 
-        const parsed = Number(size);
-        if (!Number.isInteger(parsed) || parsed < 8 || parsed > 200) return;
-
-        const px = `${parsed}px`;
-        const hasText = editor.state.doc.textContent.length > 0;
-        const chain = editor.chain().focus();
-        if (hasText && editor.state.selection.empty) {
-            chain.selectAll();
+        if (preset === 'heading') {
+            editor
+                .chain()
+                .focus()
+                .setFontSize(`${headingPxRef.current}px`)
+                .run();
+        } else {
+            editor.chain().focus().unsetFontSize().run();
         }
-        chain.setFontSize(px).run();
 
-        const nextPx = String(parsed);
-        setToolbarState((prev) => ({ ...prev, fontSize: nextPx }));
-        onFontSizeChange?.(nextPx);
+        setToolbarState((prev) => ({ ...prev, sizePreset: preset }));
+    };
+
+    const commitBodyPreset = (raw: string) => {
+        const next = clampPresetPx(raw, '20');
+        onBasePresetChange?.(next);
+    };
+
+    const commitHeadingPreset = (raw: string) => {
+        const next = clampPresetPx(raw, DESCRIPTION_HEADING_FONT_SIZE_PX);
+        onHeadingPresetChange?.(next);
+    };
+
+    const commitTitlePreset = (raw: string) => {
+        const next = clampPresetPx(raw, '40');
+        onTitleFontSizeChange?.(next);
     };
 
     const applyLink = (rawHref: string) => {
@@ -741,40 +784,122 @@ export default function RichTextEditor({
                         </div>
                     )}
                 </div>
-                <div className="flex items-center gap-1.5 border-l border-zinc-700 pl-2">
-                    <span className="whitespace-nowrap text-xs text-zinc-400">
-                        Размер:
-                    </span>
-                    <input
-                        type="number"
-                        min="8"
-                        max="200"
-                        value={
-                            toolbarState.fontSize ||
-                            storedFontSize ||
-                            defaultFontSize
-                        }
-                        placeholder={defaultFontSize}
-                        className="w-14 rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                        onChange={(event) =>
-                            setToolbarState((prev) => ({
-                                ...prev,
-                                fontSize: event.target.value,
-                            }))
-                        }
-                        onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                                event.preventDefault();
-                                applyFontSize(
-                                    (event.currentTarget as HTMLInputElement).value
-                                );
-                                event.currentTarget.blur();
+                {mode === 'inline' && (
+                    <div
+                        className="flex items-center gap-1 border-l border-zinc-700 pl-2"
+                        title="Размер заголовка блока"
+                    >
+                        <span className="whitespace-nowrap text-xs text-zinc-400">
+                            Размер
+                        </span>
+                        <input
+                            type="number"
+                            min={8}
+                            max={200}
+                            aria-label="Размер заголовка, px"
+                            value={titlePx}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onChange={(e) =>
+                                onTitleFontSizeChange?.(e.target.value)
                             }
-                        }}
-                        onBlur={(event) => applyFontSize(event.target.value)}
-                    />
-                    <span className="text-xs text-zinc-400">px</span>
-                </div>
+                            onBlur={(e) => commitTitlePreset(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    commitTitlePreset(
+                                        (e.currentTarget as HTMLInputElement).value
+                                    );
+                                    e.currentTarget.blur();
+                                }
+                            }}
+                            className="w-11 rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                        />
+                        <span className="text-[10px] text-zinc-500">px</span>
+                    </div>
+                )}
+                {mode === 'block' && (
+                    <div
+                        className="flex flex-wrap items-center gap-1.5 border-l border-zinc-700 pl-2"
+                        title="Размер для выделения или следующего ввода"
+                    >
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={() => applySizePreset('text')}
+                                className={`cursor-pointer rounded px-2 py-1 text-xs transition-colors ${
+                                    toolbarState.sizePreset === 'text'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'text-zinc-400 hover:bg-zinc-700'
+                                }`}
+                            >
+                                Текст
+                            </button>
+                            <input
+                                type="number"
+                                min={8}
+                                max={200}
+                                aria-label="Размер текста, px"
+                                value={bodyPx}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                    onBasePresetChange?.(e.target.value)
+                                }
+                                onBlur={(e) => commitBodyPreset(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        commitBodyPreset(
+                                            (e.currentTarget as HTMLInputElement)
+                                                .value
+                                        );
+                                        e.currentTarget.blur();
+                                    }
+                                }}
+                                className="w-11 rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                            />
+                            <span className="text-[10px] text-zinc-500">px</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={() => applySizePreset('heading')}
+                                className={`cursor-pointer rounded px-2 py-1 text-xs transition-colors ${
+                                    toolbarState.sizePreset === 'heading'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'text-zinc-400 hover:bg-zinc-700'
+                                }`}
+                            >
+                                Заголовок
+                            </button>
+                            <input
+                                type="number"
+                                min={8}
+                                max={200}
+                                aria-label="Размер заголовка в тексте, px"
+                                value={headingPx}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onChange={(e) =>
+                                    onHeadingPresetChange?.(e.target.value)
+                                }
+                                onBlur={(e) =>
+                                    commitHeadingPreset(e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        commitHeadingPreset(
+                                            (e.currentTarget as HTMLInputElement)
+                                                .value
+                                        );
+                                        e.currentTarget.blur();
+                                    }
+                                }}
+                                className="w-11 rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                            />
+                            <span className="text-[10px] text-zinc-500">px</span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div

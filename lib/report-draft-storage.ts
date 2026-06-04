@@ -38,6 +38,7 @@ const toDraftMetadata = (
         | 'date'
         | 'titleFontSize'
         | 'descriptionFontSize'
+        | 'contentHeadingFontSize'
         | 'captionFontSize'
     >
 ): DraftMetadata => ({
@@ -47,6 +48,7 @@ const toDraftMetadata = (
     date: report.date ?? null,
     titleFontSize: report.titleFontSize ?? null,
     descriptionFontSize: report.descriptionFontSize ?? null,
+    contentHeadingFontSize: report.contentHeadingFontSize ?? null,
     captionFontSize: report.captionFontSize ?? null,
 });
 
@@ -61,6 +63,7 @@ export const buildStoredDraftSnapshot = (
         | 'date'
         | 'titleFontSize'
         | 'descriptionFontSize'
+        | 'contentHeadingFontSize'
         | 'captionFontSize'
     >,
     blocks: ReportBlockFromDB[]
@@ -143,6 +146,8 @@ export const loadStoredDraftSnapshot = (
                 date: parsed.report.date ?? null,
                 titleFontSize: parsed.report.titleFontSize ?? null,
                 descriptionFontSize: parsed.report.descriptionFontSize ?? null,
+                contentHeadingFontSize:
+                    parsed.report.contentHeadingFontSize ?? null,
                 captionFontSize: parsed.report.captionFontSize ?? null,
             },
             blocks: parsed.blocks.map((block, index) => ({

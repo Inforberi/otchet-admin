@@ -212,11 +212,6 @@ h2 {
     text-indent: 0 !important;
 }
 
-/* TipTap: inline font-size из редактора не сбрасываем */
-.ProseMirror [style*='font-size'] {
-    font-size: revert !important;
-}
-
 /* Кликабельные ссылки в rich-text (просмотр отчёта) */
 .report-rich-text a {
     color: #60a5fa;
@@ -299,7 +294,19 @@ h2 {
 
 .report-rich-text p + p,
 .ProseMirror p + p {
-    margin-top: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.report-rich-text p.rich-text-spacer,
+.ProseMirror p.rich-text-spacer {
+    margin: 0;
+    min-height: 0.85em;
+    line-height: 0.85em;
+}
+
+.report-rich-text p.rich-text-spacer br,
+.ProseMirror p.rich-text-spacer br {
+    display: block;
 }
 
 /* Тонкая полоса прокрутки (редактор и тёмные панели) */
