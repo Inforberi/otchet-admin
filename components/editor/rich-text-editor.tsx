@@ -8,7 +8,7 @@ import HardBreak from '@tiptap/extension-hard-break';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
-import { Extension } from '@tiptap/core';
+import { Extension, type Editor } from '@tiptap/core';
 import Link from '@tiptap/extension-link';
 import { Bold, Italic, Palette, AlignCenter, Link2, Unlink } from 'lucide-react';
 import {
@@ -253,6 +253,7 @@ export default function RichTextEditor({
         linkHref: '',
     });
     const colorPickerRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<Editor | null>(null);
     const emitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const normalizedValue = useMemo(
@@ -275,8 +276,21 @@ export default function RichTextEditor({
                         'min-h-full px-3 py-2 text-zinc-200 outline-none [&_p]:my-0 [&_blockquote]:my-3 [&_blockquote]:border-l-4 [&_blockquote]:border-zinc-600 [&_blockquote]:pl-4 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_strong]:font-semibold [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6',
                     style: `white-space: pre-wrap; word-break: break-word; min-height: ${minHeight}; color: rgb(228, 228, 231);`,
                 },
+                handlePaste: (_view, event) => {
+                    const text = event.clipboardData?.getData('text/plain');
+                    const html = event.clipboardData?.getData('text/html');
+                    if (!text?.trim() || html) return false;
+
+                    editorRef.current
+                        ?.chain()
+                        .focus()
+                        .insertContent(plainTextToRichTextHtml(text, mode))
+                        .run();
+                    return true;
+                },
             },
             onCreate: ({ editor: currentEditor }) => {
+                editorRef.current = currentEditor;
                 setToolbarState(
                     syncToolbarState(
                         currentEditor,
@@ -313,6 +327,9 @@ export default function RichTextEditor({
                 emitTimerRef.current = setTimeout(() => {
                     onChange(nextValue);
                 }, 120);
+            },
+            onDestroy: () => {
+                editorRef.current = null;
             },
         },
         [editorId]
@@ -353,30 +370,6 @@ export default function RichTextEditor({
             ),
         }));
     }, [editor, normalizedValue, storedFontSize, defaultFontSize]);
-
-    useEffect(() => {
-        if (!editor) return;
-
-        const handlePaste = (event: ClipboardEvent) => {
-            const text = event.clipboardData?.getData('text/plain');
-            const html = event.clipboardData?.getData('text/html');
-            if (!text || html) return;
-
-            event.preventDefault();
-            editor
-                .chain()
-                .focus()
-                .insertContent(plainTextToRichTextHtml(text, mode))
-                .run();
-        };
-
-        const dom = editor.view.dom;
-        dom.addEventListener('paste', handlePaste);
-
-        return () => {
-            dom.removeEventListener('paste', handlePaste);
-        };
-    }, [editor, mode]);
 
     useEffect(() => {
         if (!editor || mode !== 'inline') return;
