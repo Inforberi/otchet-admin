@@ -183,11 +183,10 @@ h2 {
 }
 
 [contenteditable="true"] > *,
-[contenteditable="true"] * {
+[contenteditable="true"] *:not([style*='font-size']) {
     margin: 0 !important;
     padding: 0 !important;
     text-indent: 0 !important;
-    font-size: inherit !important; /* Стандартный размер в редакторе */
 }
 
 [contenteditable="true"] > p,
@@ -211,7 +210,11 @@ h2 {
     margin: 0 !important;
     padding: 0 !important;
     text-indent: 0 !important;
-    font-size: inherit !important; /* Стандартный размер в редакторе, но сохраняем data-font-size */
+}
+
+/* TipTap: inline font-size из редактора не сбрасываем */
+.ProseMirror [style*='font-size'] {
+    font-size: revert !important;
 }
 
 /* Тонкая полоса прокрутки (редактор и тёмные панели) */

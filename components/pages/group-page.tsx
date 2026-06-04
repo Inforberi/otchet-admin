@@ -9,6 +9,7 @@ import { useUserRole } from '@/hooks/use-user-role';
 import { buildGroupBreadcrumbs } from '@/lib/breadcrumbs';
 import { CreateGroupDialog } from '@/components/groups/create-group-dialog';
 import { EditGroupDialog } from '@/components/groups/edit-group-dialog';
+import { GroupFolderCard } from '@/components/groups/group-folder-card';
 import { CreateReportDialog } from '@/components/reports/create-report-dialog';
 import { ReportCard } from '@/components/reports/report-card';
 import {
@@ -31,6 +32,8 @@ interface GroupChild {
     slug: string;
     path: string;
     description: string | null;
+    parentId: string | null;
+    version: number;
     _count: {
         reports: number;
         children: number;
@@ -76,6 +79,10 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
     const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
     const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
+    const [isEditChildGroupOpen, setIsEditChildGroupOpen] = useState(false);
+    const [editingChildGroup, setEditingChildGroup] = useState<GroupChild | null>(
+        null
+    );
     const [isCreateReportOpen, setIsCreateReportOpen] = useState(false);
 
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -340,6 +347,20 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
         }
     };
 
+    const handleOpenChildEdit = (child: GroupChild, event: React.MouseEvent) => {
+        event.stopPropagation();
+        setEditingChildGroup(child);
+        setIsEditChildGroupOpen(true);
+    };
+
+    const handleChildGroupUpdated = async () => {
+        await loadGroup();
+    };
+
+    const handleChildGroupDeleted = async () => {
+        await loadGroup();
+    };
+
     if (groupLoading && !group) {
         return (
             <div className="flex min-h-screen items-center justify-center bg-[var(--color-grayscale-16)]">
@@ -520,34 +541,19 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
 
                         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                             {group.children.map((child) => (
-                                <button
+                                <GroupFolderCard
                                     key={child.id}
-                                    onClick={() => router.push(`/${child.path}`)}
-                                    className="group relative flex flex-col rounded-lg border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-6 text-left transition-all hover:border-[var(--color-primary)] hover:shadow-lg cursor-pointer"
-                                >
-                                    <div className="mb-4 flex items-start justify-between">
-                                        <div className="rounded-lg bg-[var(--color-primary)]/10 p-3">
-                                            <FolderOpen className="h-6 w-6 text-[var(--color-primary)]" />
-                                        </div>
-                                        <span className="text-sm font-medium text-[var(--color-grayscale-6)]">
-                                            {child._count.reports} отчетов
-                                            {child._count.children > 0
-                                                ? ` • ${child._count.children} групп`
-                                                : ''}
-                                        </span>
-                                    </div>
-                                    <h3 className="mb-2 text-xl font-semibold text-[var(--color-grayscale-2)]">
-                                        {child.name}
-                                    </h3>
-                                    {child.description && (
-                                        <p className="line-clamp-2 text-sm text-[var(--color-grayscale-6)]">
-                                            {child.description}
-                                        </p>
-                                    )}
-                                    <div className="mt-4 flex items-center text-sm font-medium text-[var(--color-primary)] opacity-0 transition-opacity group-hover:opacity-100">
-                                        Открыть группу
-                                    </div>
-                                </button>
+                                    name={child.name}
+                                    description={child.description}
+                                    reportsCount={child._count.reports}
+                                    childrenCount={child._count.children}
+                                    canEdit={canEdit}
+                                    showDeleteHint
+                                    onOpen={() => router.push(`/${child.path}`)}
+                                    onEdit={(event) =>
+                                        handleOpenChildEdit(child, event)
+                                    }
+                                />
                             ))}
                         </div>
                     </section>
@@ -642,6 +648,16 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                         group={group}
                         onUpdated={handleGroupUpdated}
                         onDeleted={handleGroupDeleted}
+                    />
+                    <EditGroupDialog
+                        open={isEditChildGroupOpen}
+                        onOpenChange={(open) => {
+                            setIsEditChildGroupOpen(open);
+                            if (!open) setEditingChildGroup(null);
+                        }}
+                        group={editingChildGroup}
+                        onUpdated={handleChildGroupUpdated}
+                        onDeleted={handleChildGroupDeleted}
                     />
                     <CreateGroupDialog
                         open={isCreateGroupOpen}

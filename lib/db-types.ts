@@ -58,6 +58,8 @@ export interface TaskBlockData {
     description: string;
     images: ImageData[];
     layout?: PhotoBlockLayout;
+    titleFontSize?: string | null;
+    descriptionFontSize?: string | null;
     createdAt: string; // ISO date, auto-set when block is added
     startDate: string | null; // дата начала (manual if no assignee)
     deadline: string | null; // крайний срок

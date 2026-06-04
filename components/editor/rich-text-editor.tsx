@@ -11,6 +11,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import { Extension } from '@tiptap/core';
 import { Bold, Italic, Palette, AlignCenter } from 'lucide-react';
 import {
+    extractFontSizeFromHtml,
     normalizeRichTextHtml,
     plainTextToRichTextHtml,
 } from '@/lib/rich-text';
@@ -135,7 +136,29 @@ type RichTextEditorProps = {
     placeholder?: string;
     minHeight?: string;
     defaultFontSize?: string;
+    /** Сохранённый размер блока (px), отображается в toolbar если нет mark в HTML */
+    fontSize?: string;
+    onFontSizeChange?: (px: string) => void;
     mode?: 'inline' | 'block';
+};
+
+const resolveToolbarFontSize = (
+    editor: NonNullable<ReturnType<typeof useEditor>>,
+    html: string,
+    storedFontSize?: string,
+    defaultFontSize = '20'
+): string => {
+    const fromMark = (
+        editor.getAttributes('textStyle').fontSize as string | undefined
+    )?.replace('px', '');
+    if (fromMark) return fromMark;
+
+    const fromHtml = extractFontSizeFromHtml(html);
+    if (fromHtml) return fromHtml;
+
+    if (storedFontSize) return storedFontSize.replace(/px$/i, '');
+
+    return defaultFontSize;
 };
 
 const getEditorExtensions = (mode: 'inline' | 'block') => [
@@ -162,17 +185,24 @@ const getEditorExtensions = (mode: 'inline' | 'block') => [
     }),
 ];
 
-const syncToolbarState = (editor: NonNullable<ReturnType<typeof useEditor>>) => ({
+const syncToolbarState = (
+    editor: NonNullable<ReturnType<typeof useEditor>>,
+    html: string,
+    storedFontSize?: string,
+    defaultFontSize = '20'
+) => ({
     isBold: editor.isActive('bold'),
     isItalic: editor.isActive('italic'),
     isCentered: editor.isActive({ textAlign: 'center' }),
     color:
         (editor.getAttributes('textStyle').color as string | undefined) ||
         DEFAULT_COLOR,
-    fontSize:
-        (
-            editor.getAttributes('textStyle').fontSize as string | undefined
-        )?.replace('px', '') || '',
+    fontSize: resolveToolbarFontSize(
+        editor,
+        html,
+        storedFontSize,
+        defaultFontSize
+    ),
 });
 
 export default function RichTextEditor({
@@ -182,6 +212,8 @@ export default function RichTextEditor({
     placeholder,
     minHeight = '200px',
     defaultFontSize = '20',
+    fontSize: storedFontSize,
+    onFontSizeChange,
     mode = 'block',
 }: RichTextEditorProps) {
     const [showColorPicker, setShowColorPicker] = useState(false);
@@ -219,13 +251,34 @@ export default function RichTextEditor({
                 },
             },
             onCreate: ({ editor: currentEditor }) => {
-                setToolbarState(syncToolbarState(currentEditor));
+                setToolbarState(
+                    syncToolbarState(
+                        currentEditor,
+                        normalizedValue,
+                        storedFontSize,
+                        defaultFontSize
+                    )
+                );
             },
             onSelectionUpdate: ({ editor: currentEditor }) => {
-                setToolbarState(syncToolbarState(currentEditor));
+                setToolbarState(
+                    syncToolbarState(
+                        currentEditor,
+                        normalizeOutput(currentEditor.getHTML(), mode),
+                        storedFontSize,
+                        defaultFontSize
+                    )
+                );
             },
             onTransaction: ({ editor: currentEditor }) => {
-                setToolbarState(syncToolbarState(currentEditor));
+                setToolbarState(
+                    syncToolbarState(
+                        currentEditor,
+                        normalizeOutput(currentEditor.getHTML(), mode),
+                        storedFontSize,
+                        defaultFontSize
+                    )
+                );
             },
             onUpdate: ({ editor: currentEditor }) => {
                 const nextValue = normalizeOutput(currentEditor.getHTML(), mode);
@@ -252,8 +305,28 @@ export default function RichTextEditor({
         editor.commands.setContent(normalizedValue, {
             emitUpdate: false,
         });
-        setToolbarState(syncToolbarState(editor));
-    }, [editor, mode, normalizedValue]);
+        setToolbarState(
+            syncToolbarState(
+                editor,
+                normalizedValue,
+                storedFontSize,
+                defaultFontSize
+            )
+        );
+    }, [editor, mode, normalizedValue, storedFontSize, defaultFontSize]);
+
+    useEffect(() => {
+        if (!editor) return;
+        setToolbarState((prev) => ({
+            ...prev,
+            fontSize: resolveToolbarFontSize(
+                editor,
+                normalizedValue,
+                storedFontSize,
+                defaultFontSize
+            ),
+        }));
+    }, [editor, normalizedValue, storedFontSize, defaultFontSize]);
 
     useEffect(() => {
         if (!editor) return;
@@ -338,8 +411,17 @@ export default function RichTextEditor({
         const parsed = Number(size);
         if (!Number.isInteger(parsed) || parsed < 8 || parsed > 200) return;
 
-        editor.chain().focus().setFontSize(`${parsed}px`).run();
-        setToolbarState((prev) => ({ ...prev, fontSize: String(parsed) }));
+        const px = `${parsed}px`;
+        const hasText = editor.state.doc.textContent.length > 0;
+        const chain = editor.chain().focus();
+        if (hasText && editor.state.selection.empty) {
+            chain.selectAll();
+        }
+        chain.setFontSize(px).run();
+
+        const nextPx = String(parsed);
+        setToolbarState((prev) => ({ ...prev, fontSize: nextPx }));
+        onFontSizeChange?.(nextPx);
     };
 
     if (!editor) {
@@ -505,7 +587,11 @@ export default function RichTextEditor({
                         type="number"
                         min="8"
                         max="200"
-                        value={toolbarState.fontSize}
+                        value={
+                            toolbarState.fontSize ||
+                            storedFontSize ||
+                            defaultFontSize
+                        }
                         placeholder={defaultFontSize}
                         className="w-14 rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
                         onChange={(event) =>

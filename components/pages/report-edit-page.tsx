@@ -38,8 +38,14 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { TaskBlockCard } from '@/components/report/task-block-card';
+import { ReportAutosaveControl } from '@/components/report/report-autosave-control';
 import { generateClientId } from '@/lib/generate-id';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
+import {
+    DEFAULT_AUTOSAVE_INTERVAL_MS,
+    getAutosaveIntervalMs,
+    setAutosaveIntervalMs,
+} from '@/lib/report-editor-preferences';
 import {
     buildByPathReportApiUrl,
     getReportEditPublicPath,
@@ -497,10 +503,10 @@ function BlockEditor({
                                 <label className="block text-sm font-medium text-zinc-300 mb-2">Изображения</label>
                                 <div className="space-y-3">
                                     {(localData as ScreenshotBlockData).images?.map((img, idx) => (
-                                        <div key={img.uploadId || `img-${idx}-${img.url}`} className="border border-zinc-700 rounded p-3 bg-zinc-800">
-                                            <div className="flex gap-3">
-                                                <img src={img.url} alt={img.alt} className="h-36 w-36 shrink-0 rounded object-cover" />
-                                                <div className="flex-1 space-y-2">
+                                        <div key={img.uploadId || `img-${idx}-${img.url}`} className="overflow-hidden rounded border border-zinc-700 bg-zinc-800 p-3">
+                                            <div className="relative flex gap-3">
+                                                <img src={img.url} alt={img.alt} className="relative z-0 h-36 w-36 shrink-0 rounded object-cover" />
+                                                <div className="relative z-10 min-w-0 flex-1 space-y-2">
                                                     <input
                                                         type="text"
                                                         value={img.caption || ''}
@@ -602,6 +608,9 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     const { canEdit, loading: roleLoading, user: currentUser } = useUserRole();
 
     const [resolvedReportId, setResolvedReportId] = useState<string | null>(null);
+    const [autosaveIntervalMs, setAutosaveIntervalMsState] = useState(() =>
+        typeof window !== 'undefined' ? getAutosaveIntervalMs() : DEFAULT_AUTOSAVE_INTERVAL_MS
+    );
 
     const {
         report,
@@ -617,7 +626,8 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         replaceBlocksLocally,
         flush,
         publish,
-    } = useReportDraftSync(resolvedReportId ?? '');
+        rescheduleAutosave,
+    } = useReportDraftSync(resolvedReportId ?? '', autosaveIntervalMs);
 
     const reportId = resolvedReportId ?? '';
 
@@ -664,13 +674,13 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         switch (syncStatus) {
             case 'local': return '● Есть локальные изменения';
             case 'autosaving': return '↻ Автосохранение...';
-            case 'saving': return '↻ Сохранение черновика...';
+            case 'saving': return '↻ Сохранение...';
             case 'conflict': return '⚠ Конфликт';
             case 'error': return '⚠ Ошибка';
             default:
                 if (hasUnpublishedChanges) return '● Есть неопубликованные изменения';
                 if (report?.publishedHash) return '✓ Опубликовано';
-                return '✓ Черновик сохранён';
+                return '✓ Сохранено';
         }
     }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
 
@@ -698,9 +708,19 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         return !publishing && syncStatus !== 'saving' && syncStatus !== 'autosaving' && (hasLocalChanges || hasUnpublishedChanges || !report.publishedHash);
     }, [hasLocalChanges, hasUnpublishedChanges, publishing, report, syncStatus]);
 
+    const handleAutosaveIntervalChange = useCallback(
+        (ms: number) => {
+            setAutosaveIntervalMsState(ms);
+            setAutosaveIntervalMs(ms);
+            if (ms > 0 && hasLocalChanges) {
+                rescheduleAutosave();
+            }
+        },
+        [hasLocalChanges, rescheduleAutosave]
+    );
+
     const handleSaveDraft = useCallback(async () => {
-        const ok = await flush({ reason: 'manual' });
-        if (ok) alert('Черновик сохранён');
+        await flush({ reason: 'manual' });
     }, [flush]);
 
     const handlePublish = useCallback(async () => {
@@ -913,6 +933,11 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     actions={
                         <div className="flex flex-wrap items-center gap-2">
                             <span className={syncStatusBadge.className}>{syncStatusBadge.text}</span>
+                            <div className="hidden h-6 w-px bg-zinc-700 sm:block" aria-hidden />
+                            <ReportAutosaveControl
+                                intervalMs={autosaveIntervalMs}
+                                onIntervalChange={handleAutosaveIntervalChange}
+                            />
                             <button
                                 type="button"
                                 onClick={handleSaveDraft}
@@ -920,7 +945,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-600 bg-transparent px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                             >
                                 <Save className="h-4 w-4" />
-                                {syncStatus === 'saving' ? 'Сохранение...' : 'Черновик'}
+                                {syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить'}
                             </button>
                             <button
                                 type="button"
@@ -1030,7 +1055,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                             <div
                                                 key={block.id}
                                                 id={`block-${block.id}`}
-                                                className={`transition-all ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950 rounded-xl' : ''}`}
+                                                className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
                                             >
                                                 <TaskBlockCard
                                                     blockId={block.id}
@@ -1065,7 +1090,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                                             <div
                                                 key={block.id}
                                                 id={`block-${block.id}`}
-                                                className={`transition-all ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950 rounded-xl' : ''}`}
+                                                className={`isolate overflow-hidden transition-all rounded-xl ${selectedBlockId === block.id ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-zinc-950' : ''}`}
                                             >
                                                 <BlockEditor
                                                     block={block}

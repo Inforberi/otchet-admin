@@ -33,7 +33,7 @@ type DraftSaveResponse = {
 };
 
 const LOCAL_STORAGE_DEBOUNCE_MS = 300;
-const AUTOSAVE_MS = 45_000;
+const DEFAULT_AUTOSAVE_MS = 60_000;
 
 const hasUnpublishedChanges = (report: ReportFromDB | null): boolean =>
     Boolean(
@@ -68,7 +68,10 @@ const toDraftRequest = (
     })),
 });
 
-export const useReportDraftSync = (reportId: string) => {
+export const useReportDraftSync = (
+    reportId: string,
+    autosaveIntervalMs: number = DEFAULT_AUTOSAVE_MS
+) => {
     const [report, setReport] = useState<ReportFromDB | null>(null);
     const [blocks, setBlocks] = useState<ReportBlockFromDB[]>([]);
     const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
@@ -87,6 +90,7 @@ export const useReportDraftSync = (reportId: string) => {
     const flushRef = useRef<(options?: { reason?: FlushReason }) => Promise<boolean>>(
         async () => false
     );
+    const autosaveIntervalMsRef = useRef(autosaveIntervalMs);
 
     reportRef.current = report;
     blocksRef.current = blocks;
@@ -132,11 +136,32 @@ export const useReportDraftSync = (reportId: string) => {
     }, [persistLocalSnapshot]);
 
     const scheduleAutosave = useCallback(() => {
+        const intervalMs = autosaveIntervalMsRef.current;
+        if (intervalMs <= 0) return;
         if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = setTimeout(() => {
             void flushRef.current({ reason: 'autosave' });
-        }, AUTOSAVE_MS);
+        }, intervalMs);
     }, []);
+
+    useEffect(() => {
+        autosaveIntervalMsRef.current = autosaveIntervalMs;
+        if (autosaveIntervalMs <= 0) {
+            if (autosaveTimerRef.current) {
+                clearTimeout(autosaveTimerRef.current);
+                autosaveTimerRef.current = null;
+            }
+            return;
+        }
+        if (hasLocalChangesRef.current) {
+            scheduleAutosave();
+        }
+    }, [autosaveIntervalMs, scheduleAutosave]);
+
+    const rescheduleAutosave = useCallback(() => {
+        if (autosaveIntervalMsRef.current <= 0 || !hasLocalChangesRef.current) return;
+        scheduleAutosave();
+    }, [scheduleAutosave]);
 
     const markDirty = useCallback(() => {
         setHasLocalChanges(true);
@@ -442,6 +467,7 @@ export const useReportDraftSync = (reportId: string) => {
         replaceBlocksLocally,
         flush,
         publish,
+        rescheduleAutosave,
         handleVersionConflict,
     };
 };
