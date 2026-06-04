@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { FolderOpen, Plus, Settings } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { AppPageHeader } from '@/components/layout/app-page-header';
 import { useUserRole } from '@/hooks/use-user-role';
 import { CreateGroupDialog } from '@/components/groups/create-group-dialog';
 import { EditGroupDialog } from '@/components/groups/edit-group-dialog';
+import { GroupFolderCard } from '@/components/groups/group-folder-card';
 
 interface ReportGroup {
     id: string;
@@ -135,80 +136,19 @@ export default function HomePage() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {groups.map((group) => {
-                            const isNonEmpty =
-                                group._count.reports > 0 ||
-                                group._count.children > 0;
-
-                            return (
-                                <div
-                                    key={group.id}
-                                    className="group/card relative flex flex-col rounded-lg border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] transition-all hover:border-[var(--color-primary)] hover:shadow-lg"
-                                >
-                                    {canEdit && (
-                                        <button
-                                            type="button"
-                                            onClick={(event) =>
-                                                handleOpenEdit(group, event)
-                                            }
-                                            className="absolute right-3 top-3 z-10 rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-2 text-[var(--color-grayscale-5)] opacity-0 transition-opacity hover:bg-[var(--color-grayscale-13)] hover:text-[var(--color-grayscale-3)] group-hover/card:opacity-100 cursor-pointer"
-                                            title="Настройки папки"
-                                            aria-label="Настройки папки"
-                                        >
-                                            <Settings className="h-4 w-4" />
-                                        </button>
-                                    )}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleSelectGroup(group)}
-                                        className="flex w-full flex-col p-6 text-left cursor-pointer"
-                                    >
-                                        <div className="mb-4 flex items-start justify-between pr-8">
-                                            <div className="rounded-lg bg-[var(--color-primary)]/10 p-3">
-                                                <FolderOpen className="h-6 w-6 text-[var(--color-primary)]" />
-                                            </div>
-                                            <span className="text-sm font-medium text-[var(--color-grayscale-6)]">
-                                                {group._count.reports} отчетов
-                                                {group._count.children > 0
-                                                    ? ` • ${group._count.children} групп`
-                                                    : ''}
-                                            </span>
-                                        </div>
-                                        <h3 className="mb-2 text-xl font-semibold text-[var(--color-grayscale-2)]">
-                                            {group.name}
-                                        </h3>
-                                        {group.description && (
-                                            <p className="line-clamp-2 text-sm text-[var(--color-grayscale-6)]">
-                                                {group.description}
-                                            </p>
-                                        )}
-                                        {isNonEmpty && canEdit && (
-                                            <p className="mt-2 text-xs text-[var(--color-grayscale-7)]">
-                                                Для удаления сначала очистите
-                                                папку
-                                            </p>
-                                        )}
-                                        <div className="mt-4 flex items-center text-sm font-medium text-[var(--color-primary)] opacity-0 transition-opacity group-hover/card:opacity-100">
-                                            Открыть группу
-                                            <svg
-                                                className="ml-2 h-4 w-4"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                aria-hidden
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M9 5l7 7-7 7"
-                                                />
-                                            </svg>
-                                        </div>
-                                    </button>
-                                </div>
-                            );
-                        })}
+                        {groups.map((group) => (
+                            <GroupFolderCard
+                                key={group.id}
+                                name={group.name}
+                                description={group.description}
+                                reportsCount={group._count.reports}
+                                childrenCount={group._count.children}
+                                canEdit={canEdit}
+                                showDeleteHint
+                                onOpen={() => handleSelectGroup(group)}
+                                onEdit={(event) => handleOpenEdit(group, event)}
+                            />
+                        ))}
                     </div>
                 )}
             </main>
