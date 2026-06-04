@@ -269,26 +269,24 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 }
                 actions={
                     canEdit ? (
-                        <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => router.push(getReportEditPublicPath(report))}
-                                    className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] px-3 py-1.5 text-[var(--color-grayscale-5)] transition-colors hover:bg-[var(--color-grayscale-14)] cursor-pointer"
-                                >
-                                    <Edit className="h-4 w-4" />
-                                    Редактор
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleExportPDF}
-                                    disabled={isExporting}
-                                    className="inline-flex items-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                                >
-                                    <Download className="h-4 w-4" />
-                                    {isExporting ? 'Генерация...' : 'PDF'}
-                                </button>
-                            </div>
+                        <div className="flex w-full flex-wrap items-stretch justify-end gap-2 print:hidden sm:w-auto">
+                            <button
+                                type="button"
+                                onClick={() => router.push(getReportEditPublicPath(report))}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-alpha-3)] px-3 py-1.5 text-[var(--color-grayscale-5)] transition-colors hover:bg-[var(--color-grayscale-14)] cursor-pointer sm:flex-initial"
+                            >
+                                <Edit className="h-4 w-4 shrink-0" />
+                                Редактор
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleExportPDF}
+                                disabled={isExporting}
+                                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-alpha-3)] bg-[var(--color-primary)] px-3 py-1.5 text-white transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer sm:flex-initial"
+                            >
+                                <Download className="h-4 w-4 shrink-0" />
+                                {isExporting ? 'Генерация...' : 'PDF'}
+                            </button>
                         </div>
                     ) : undefined
                 }
@@ -349,13 +347,11 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
             {canEdit && showFloatingEdit && !isLightboxOpen && (
                 <button
                     onClick={() => router.push(getReportEditPublicPath(report))}
-                    className="fixed right-8 top-1/2 -translate-y-1/2 z-50 print:hidden
-                        bg-[var(--color-grayscale-14)] hover:bg-[var(--color-grayscale-13)]
-                        text-[var(--color-grayscale-4)] rounded-full p-4
-                        shadow-lg hover:shadow-xl transition-all duration-300
-                        border border-[var(--color-alpha-3)]
-                        opacity-70 hover:opacity-100
-                        group cursor-pointer"
+                    className="fixed right-4 bottom-24 z-50 rounded-full border border-[var(--color-alpha-3)]
+                        bg-[var(--color-grayscale-14)] p-4 text-[var(--color-grayscale-4)] shadow-lg
+                        transition-all duration-300 opacity-70 hover:bg-[var(--color-grayscale-13)]
+                        hover:opacity-100 hover:shadow-xl group cursor-pointer print:hidden
+                        sm:right-8 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2"
                     title="Редактировать отчет"
                     aria-label="Редактировать отчет"
                 >

@@ -511,14 +511,15 @@ function generatePDFHTML(report: ReportFromDB, baseUrl: string): string {
         }
         ol, ul {
             margin: 12px 0;
-            padding-left: 24px;
             list-style-position: outside;
         }
         ol {
             list-style-type: decimal;
+            padding-left: 36px;
         }
         ul {
             list-style-type: disc;
+            padding-left: 28px;
         }
         li {
             display: list-item;

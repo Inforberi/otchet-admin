@@ -15,6 +15,8 @@ import {
     ClipboardCheck,
     ClipboardList,
     CalendarDays,
+    ChevronDown,
+    ChevronUp,
     AlignLeft,
     AlignCenter,
     AlignRight,
@@ -51,6 +53,17 @@ function isEmptyHtml(html: string | null | undefined): boolean {
     if (!html) return true;
     return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim().length === 0;
 }
+
+const stripHtml = (value: string | null | undefined): string =>
+    (value ?? '')
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const truncateText = (value: string, maxLength = 72): string =>
+    value.length <= maxLength ? value : `${value.slice(0, maxLength).trim()}...`;
 
 function accentFocusRing(accent: ImageAccent): string {
     return accent === 'green'
@@ -425,6 +438,13 @@ export function TaskBlockCard({
     const canComplete = canUserActOnTask(currentUserId ?? undefined, assignees, canEdit);
     const canReopen = canComplete;
 
+    const collapsible = showActions;
+    const [isExpanded, setIsExpanded] = useState(true);
+    const blockPreview = useMemo(() => {
+        const title = stripHtml(localData.title);
+        return truncateText(title || 'Задача');
+    }, [localData.title]);
+
     // --- Upload helpers ---
     const uploadFiles = useCallback(async (files: FileList | File[]): Promise<ImageData[]> => {
         const result: ImageData[] = [];
@@ -683,10 +703,36 @@ export function TaskBlockCard({
                     ? 'border-red-700/40 bg-zinc-900'
                     : 'border-purple-800/30 bg-zinc-900'
             }`}>
+            {collapsible && (
+                <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <span className="shrink-0 rounded bg-purple-600 px-2.5 py-1 text-xs font-medium text-white">
+                            Задача
+                        </span>
+                        <p className="truncate text-base font-medium text-zinc-200 sm:text-lg">{blockPreview}</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setIsExpanded((v) => !v)}
+                        className="shrink-0 rounded p-1.5 text-zinc-400 hover:bg-zinc-800 cursor-pointer"
+                        aria-label={isExpanded ? 'Свернуть блок' : 'Развернуть блок'}
+                    >
+                        {isExpanded ? (
+                            <ChevronUp className="h-5 w-5" />
+                        ) : (
+                            <ChevronDown className="h-5 w-5" />
+                        )}
+                    </button>
+                </div>
+            )}
+
+            {(!collapsible || isExpanded) && (
+            <>
             {/* Header — status + badges */}
-            <div className="flex items-start gap-3 px-5 pt-5 pb-3">
-                <div className="mt-0.5">{statusIcon}</div>
-                <div className="flex-1 min-w-0">
+            <div className="flex flex-col gap-3 px-3 pt-4 pb-3 sm:flex-row sm:items-start sm:px-5 sm:pt-5">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                <div className="mt-0.5 shrink-0">{statusIcon}</div>
+                <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                         {deadlineBadge()}
                         <span className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-full bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-400">
@@ -697,13 +743,14 @@ export function TaskBlockCard({
                         </span>
                     </div>
                 </div>
+                </div>
                 {showActions && isCompleted && canReopen && (
-                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                    <div className="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto sm:flex-row sm:flex-wrap">
                         <button
                             type="button"
                             onClick={() => setReopenConfirmOpen(true)}
                             disabled={actionLoading}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors cursor-pointer"
+                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors cursor-pointer sm:w-auto"
                         >
                             <RotateCcw className="w-3.5 h-3.5" />
                             Переоткрыть
@@ -712,7 +759,7 @@ export function TaskBlockCard({
                             type="button"
                             onClick={() => setPurgeConfirmOpen(true)}
                             disabled={actionLoading}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 disabled:opacity-50 transition-colors cursor-pointer"
+                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 disabled:opacity-50 transition-colors cursor-pointer sm:w-auto"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             Удалить выполнение
@@ -744,8 +791,8 @@ export function TaskBlockCard({
             <div className={isClosedReportView ? 'px-4 pb-4 space-y-3' : undefined}>
             {/* Zone 1 — Task details */}
             <div
-                className={`rounded-lg border border-zinc-700/60 px-4 py-3 bg-zinc-800/50 overflow-hidden ${
-                    isClosedReportView ? 'mb-0' : 'mx-4 mb-3'
+                className={`rounded-lg border border-zinc-700/60 px-4 py-3 bg-zinc-800/50 overflow-x-visible overflow-y-hidden ${
+                    isClosedReportView ? 'mb-0' : 'mx-2 mb-3 sm:mx-4'
                 }`}
             >
                 <div className="flex items-center gap-1.5 mb-3">
@@ -790,7 +837,7 @@ export function TaskBlockCard({
                         </div>
 
                         {/* Dates row */}
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                             <div className="select-none">
                                 <span className={labelCls}>
                                     <span className="flex items-center gap-1">
@@ -918,8 +965,8 @@ export function TaskBlockCard({
                     isClosedReportView
                         ? 'border-green-700/30 bg-green-950/20'
                         : isCompleted
-                          ? 'mx-4 mb-4 border-green-700/30 bg-green-950/20'
-                          : 'mx-4 mb-4 border-zinc-700/40 bg-zinc-800/20'
+                          ? 'mx-2 mb-4 border-green-700/30 bg-green-950/20 sm:mx-4'
+                          : 'mx-2 mb-4 border-zinc-700/40 bg-zinc-800/20 sm:mx-4'
                 }`}
             >
                 <div className="flex items-center justify-between mb-2.5">
@@ -1055,6 +1102,8 @@ export function TaskBlockCard({
                 )}
             </div>
             </div>
+            </>
+            )}
         </div>
     );
 }

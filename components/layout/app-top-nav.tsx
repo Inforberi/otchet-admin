@@ -50,13 +50,13 @@ export function AppTopNav({ onLogout, variant = 'default' }: AppTopNavProps) {
 
     return (
         <nav
-            className={`flex flex-wrap items-center gap-x-6 gap-y-2 ${
-                isEditor ? 'bg-zinc-900 px-4' : ''
-            } ${navBorderClass} ${showNavSections ? 'justify-between' : 'justify-end'}`}
+            className={`flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2 ${
+                isEditor ? 'bg-zinc-900 px-3 sm:px-4' : ''
+            } ${navBorderClass} ${showNavSections ? 'sm:justify-between' : 'sm:justify-end'}`}
             aria-label="Основная навигация"
         >
             {showNavSections && (
-                <div className="flex flex-wrap items-center gap-1">
+                <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
                     {showTaskPeopleTab && (
                         <button
                             type="button"
@@ -77,7 +77,7 @@ export function AppTopNav({ onLogout, variant = 'default' }: AppTopNavProps) {
                     )}
                 </div>
             )}
-            <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+            <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:gap-2">
                 <button
                     type="button"
                     onClick={() => router.push('/change-password')}

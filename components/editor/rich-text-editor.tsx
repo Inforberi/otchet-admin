@@ -504,7 +504,7 @@ export default function RichTextEditor({
 
     return (
         <div className="space-y-2">
-            <div className="flex items-center gap-2 rounded-t border border-zinc-700 bg-zinc-800 p-2">
+            <div className="flex flex-wrap items-center gap-1.5 rounded-t border border-zinc-700 bg-zinc-800 p-2">
                 <button
                     type="button"
                     onClick={() => editor.chain().focus().toggleBold().run()}
@@ -605,7 +605,7 @@ export default function RichTextEditor({
                             <Link2 className="h-4 w-4" />
                         </button>
                         {showLinkEditor && (
-                            <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded border border-zinc-700 bg-zinc-800 p-3 shadow-lg">
+                            <div className="absolute left-0 top-full z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded border border-zinc-700 bg-zinc-800 p-3 shadow-lg">
                                 <label className="mb-1 block text-xs text-zinc-400">
                                     URL
                                 </label>
@@ -663,7 +663,7 @@ export default function RichTextEditor({
                         />
                     </button>
                     {showColorPicker && (
-                        <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded border border-zinc-700 bg-zinc-800 p-3 shadow-lg">
+                        <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] max-w-[calc(100vw-2rem)] rounded border border-zinc-700 bg-zinc-800 p-3 shadow-lg">
                             {recentColors.length > 0 && (
                                 <div className="mb-3">
                                     <label className="mb-1 block text-xs text-zinc-400">
