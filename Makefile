@@ -1,5 +1,7 @@
 .PHONY: help up down logs prod prod-rebuild clean dev backup backup-db backup-uploads typecheck
 
+COMPOSE_DEV = docker compose -f docker-compose.yml -f docker-compose.dev.yml
+
 help: ## Показать эту справку
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -62,10 +64,10 @@ clean: ## Очистить Docker (образы, volumes, etc)
 dev: ## Dev запуск: БД, Prisma generate, migrate deploy и dev-сервер
 	@echo "🚀 Запуск dev окружения..."
 	@mkdir -p uploads && chmod 777 uploads
-	@echo "📦 Поднимаю БД..."
-	@docker compose up -d postgres
+	@echo "📦 Поднимаю БД (docker-compose.dev.yml)..."
+	@$(COMPOSE_DEV) up -d postgres
 	@echo "⏳ Жду готовности БД..."
-	@until docker compose exec postgres pg_isready -q 2>/dev/null; do \
+	@until $(COMPOSE_DEV) exec postgres pg_isready -q 2>/dev/null; do \
 		printf '.'; sleep 1; \
 	done; echo ""
 	@echo "🔧 Генерирую Prisma Client..."

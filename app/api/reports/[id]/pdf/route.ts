@@ -573,8 +573,28 @@ async function generatePDFHTML(report: ReportFromDB, baseUrl: string): Promise<s
         }
         p.rich-text-spacer {
             margin: 0;
-            min-height: 0.85em;
-            line-height: 0.85em;
+            min-height: 1em;
+            line-height: 1em;
+        }
+        p.rich-text-spacer + p.rich-text-spacer {
+            margin-top: 0.75rem;
+        }
+        p + ul,
+        p + ol {
+            margin-top: 0.75rem;
+        }
+        ul + p,
+        ol + p {
+            margin-top: 0.75rem;
+        }
+        blockquote {
+            margin: 0.75rem 0;
+            border-left: 4px solid #52525b;
+            padding-left: 1rem;
+        }
+        p + blockquote,
+        blockquote + p {
+            margin-top: 0.75rem;
         }
         @media print {
             .header {

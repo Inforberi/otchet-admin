@@ -182,17 +182,17 @@ h2 {
     font-size: inherit !important; /* Стандартный размер в редакторе */
 }
 
-[contenteditable="true"] > *,
-[contenteditable="true"] *:not([style*='font-size']):not(ol):not(ul):not(li) {
+[contenteditable="true"]:not(.ProseMirror) > *,
+[contenteditable="true"]:not(.ProseMirror) *:not([style*='font-size']):not(ol):not(ul):not(li) {
     margin: 0 !important;
     padding: 0 !important;
     text-indent: 0 !important;
 }
 
-[contenteditable="true"] > p,
-[contenteditable="true"] > div,
-[contenteditable="true"] p,
-[contenteditable="true"] div {
+[contenteditable="true"]:not(.ProseMirror) > p,
+[contenteditable="true"]:not(.ProseMirror) > div,
+[contenteditable="true"]:not(.ProseMirror) p,
+[contenteditable="true"]:not(.ProseMirror) div {
     margin: 0 !important;
     padding: 0 !important;
     text-indent: 0 !important;
@@ -300,13 +300,46 @@ h2 {
 .report-rich-text p.rich-text-spacer,
 .ProseMirror p.rich-text-spacer {
     margin: 0;
-    min-height: 0.85em;
-    line-height: 0.85em;
+    min-height: 1em;
+    line-height: 1em;
+}
+
+.report-rich-text p.rich-text-spacer + p.rich-text-spacer,
+.ProseMirror p.rich-text-spacer + p.rich-text-spacer {
+    margin-top: 0.75rem;
 }
 
 .report-rich-text p.rich-text-spacer br,
 .ProseMirror p.rich-text-spacer br {
     display: block;
+}
+
+.report-rich-text p + ul,
+.report-rich-text p + ol,
+.ProseMirror p + ul,
+.ProseMirror p + ol {
+    margin-top: 0.75rem;
+}
+
+.report-rich-text ul + p,
+.report-rich-text ol + p,
+.ProseMirror ul + p,
+.ProseMirror ol + p {
+    margin-top: 0.75rem;
+}
+
+.report-rich-text blockquote,
+.ProseMirror blockquote {
+    margin: 0.75rem 0;
+    border-left: 4px solid rgb(82 82 91);
+    padding-left: 1rem;
+}
+
+.report-rich-text p + blockquote,
+.report-rich-text blockquote + p,
+.ProseMirror p + blockquote,
+.ProseMirror blockquote + p {
+    margin-top: 0.75rem;
 }
 
 /* Тонкая полоса прокрутки (редактор и тёмные панели) */

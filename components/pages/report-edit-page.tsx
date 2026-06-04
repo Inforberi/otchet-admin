@@ -722,6 +722,8 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         blocks,
         loading,
         syncStatus,
+        isFlushInFlight,
+        showSavingIndicator,
         publishing,
         hasLocalChanges,
         hasUnpublishedChanges,
@@ -798,10 +800,14 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         const header = editorHeaderRef.current;
         if (!header) return;
 
+        let lastHeight = 0;
         const updateHeaderHeight = () => {
+            const nextHeight = header.offsetHeight;
+            if (nextHeight === lastHeight) return;
+            lastHeight = nextHeight;
             document.documentElement.style.setProperty(
                 '--editor-header-h',
-                `${header.offsetHeight}px`
+                `${nextHeight}px`
             );
         };
 
@@ -833,74 +839,61 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         }
     }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
 
-    const syncStatusShortLabel = useMemo(() => {
-        switch (syncStatus) {
-            case 'local':
-                return 'Локальные';
-            case 'autosaving':
-                return 'Авто…';
-            case 'saving':
-                return 'Сохранение…';
-            case 'conflict':
-                return 'Конфликт';
-            case 'error':
-                return 'Ошибка';
-            default:
-                if (hasUnpublishedChanges) return 'Не опубл.';
-                if (report?.publishedHash) return 'Опубликовано';
-                return 'Сохранено';
-        }
-    }, [hasUnpublishedChanges, report?.publishedHash, syncStatus]);
-
     const syncStatusBadge = useMemo(() => {
         const base =
-            'inline-flex h-8 max-w-full shrink-0 items-center rounded-full px-2.5 text-xs font-medium';
-        switch (syncStatus) {
-            case 'local':
-                return {
-                    className: `${base} bg-amber-500/15 text-amber-300`,
-                    text: syncStatusLabel,
-                    shortText: syncStatusShortLabel,
-                };
-            case 'autosaving':
-            case 'saving':
-                return {
-                    className: `${base} bg-blue-500/15 text-blue-300`,
-                    text: syncStatusLabel,
-                    shortText: syncStatusShortLabel,
-                };
-            case 'conflict':
-            case 'error':
-                return {
-                    className: `${base} bg-red-500/15 text-red-300`,
-                    text: syncStatusLabel,
-                    shortText: syncStatusShortLabel,
-                };
-            default:
-                if (hasUnpublishedChanges) {
-                    return {
-                        className: `${base} bg-amber-500/15 text-amber-300`,
-                        text: syncStatusLabel,
-                        shortText: syncStatusShortLabel,
-                    };
-                }
-                return {
-                    className: `${base} bg-zinc-700/80 text-zinc-400`,
-                    text: syncStatusLabel,
-                    shortText: syncStatusShortLabel,
-                };
+            'inline-flex h-8 max-w-full shrink-0 items-center rounded-full px-2.5 text-xs font-medium transition-colors duration-300';
+        const isSaving = showSavingIndicator;
+
+        if (syncStatus === 'conflict' || syncStatus === 'error') {
+            const label = syncStatus === 'conflict' ? 'Конфликт' : 'Ошибка';
+            return {
+                className: `${base} bg-red-500/15 text-red-300`,
+                text: label,
+                shortText: label,
+                title: syncStatusLabel,
+                isSaving: false,
+            };
         }
-    }, [syncStatus, syncStatusLabel, syncStatusShortLabel, hasUnpublishedChanges]);
+
+        if (isSaving) {
+            return {
+                className: `${base} bg-blue-500/15 text-blue-300`,
+                text: 'Сохранение',
+                shortText: 'Сохранение',
+                title: syncStatusLabel,
+                isSaving: true,
+            };
+        }
+
+        if (syncStatus === 'local' || hasUnpublishedChanges) {
+            return {
+                className: `${base} bg-amber-500/15 text-amber-300`,
+                text: 'Изменения',
+                shortText: 'Изменения',
+                title: syncStatusLabel,
+                isSaving: false,
+            };
+        }
+
+        return {
+            className: `${base} bg-zinc-700/80 text-zinc-400`,
+            text: 'Сохранено',
+            shortText: 'Сохранено',
+            title: syncStatusLabel,
+            isSaving: false,
+        };
+    }, [syncStatus, syncStatusLabel, hasUnpublishedChanges, showSavingIndicator]);
+
+    const isSavingDraft = isFlushInFlight;
 
     const canPublish = useMemo(() => {
         if (!report) return false;
         return (
             !publishing &&
-            syncStatus !== 'saving' &&
-            syncStatus !== 'autosaving' &&
+            !isFlushInFlight &&
             (hasLocalChanges || hasUnpublishedChanges || !report.publishedHash)
         );
-    }, [hasLocalChanges, hasUnpublishedChanges, publishing, report, syncStatus]);
+    }, [hasLocalChanges, hasUnpublishedChanges, publishing, report, isFlushInFlight]);
 
     const handleLogout = useCallback(async () => {
         try {
@@ -924,7 +917,6 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
     );
 
     const handleSaveDraft = useCallback(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 200));
         await flush({ reason: 'manual' });
     }, [flush]);
 
@@ -933,18 +925,20 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
         if (ok) setPublishSuccessOpen(true);
     }, [publish]);
 
-    const handleViewReport = useCallback(() => {
+    const handleViewReport = useCallback(async () => {
         if (!report) return;
+        if (hasLocalChanges) {
+            await flush({ reason: 'manual' });
+        }
         router.push(
             getReportPublicPath({
                 slug: report.slug ?? reportSlug,
                 group: report.group ?? (groupPathStr ? { path: groupPathStr } : null),
             })
         );
-    }, [report, reportSlug, groupPathStr, router]);
+    }, [report, reportSlug, groupPathStr, router, hasLocalChanges, flush]);
 
-    const saveDisabled = syncStatus === 'saving' || syncStatus === 'autosaving';
-    const saveLabel = syncStatus === 'saving' ? 'Сохранение...' : 'Сохранить';
+    const saveDisabled = isSavingDraft;
 
     const showUnpublishedBanner = useMemo(() => {
         if (!report?.publishedHash) return hasUnpublishedChanges || hasLocalChanges;
@@ -1218,7 +1212,6 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                     onContentHeadingFontSizeChange={(px) =>
                         markMetadataDirty({ contentHeadingFontSize: px })
                     }
-                    syncStatus={syncStatus}
                     onTaskChange={(patch) => markTaskBlockDirty(block.id, patch)}
                 />
             ) : (
@@ -1261,7 +1254,7 @@ export default function ReportEditPage({ groupPath, reportSlug }: ReportEditPage
                         onView={handleViewReport}
                         onPublish={() => void handlePublish()}
                         saveDisabled={saveDisabled}
-                        saveLabel={saveLabel}
+                        isSaving={isSavingDraft}
                         publishDisabled={!canPublish}
                         publishing={publishing}
                         canPublish={canPublish}

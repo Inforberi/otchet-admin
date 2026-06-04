@@ -14,6 +14,13 @@ const SPACER_PARAGRAPH_RE = new RegExp(
 const EMPTY_PARAGRAPH_RE =
     /<p(?![^>]*\brich-text-spacer\b)(?:\s[^>]*)?>\s*(?:&nbsp;|\s|<br\s*\/?>)*\s*<\/p>/gi;
 
+const SPACER_PARAGRAPH_WITHOUT_BR_RE = new RegExp(
+    `<p([^>]*class="[^"]*${RICH_TEXT_SPACER_CLASS}[^"]*"[^>]*)>\\s*<\\/p>`,
+    'gi'
+);
+
+const SPACER_PARAGRAPH_CANONICAL = `<p class="${RICH_TEXT_SPACER_CLASS}"><br></p>`;
+
 export const escapeHtml = (value: string): string =>
     value
         .replaceAll('&', '&amp;')
@@ -45,8 +52,12 @@ export const isRichTextEmpty = (value: string | null | undefined): boolean => {
 
 const preserveSpacerParagraphs = (html: string): string =>
     html
-        .replace(/<p><\/p>/gi, `<p class="${RICH_TEXT_SPACER_CLASS}"><br></p>`)
-        .replace(EMPTY_PARAGRAPH_RE, `<p class="${RICH_TEXT_SPACER_CLASS}"><br></p>`);
+        .replace(/<p><\/p>/gi, SPACER_PARAGRAPH_CANONICAL)
+        .replace(EMPTY_PARAGRAPH_RE, SPACER_PARAGRAPH_CANONICAL)
+        .replace(
+            SPACER_PARAGRAPH_WITHOUT_BR_RE,
+            (_match, attrs: string) => `<p${attrs}><br></p>`
+        );
 
 export const normalizeRichTextHtml = (
     value: string | null | undefined
@@ -75,6 +86,52 @@ export const canonicalRichTextValue = (
         .replace(/^<p>/i, '')
         .replace(/<\/p>$/i, '')
         .replace(/<\/p>\s*<p>/gi, '<br>');
+};
+
+export const countSpacerParagraphs = (
+    html: string | null | undefined
+): number => {
+    if (!html) return 0;
+    const normalized = normalizeRichTextHtml(html);
+    if (!normalized) return 0;
+    return (normalized.match(new RegExp(RICH_TEXT_SPACER_CLASS, 'g')) ?? []).length;
+};
+
+const richTextPlainText = (html: string | null | undefined): string => {
+    const normalized = normalizeRichTextHtml(html);
+    if (!normalized) return '';
+    return stripSpacerParagraphs(normalized)
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/<[^>]*>/g, '')
+        .trim();
+};
+
+export const richTextPlainContentEqual = (
+    a: string | null | undefined,
+    b: string | null | undefined
+): boolean => richTextPlainText(a) === richTextPlainText(b);
+
+/** Если текст совпадает, но локально больше spacer-абзацев — сохраняем локальную версию. */
+export const preferRichTextWithMoreSpacers = (
+    local: string | null | undefined,
+    server: string | null | undefined
+): string | null | undefined => {
+    if (local == null || local === '') return server ?? null;
+    if (server == null || server === '') return local;
+
+    const localCanonical = canonicalRichTextValue(local, 'block');
+    const serverCanonical = canonicalRichTextValue(server, 'block');
+    if (localCanonical === serverCanonical) return server;
+
+    if (
+        richTextPlainContentEqual(local, server) &&
+        countSpacerParagraphs(local) > countSpacerParagraphs(server)
+    ) {
+        return local;
+    }
+
+    return server;
 };
 
 /** Убирает inline font-size — единый стиль через заголовки и размер блока */

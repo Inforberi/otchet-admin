@@ -13,6 +13,7 @@ import type {
 
 import { ScreenshotBlockView } from '@/components/report/screenshot-block-view';
 import { TextBlockView } from '@/components/report/text-block-view';
+import { RichTextView } from '@/components/report/rich-text-view';
 import { DividerBlockView } from '@/components/report/divider-block-view';
 import { TaskBlockCard } from '@/components/report/task-block-card';
 import { Download, Edit } from 'lucide-react';
@@ -263,9 +264,10 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 breadcrumbs={headerBreadcrumbs}
                 title={
                     !isEmptyHtml(report.title) ? (
-                        <span
-                            className="report-rich-text text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
-                            dangerouslySetInnerHTML={{ __html: report.title ?? '' }}
+                        <RichTextView
+                            as="span"
+                            html={report.title}
+                            className="text-balance text-3xl font-bold text-zinc-100 sm:text-4xl"
                         />
                     ) : (
                         reportTitlePlain || 'Отчёт'
@@ -274,9 +276,9 @@ export default function ReportViewPage({ groupPath, reportSlug }: ReportViewPage
                 description={
                     <div className="space-y-2">
                         {!isEmptyHtml(report.subtitle) && (
-                            <div
-                                className="report-rich-text text-lg text-zinc-300 [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
-                                dangerouslySetInnerHTML={{ __html: report.subtitle ?? '' }}
+                            <RichTextView
+                                html={report.subtitle}
+                                className="text-lg text-zinc-300 [&_p]:whitespace-pre-wrap [&_li]:whitespace-pre-wrap"
                             />
                         )}
                         {reportMeta}
