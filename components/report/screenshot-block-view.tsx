@@ -10,6 +10,8 @@ interface ScreenshotBlockViewProps {
     titleFontSize?: string;
     descriptionFontSize?: string;
     captionFontSize?: string;
+    /** Ограничивает превью внутри карточки задачи; полный размер — в lightbox */
+    variant?: 'default' | 'embedded';
 }
 
 // Функция для проверки, является ли HTML строка пустой
@@ -26,12 +28,16 @@ function isEmpty(str: string | null | undefined): boolean {
     return str.trim().length === 0;
 }
 
+const EMBEDDED_IMG_MAX_CLASS = 'max-h-[min(480px,70vh)]';
+
 export function ScreenshotBlockView({
     data,
     titleFontSize = '40',
     descriptionFontSize = '20',
-    captionFontSize = '16'
+    captionFontSize = '16',
+    variant = 'default',
 }: ScreenshotBlockViewProps) {
+    const isEmbedded = variant === 'embedded';
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
@@ -71,28 +77,38 @@ export function ScreenshotBlockView({
 
     const autoHeightMaxPx = { small: 240, medium: 400, large: 560 }[imageSize];
 
+    const embeddedMaxPx = 480;
+
     const renderImg = (img: (typeof data.images)[0], index: number, title: string, layoutClass: string, captionClass?: string) => {
         const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
         const align = img.align ?? (img.center ? 'center' : 'left');
         const justify = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start';
+        const ringClass = isEmbedded
+            ? 'ring-2 ring-transparent ring-inset group-hover:ring-blue-500 group-focus-visible:ring-blue-500'
+            : 'ring-2 ring-transparent ring-offset-2 ring-offset-zinc-950 group-hover:ring-blue-500 group-focus-visible:ring-blue-500';
+        const maxHeightPx = isEmbedded
+            ? embeddedMaxPx
+            : isAutoHeight
+              ? autoHeightMaxPx
+              : undefined;
         return (
             <div key={index} className="space-y-2">
                 <div
-                    className={`${layoutClass}${isAutoHeight ? ` min-h-[120px] flex ${justify} items-center` : ''}`}
+                    className={`${layoutClass}${isAutoHeight ? ` min-h-[120px] flex ${justify} items-center` : ''} ${isEmbedded ? 'max-w-full overflow-hidden' : ''}`}
                 >
                     <button
                         type="button"
                         onClick={() => openLightbox(index)}
-                        className={`group block cursor-pointer rounded-lg bg-transparent transition-all focus:outline-none focus-visible:outline-none ${isAutoHeight ? 'w-fit max-w-full' : 'w-full'}`}
+                        className={`group block cursor-pointer rounded-lg bg-transparent transition-all focus:outline-none focus-visible:outline-none ${isAutoHeight ? 'w-fit max-w-full' : 'w-full'} ${isEmbedded ? 'max-w-full' : ''}`}
                     >
                         <span
-                            className={`relative block overflow-hidden rounded-lg ring-2 ring-transparent ring-offset-2 ring-offset-zinc-950 transition-all group-hover:ring-blue-500 group-focus-visible:ring-blue-500 ${isAutoHeight ? 'w-fit max-w-full' : 'w-full'}`}
+                            className={`relative block overflow-hidden rounded-lg transition-all ${ringClass} ${isAutoHeight ? 'w-fit max-w-full' : 'w-full'}`}
                         >
                             <img
                                 src={img.url}
                                 alt={img.alt || `${title} - изображение ${index + 1}`}
-                                className={isAutoHeight ? 'block h-auto w-auto object-contain' : 'block h-auto w-full object-contain'}
-                                style={isAutoHeight ? { maxHeight: autoHeightMaxPx } : undefined}
+                                className={`block object-contain ${isAutoHeight ? 'h-auto w-auto' : 'h-auto w-full'} ${isEmbedded ? EMBEDDED_IMG_MAX_CLASS : ''}`}
+                                style={maxHeightPx !== undefined ? { maxHeight: maxHeightPx } : undefined}
                             />
                         </span>
                     </button>

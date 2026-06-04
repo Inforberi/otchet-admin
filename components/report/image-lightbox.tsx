@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useCallback } from "react"
+import { useEffect, useCallback, useState } from "react"
+import { createPortal } from "react-dom"
 import { X, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface ImageLightboxProps {
@@ -12,6 +13,12 @@ interface ImageLightboxProps {
 }
 
 export function ImageLightbox({ images, currentIndex, onClose, onPrev, onNext }: ImageLightboxProps) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
@@ -30,8 +37,10 @@ export function ImageLightbox({ images, currentIndex, onClose, onPrev, onNext }:
     }
   }, [handleKeyDown])
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90" onClick={onClose}>
+  if (!mounted) return null
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90" onClick={onClose}>
       <button
         onClick={onClose}
         className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
@@ -75,6 +84,7 @@ export function ImageLightbox({ images, currentIndex, onClose, onPrev, onNext }:
           {currentIndex + 1} / {images.length}
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   )
 }

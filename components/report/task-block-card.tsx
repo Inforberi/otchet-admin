@@ -169,10 +169,10 @@ function TaskImageListEditor({
     return (
         <div className="space-y-3">
             {images.map((img, idx) => (
-                <div key={img.uploadId || `img-${idx}-${img.url}`} className="border border-zinc-700 rounded p-3 bg-zinc-800">
-                    <div className="flex gap-3">
-                        <img src={img.url} alt={img.alt} className="h-36 w-36 shrink-0 rounded object-cover" />
-                        <div className="flex-1 space-y-2">
+                <div key={img.uploadId || `img-${idx}-${img.url}`} className="overflow-hidden rounded border border-zinc-700 bg-zinc-800 p-3">
+                    <div className="relative flex gap-3">
+                        <img src={img.url} alt={img.alt} className="relative z-0 h-36 w-36 shrink-0 rounded object-cover" />
+                        <div className="relative z-10 min-w-0 flex-1 space-y-2">
                             <input
                                 type="text"
                                 value={img.caption || ''}
@@ -258,22 +258,6 @@ function TaskImageListEditor({
                         className="hidden"
                     />
                 </label>
-            </div>
-        </div>
-    );
-}
-
-function CompletionClosureMeta({ closedAt }: { closedAt: string | null }) {
-    return (
-        <div className="select-none rounded-lg border border-green-700/30 bg-green-950/20 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm text-zinc-300">
-                <CalendarDays className="w-3.5 h-3.5 shrink-0 text-green-400" />
-                <span>
-                    <span className="text-green-400/90">Дата закрытия: </span>
-                    <span className="font-medium text-zinc-100">
-                        {closedAt ? formatDate(closedAt) : '—'}
-                    </span>
-                </span>
             </div>
         </div>
     );
@@ -432,6 +416,7 @@ export function TaskBlockCard({
     }, [isEditable]);
 
     const isCompleted = completed;
+    const isClosedReportView = isCompleted && !isEditable;
     const dlStatus = deadlineStatus(localData.deadline, isCompleted);
 
     const isAssignee = currentUserId && localData.assigneeId
@@ -694,8 +679,13 @@ export function TaskBlockCard({
                 )}
             </div>
 
+            <div className={isClosedReportView ? 'px-4 pb-4 space-y-3' : undefined}>
             {/* Zone 1 — Task details */}
-            <div className="mx-4 mb-3 rounded-lg border border-zinc-700/60 bg-zinc-800/50 px-4 py-3">
+            <div
+                className={`rounded-lg border border-zinc-700/60 px-4 py-3 bg-zinc-800/50 overflow-hidden ${
+                    isClosedReportView ? 'mb-0' : 'mx-4 mb-3'
+                }`}
+            >
                 <div className="flex items-center gap-1.5 mb-3">
                     <ClipboardList className="w-3.5 h-3.5 text-purple-400" />
                     <span className="text-xs font-semibold uppercase tracking-wider text-purple-400">Задание</span>
@@ -847,8 +837,9 @@ export function TaskBlockCard({
                             titleFontSize={titleFontSize}
                             descriptionFontSize={descriptionFontSize}
                             captionFontSize={captionFontSize}
+                            variant="embedded"
                         />
-                        <div className="select-none rounded-lg border border-zinc-700/50 bg-zinc-800/60 px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="select-none grid grid-cols-1 gap-3 rounded-lg border border-zinc-700/50 bg-zinc-800/60 px-4 py-3 sm:grid-cols-3">
                             <div className="flex items-center gap-2 text-sm text-zinc-300">
                                 <CalendarDays className="w-3.5 h-3.5 shrink-0 text-zinc-400" />
                                 <span>
@@ -875,11 +866,18 @@ export function TaskBlockCard({
                 )}
             </div>
 
+            {isClosedReportView && <div className="h-px bg-zinc-700/40" aria-hidden />}
+
             {/* Zone 2 — Completion report */}
-            <div className={`mx-4 mb-4 rounded-lg border px-4 py-3 ${isCompleted
-                    ? 'border-green-700/30 bg-green-950/20'
-                    : 'border-zinc-700/40 bg-zinc-800/20'
-                }`}>
+            <div
+                className={`px-4 py-3 rounded-lg border ${
+                    isClosedReportView
+                        ? 'border-green-700/30 bg-green-950/20'
+                        : isCompleted
+                          ? 'mx-4 mb-4 border-green-700/30 bg-green-950/20'
+                          : 'mx-4 mb-4 border-zinc-700/40 bg-zinc-800/20'
+                }`}
+            >
                 <div className="flex items-center justify-between mb-2.5">
                     <div className="flex items-center gap-1.5">
                         <ClipboardCheck className={`w-3.5 h-3.5 ${isCompleted ? 'text-green-400' : 'text-zinc-600'}`} />
@@ -907,6 +905,7 @@ export function TaskBlockCard({
                             titleFontSize={titleFontSize}
                             descriptionFontSize={descriptionFontSize}
                             captionFontSize={captionFontSize}
+                            variant="embedded"
                         />
                         {showActions && canComplete && (
                             <button
@@ -997,19 +996,20 @@ export function TaskBlockCard({
                 {/* Completed — report */}
                 {isCompleted && (
                     <div className="space-y-4">
-                        <CompletionClosureMeta closedAt={completedAt} />
                         {hasCompletionContent ? (
                             <ScreenshotBlockView
                                 data={completionViewData}
                                 titleFontSize={titleFontSize}
                                 descriptionFontSize={descriptionFontSize}
                                 captionFontSize={captionFontSize}
+                                variant="embedded"
                             />
                         ) : (
                             <p className="text-xs text-zinc-600 italic select-none">Отчёт о выполнении не заполнен</p>
                         )}
                     </div>
                 )}
+            </div>
             </div>
         </div>
     );
