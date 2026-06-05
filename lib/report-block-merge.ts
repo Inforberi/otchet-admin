@@ -1,5 +1,15 @@
-import type { ReportBlockFromDB, TaskBlockData } from '@/lib/db-types';
+import type { ImageData, ReportBlockFromDB, TaskBlockData } from '@/lib/db-types';
 import { preferRichTextWithMoreSpacers } from '@/lib/rich-text';
+
+const preferLongerImages = (
+    prev: ImageData[] | null | undefined,
+    server: ImageData[] | null | undefined
+): ImageData[] | null | undefined => {
+    const prevLen = prev?.length ?? 0;
+    const serverLen = server?.length ?? 0;
+    if (prevLen > serverLen) return prev ?? null;
+    return server ?? null;
+};
 
 const completionTimeEqual = (
     a: Date | string | null | undefined,
@@ -23,6 +33,9 @@ export const mergeTaskBlockAfterSave = (
                 prevData.description,
                 serverData.description
             ) ?? serverData.description,
+        images:
+            preferLongerImages(prevData.images, serverData.images) ??
+            serverData.images,
     };
 
     let merged: ReportBlockFromDB = {
@@ -33,6 +46,10 @@ export const mergeTaskBlockAfterSave = (
                 prev.taskCompletionNotes,
                 server.taskCompletionNotes
             ) ?? server.taskCompletionNotes,
+        taskCompletionImages: preferLongerImages(
+            prev.taskCompletionImages as ImageData[] | null | undefined,
+            server.taskCompletionImages as ImageData[] | null | undefined
+        ),
     };
 
     const prevCompleted = Boolean(prev.taskCompletedAt);
@@ -57,11 +74,10 @@ export const mergeTaskBlockAfterSave = (
     ) {
         merged = {
             ...merged,
-            taskCompletionImages:
-                (prev.taskCompletionImages?.length ?? 0) >
-                (server.taskCompletionImages?.length ?? 0)
-                    ? prev.taskCompletionImages
-                    : server.taskCompletionImages,
+            taskCompletionImages: preferLongerImages(
+                prev.taskCompletionImages as ImageData[] | null | undefined,
+                server.taskCompletionImages as ImageData[] | null | undefined
+            ),
         };
     }
 

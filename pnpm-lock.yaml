@@ -185,6 +185,12 @@ importers:
       prisma:
         specifier: ^6.19.2
         version: 6.19.2(typescript@5.9.3)
+      prosemirror-model:
+        specifier: ^1.25.7
+        version: 1.25.7
+      prosemirror-state:
+        specifier: ^1.4.4
+        version: 1.4.4
       react:
         specifier: 19.2.3
         version: 19.2.3

@@ -254,17 +254,32 @@ export const PATCH = async (
                         : currentReport.captionFontSize,
             };
 
-            const nextBlocksForHash = sortedBlocks.map((block, index) => ({
-                id: block.id ?? `generated-${index}`,
-                reportId: currentReport.id,
-                type: block.type,
-                position: index,
-                parentId: block.parentId ?? null,
-                data: block.data,
-                version: 1,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            })) as ReportBlockFromDB[];
+            const nextBlocksForHash = sortedBlocks.map((block, index) => {
+                const base = {
+                    id: block.id ?? `generated-${index}`,
+                    reportId: currentReport.id,
+                    type: block.type,
+                    position: index,
+                    parentId: block.parentId ?? null,
+                    data: block.data,
+                    version: 1,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                };
+
+                if (block.type !== 'task') return base as ReportBlockFromDB;
+
+                return {
+                    ...base,
+                    taskCompletedAt: block.taskCompletedAt
+                        ? new Date(block.taskCompletedAt)
+                        : null,
+                    taskCompletedByUserId: block.taskCompletedByUserId ?? null,
+                    taskCompletionNotes: block.taskCompletionNotes ?? null,
+                    taskCompletionImages: block.taskCompletionImages ?? null,
+                    taskCompletionLayout: block.taskCompletionLayout ?? null,
+                } as ReportBlockFromDB;
+            });
 
             const nextDraftHash = await computeDraftHash(
                 buildDraftPayload(nextReportState, nextBlocksForHash)

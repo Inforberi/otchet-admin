@@ -10,9 +10,9 @@ import Color from '@tiptap/extension-color';
 import TextAlign from '@tiptap/extension-text-align';
 import { Extension, type Editor } from '@tiptap/core';
 import Link from '@tiptap/extension-link';
-import { Plugin } from '@tiptap/pm/state';
-import type { EditorState, Transaction } from '@tiptap/pm/state';
-import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { Plugin } from 'prosemirror-state';
+import type { EditorState, Transaction } from 'prosemirror-state';
+import type { Node as ProseMirrorNode } from 'prosemirror-model';
 import {
     Bold,
     Italic,

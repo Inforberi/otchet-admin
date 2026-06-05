@@ -309,6 +309,14 @@ function withNormalizedAssignees(data: TaskBlockData): TaskBlockData {
     };
 }
 
+function preferLongerImages(
+    current: ImageData[],
+    incoming: ImageData[] | null | undefined
+): ImageData[] {
+    const next = incoming ?? [];
+    return current.length > next.length ? current : next;
+}
+
 function completionAtIso(
     marked: boolean,
     closedAt: string
@@ -459,9 +467,11 @@ export function TaskBlockCard({
     useEffect(() => {
         setLocalData((current) => {
             const next = withNormalizedAssignees(data);
-            return taskBlockDataSemanticallyEqual(current, next)
-                ? current
-                : next;
+            if (taskBlockDataSemanticallyEqual(current, next)) return current;
+            return {
+                ...next,
+                images: preferLongerImages(current.images ?? [], next.images),
+            };
         });
     }, [blockId, externalDataKey, data]);
 
@@ -478,7 +488,9 @@ export function TaskBlockCard({
                     ? current
                     : next;
             });
-            setCompletionImages(taskCompletionImages ?? []);
+            setCompletionImages((current) =>
+                preferLongerImages(current, taskCompletionImages)
+            );
             setCompletionLayout(taskCompletionLayout ?? 'full-width');
             return;
         }
@@ -492,7 +504,9 @@ export function TaskBlockCard({
                 ? current
                 : next;
         });
-        setCompletionImages(taskCompletionImages ?? []);
+        setCompletionImages((current) =>
+            preferLongerImages(current, taskCompletionImages)
+        );
         setCompletionLayout(taskCompletionLayout ?? 'full-width');
         setCompletionClosedAt(
             taskCompletedAt
@@ -625,27 +639,42 @@ export function TaskBlockCard({
         if (!e.target.files?.length) return;
         setTaskUploading(true);
         const imgs = await uploadFiles(e.target.files);
-        setLocalData((prev) => ({ ...prev, images: [...(prev.images ?? []), ...imgs] }));
+        const nextData = {
+            ...localData,
+            images: [...(localData.images ?? []), ...imgs],
+        };
+        setLocalData(nextData);
+        pushTaskChange({ data: nextData });
         setTaskUploading(false);
         e.target.value = '';
-    }, [uploadFiles]);
+    }, [uploadFiles, localData, pushTaskChange]);
 
     const handleTaskDrop = useCallback(async (e: React.DragEvent) => {
         e.preventDefault(); e.stopPropagation(); setIsTaskDragOver(false);
         if (!e.dataTransfer.files?.length) return;
         setTaskUploading(true);
         const imgs = await uploadFiles(e.dataTransfer.files);
-        setLocalData((prev) => ({ ...prev, images: [...(prev.images ?? []), ...imgs] }));
+        const nextData = {
+            ...localData,
+            images: [...(localData.images ?? []), ...imgs],
+        };
+        setLocalData(nextData);
+        pushTaskChange({ data: nextData });
         setTaskUploading(false);
-    }, [uploadFiles]);
+    }, [uploadFiles, localData, pushTaskChange]);
 
     const removeTaskImage = useCallback((idx: number) => {
         const img = localData.images?.[idx];
         if (img?.uploadId) {
             void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => { });
         }
-        setLocalData((prev) => ({ ...prev, images: (prev.images ?? []).filter((_, i) => i !== idx) }));
-    }, [localData.images]);
+        const nextData = {
+            ...localData,
+            images: (localData.images ?? []).filter((_, i) => i !== idx),
+        };
+        setLocalData(nextData);
+        pushTaskChange({ data: nextData });
+    }, [localData, pushTaskChange]);
 
     const screenshotViewData = useMemo(
         (): ScreenshotBlockData => ({
@@ -674,27 +703,33 @@ export function TaskBlockCard({
         if (!e.target.files?.length) return;
         setCompletionUploading(true);
         const imgs = await uploadFiles(e.target.files);
-        setCompletionImages((prev) => [...prev, ...imgs]);
+        const nextImages = [...completionImages, ...imgs];
+        setCompletionImages(nextImages);
+        pushTaskChange({ taskCompletionImages: nextImages });
         setCompletionUploading(false);
         e.target.value = '';
-    }, [uploadFiles]);
+    }, [uploadFiles, completionImages, pushTaskChange]);
 
     const handleCompletionDrop = useCallback(async (e: React.DragEvent) => {
         e.preventDefault(); e.stopPropagation(); setIsCompletionDragOver(false);
         if (!e.dataTransfer.files?.length) return;
         setCompletionUploading(true);
         const imgs = await uploadFiles(e.dataTransfer.files);
-        setCompletionImages((prev) => [...prev, ...imgs]);
+        const nextImages = [...completionImages, ...imgs];
+        setCompletionImages(nextImages);
+        pushTaskChange({ taskCompletionImages: nextImages });
         setCompletionUploading(false);
-    }, [uploadFiles]);
+    }, [uploadFiles, completionImages, pushTaskChange]);
 
     const removeCompletionImage = useCallback((idx: number) => {
         const img = completionImages[idx];
         if (img?.uploadId) {
             void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => { });
         }
-        setCompletionImages((prev) => prev.filter((_, i) => i !== idx));
-    }, [completionImages]);
+        const nextImages = completionImages.filter((_, i) => i !== idx);
+        setCompletionImages(nextImages);
+        pushTaskChange({ taskCompletionImages: nextImages });
+    }, [completionImages, pushTaskChange]);
 
     // --- Shared style helpers ---
     const inputCls = 'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500';
