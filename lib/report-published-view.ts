@@ -1,4 +1,5 @@
 import type { Report, ReportBlock } from '@prisma/client';
+import type { DraftPayloadBlock } from '@/lib/draft-hash';
 
 type ReportWithBlocks = Report & {
     blocks: ReportBlock[];
@@ -15,13 +16,13 @@ type PublishedSnapshot = {
         contentHeadingFontSize: string | null;
         captionFontSize: string | null;
     };
-    blocks: Array<{
-        id: string;
-        type: string;
-        position: number;
-        data: unknown;
-    }>;
+    blocks: DraftPayloadBlock[];
 };
+
+const liveBlockById = (
+    blocks: ReportBlock[],
+    id: string
+): ReportBlock | undefined => blocks.find((block) => block.id === id);
 
 export const buildPublishedReportResponse = (report: ReportWithBlocks) => {
     const hasUnpublishedChanges =
@@ -45,16 +46,38 @@ export const buildPublishedReportResponse = (report: ReportWithBlocks) => {
         descriptionFontSize: snapshot.metadata.descriptionFontSize,
         contentHeadingFontSize: snapshot.metadata.contentHeadingFontSize,
         captionFontSize: snapshot.metadata.captionFontSize,
-        blocks: snapshot.blocks.map((block) => ({
-            id: block.id,
-            reportId: report.id,
-            type: block.type,
-            position: block.position,
-            data: block.data,
-            version: 1,
-            createdAt: report.createdAt,
-            updatedAt: report.updatedAt,
-        })),
+        blocks: snapshot.blocks.map((block) => {
+            const live = liveBlockById(report.blocks, block.id);
+
+            const base = {
+                id: block.id,
+                reportId: report.id,
+                type: block.type,
+                position: block.position,
+                parentId: block.parentId ?? live?.parentId ?? null,
+                data: block.data,
+                version: live?.version ?? 1,
+                createdAt: live?.createdAt ?? report.createdAt,
+                updatedAt: live?.updatedAt ?? report.updatedAt,
+            };
+
+            if (block.type !== 'task') return base;
+
+            return {
+                ...base,
+                taskCompletedAt:
+                    block.taskCompletedAt != null
+                        ? new Date(block.taskCompletedAt)
+                        : live?.taskCompletedAt ?? null,
+                taskCompletedByUserId: live?.taskCompletedByUserId ?? null,
+                taskCompletionNotes:
+                    block.taskCompletionNotes ?? live?.taskCompletionNotes ?? null,
+                taskCompletionImages:
+                    block.taskCompletionImages ?? live?.taskCompletionImages ?? null,
+                taskCompletionLayout:
+                    block.taskCompletionLayout ?? live?.taskCompletionLayout ?? null,
+            };
+        }),
     };
 
     const headers = report.publishedHash

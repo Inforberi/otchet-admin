@@ -11,15 +11,49 @@ export type DraftMetadata = {
     captionFontSize: string | null;
 };
 
+export type DraftPayloadBlock = {
+    id: string;
+    type: string;
+    position: number;
+    parentId?: string | null;
+    data: unknown;
+    taskCompletedAt?: string | null;
+    taskCompletionNotes?: string | null;
+    taskCompletionImages?: unknown[] | null;
+    taskCompletionLayout?: string | null;
+};
+
 export type DraftPayload = {
     metadata: DraftMetadata;
-    blocks: Array<{
-        id: string;
-        type: string;
-        position: number;
-        parentId?: string | null;
-        data: unknown;
-    }>;
+    blocks: DraftPayloadBlock[];
+};
+
+const serializeTaskCompletedAt = (
+    value: Date | string | null | undefined
+): string | null => {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    return value.toISOString();
+};
+
+const toDraftPayloadBlock = (block: ReportBlockFromDB): DraftPayloadBlock => {
+    const base: DraftPayloadBlock = {
+        id: block.id,
+        type: block.type,
+        position: block.position,
+        parentId: block.parentId ?? null,
+        data: block.data,
+    };
+
+    if (block.type !== 'task') return base;
+
+    return {
+        ...base,
+        taskCompletedAt: serializeTaskCompletedAt(block.taskCompletedAt),
+        taskCompletionNotes: block.taskCompletionNotes ?? null,
+        taskCompletionImages: block.taskCompletionImages ?? null,
+        taskCompletionLayout: block.taskCompletionLayout ?? null,
+    };
 };
 
 export type DraftMetadataPatch = Partial<{
@@ -90,13 +124,7 @@ export const buildDraftPayload = (
     },
     blocks: [...blocks]
         .sort((a, b) => a.position - b.position)
-        .map((block) => ({
-            id: block.id,
-            type: block.type,
-            position: block.position,
-            parentId: block.parentId ?? null,
-            data: block.data,
-        })),
+        .map(toDraftPayloadBlock),
 });
 
 export const computeDraftHash = async (payload: DraftPayload): Promise<string> => {
