@@ -11,7 +11,11 @@ import {
     requireEditorMiddleware,
 } from '@/lib/auth-helpers';
 import { canEditContent } from '@/lib/auth';
-import { canAccessGroupId } from '@/lib/group-access';
+import { canAccessGroupId, getGroupAccessOptionsFromRequest } from '@/lib/group-access';
+import {
+    getReportAccessOptionsFromRequest,
+    isReportVisible,
+} from '@/lib/report-access';
 import { getGroupAncestors } from '@/lib/group-service';
 import { buildPublishedReportResponse } from '@/lib/report-published-view';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
@@ -36,6 +40,8 @@ export async function GET(
         const { id } = await params;
         const user = await getRequestUser(request);
         const view = request.nextUrl.searchParams.get('view');
+        const accessOptions = getReportAccessOptionsFromRequest(request);
+        const groupAccessOptions = getGroupAccessOptionsFromRequest(request);
         const forcePublished = user ? isViewerRole(user) : false;
 
         const report = await prisma.report.findUnique({
@@ -62,7 +68,14 @@ export async function GET(
             );
         }
 
-        if (user && !(await canAccessGroupId(user, report.groupId))) {
+        if (user && !(await canAccessGroupId(user, report.groupId, groupAccessOptions))) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
+        if (!isReportVisible(report, user, accessOptions)) {
             return NextResponse.json(
                 { error: 'Report not found' },
                 { status: 404 }
@@ -140,6 +153,8 @@ export async function PATCH(
     const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
+    const user = await getRequestUser(request);
+
     try {
         const { id } = await params;
         const body: Partial<UpdateReportInput> = await request.json();
@@ -158,7 +173,12 @@ export async function PATCH(
         // Получаем текущий отчет для проверки groupId
         const currentReport = await prisma.report.findUnique({
             where: { id },
-            select: { groupId: true, title: true, version: true },
+            select: {
+                groupId: true,
+                title: true,
+                version: true,
+                createdByUserId: true,
+            },
         });
 
         if (!currentReport) {
@@ -168,10 +188,28 @@ export async function PATCH(
             );
         }
 
-        const updateData: any = {
+        if (body.isHidden !== undefined) {
+            if (
+                currentReport.createdByUserId &&
+                currentReport.createdByUserId !== user?.id
+            ) {
+                return NextResponse.json(
+                    { error: 'Only the report creator can hide or show it' },
+                    { status: 403 }
+                );
+            }
+        }
+
+        const updateData: Record<string, unknown> = {
             ...(body.subtitle !== undefined && { subtitle: body.subtitle }),
             ...(body.client !== undefined && { client: body.client }),
             ...(body.date !== undefined && { date: body.date }),
+            ...(body.excludeFromDateFilter !== undefined && {
+                excludeFromDateFilter: Boolean(body.excludeFromDateFilter),
+            }),
+            ...(body.isHidden !== undefined && {
+                isHidden: Boolean(body.isHidden),
+            }),
             ...(body.status !== undefined && { status: body.status }),
             ...(body.titleFontSize !== undefined && {
                 titleFontSize: body.titleFontSize,
@@ -186,6 +224,14 @@ export async function PATCH(
                 captionFontSize: body.captionFontSize,
             }),
         };
+
+        if (
+            body.isHidden !== undefined &&
+            !currentReport.createdByUserId &&
+            user?.id
+        ) {
+            updateData.createdByUserId = user.id;
+        }
 
         // Если меняется title, обновляем slug
         if (body.title !== undefined && body.title !== currentReport.title) {

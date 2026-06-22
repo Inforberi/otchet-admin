@@ -27,6 +27,7 @@ export interface ImageData {
     caption?: string; // подпись под изображением
     alt?: string; // alt текст
     uploadId?: string; // ID записи в таблице uploads (для удаления)
+    mimeType?: string;
     /** auto-width: ширина 100%, высота auto; auto-height: высота по контейнеру, ширина auto; vertical: @deprecated используйте auto-height */
     fit?: 'auto-width' | 'auto-height' | 'vertical';
     /** Выравнивание (для auto-height): по левому краю, по центру, по правому краю */
@@ -34,6 +35,17 @@ export interface ImageData {
     /** @deprecated используйте align; true → center */
     center?: boolean;
 }
+
+export const isImageData = (img: Pick<ImageData, 'mimeType' | 'url'>): boolean => {
+    if (img.mimeType?.startsWith('image/')) return true;
+    return /\.(png|jpe?g|webp|gif)(\?|#|$)/i.test(img.url);
+};
+
+export const getAttachmentLabel = (img: Pick<ImageData, 'alt' | 'url'>): string => {
+    if (img.alt?.trim()) return img.alt.trim();
+    const segment = img.url.split('/').pop() || 'file';
+    return decodeURIComponent(segment.split('?')[0]);
+};
 
 export type PhotoBlockLayout = 'full-width' | 'sidebar' | 'sidebar-reverse' | 'two-column';
 
@@ -116,6 +128,9 @@ export interface ReportFromDB {
     subtitle?: string | null;
     client?: string | null;
     date?: string | null;
+    excludeFromDateFilter?: boolean;
+    isHidden?: boolean;
+    createdByUserId?: string | null;
     status: string;
     groupId: string; // ID группы отчетов
     /** URL-friendly имя (уникален в рамках группы), приходит с API */
@@ -152,6 +167,8 @@ export interface CreateReportInput {
 
 export interface UpdateReportInput extends Partial<CreateReportInput> {
     id: string;
+    excludeFromDateFilter?: boolean;
+    isHidden?: boolean;
     titleFontSize?: string | null;
     descriptionFontSize?: string | null;
     contentHeadingFontSize?: string | null;

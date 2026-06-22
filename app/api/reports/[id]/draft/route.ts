@@ -50,6 +50,7 @@ const selectReportDraftFields = {
     subtitle: true,
     client: true,
     date: true,
+    excludeFromDateFilter: true,
     status: true,
     titleFontSize: true,
     descriptionFontSize: true,
@@ -91,6 +92,7 @@ const sanitizeDraftMetadata = (report: DraftMetadata): DraftMetadata => ({
             : sanitizeRichTextHtml(report.subtitle),
     client: report.client,
     date: report.date,
+    excludeFromDateFilter: report.excludeFromDateFilter ?? false,
     titleFontSize: report.titleFontSize,
     descriptionFontSize: report.descriptionFontSize,
     contentHeadingFontSize: report.contentHeadingFontSize,
@@ -252,6 +254,10 @@ export const PATCH = async (
                     sanitizedReport.captionFontSize !== undefined
                         ? sanitizedReport.captionFontSize
                         : currentReport.captionFontSize,
+                excludeFromDateFilter:
+                    sanitizedReport.excludeFromDateFilter !== undefined
+                        ? sanitizedReport.excludeFromDateFilter
+                        : currentReport.excludeFromDateFilter,
             };
 
             const nextBlocksForHash = sortedBlocks.map((block, index) => {
@@ -446,6 +452,7 @@ export const PATCH = async (
                 subtitle: nextReportState.subtitle,
                 client: nextReportState.client,
                 date: nextReportState.date,
+                excludeFromDateFilter: nextReportState.excludeFromDateFilter,
                 titleFontSize: nextReportState.titleFontSize,
                 descriptionFontSize: nextReportState.descriptionFontSize,
                 contentHeadingFontSize: nextReportState.contentHeadingFontSize,

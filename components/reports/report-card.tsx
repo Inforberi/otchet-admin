@@ -1,6 +1,6 @@
 'use client';
 
-import { Calendar, Edit, Eye, FileText, Trash2, User } from 'lucide-react';
+import { Calendar, Edit, Eye, FileText, Settings, Trash2, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { ReportFromDB } from '@/lib/db-types';
 import {
@@ -10,11 +10,12 @@ import {
 
 interface ReportCardProps {
     report: ReportFromDB;
-    isAdmin: boolean; // canEdit — показывать действия редактора
+    isAdmin: boolean;
     deleteConfirmId: string | null;
     onAskDelete: (reportId: string) => void;
     onCancelDelete: () => void;
     onDelete: (reportId: string) => void;
+    onOpenSettings?: (report: ReportFromDB) => void;
 }
 
 const stripHtml = (html: string) => {
@@ -58,19 +59,59 @@ export const ReportCard = ({
     onAskDelete,
     onCancelDelete,
     onDelete,
+    onOpenSettings,
 }: ReportCardProps) => {
     const router = useRouter();
 
     return (
         <div className="group relative flex flex-col overflow-hidden rounded-lg border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-14)] p-6 transition-all hover:border-[var(--color-primary)] hover:shadow-lg">
+            {isAdmin && deleteConfirmId !== report.id ? (
+                <div className="absolute right-4 top-4 z-10 flex items-center gap-1">
+                    {onOpenSettings ? (
+                        <button
+                            type="button"
+                            onClick={() => onOpenSettings(report)}
+                            className="rounded-md border border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] p-2 text-[var(--color-grayscale-5)] transition-colors hover:border-[var(--color-primary)] hover:text-[var(--color-grayscale-3)] cursor-pointer"
+                            title="Настройки"
+                        >
+                            <Settings className="h-4 w-4" />
+                        </button>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={() => onAskDelete(report.id)}
+                        className="rounded-md border border-red-500/20 bg-red-500/10 p-2 text-red-400 transition-colors hover:bg-red-500/20 cursor-pointer"
+                        title="Удалить"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </button>
+                </div>
+            ) : null}
+
             <div className="mb-4 flex-shrink-0">
-                <h3 className="text-lg font-semibold text-[var(--color-grayscale-2)] line-clamp-2">
-                    {stripHtml(report.title)}
-                </h3>
+                <div className="flex items-start justify-between gap-2">
+                    <h3 className="pr-20 text-lg font-semibold text-[var(--color-grayscale-2)] line-clamp-2">
+                        {stripHtml(report.title)}
+                    </h3>
+                </div>
                 {report.subtitle && (
                     <p className="mt-1 text-sm text-[var(--color-grayscale-6)] line-clamp-2">
                         {stripHtml(report.subtitle)}
                     </p>
+                )}
+                {(report.excludeFromDateFilter || (isAdmin && report.isHidden)) && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                        {report.excludeFromDateFilter ? (
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-400">
+                                Вне фильтра даты
+                            </span>
+                        ) : null}
+                        {isAdmin && report.isHidden ? (
+                            <span className="rounded-full border border-zinc-500/40 bg-zinc-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                                Скрыт
+                            </span>
+                        ) : null}
+                    </div>
                 )}
             </div>
 
@@ -134,17 +175,7 @@ export const ReportCard = ({
                         </button>
                     </div>
                 </div>
-            ) : (
-                isAdmin && (
-                    <button
-                        onClick={() => onAskDelete(report.id)}
-                        className="absolute right-4 top-4 rounded-md border border-red-500/20 bg-red-500/10 p-2 text-red-400 opacity-0 transition-all hover:bg-red-500/20 group-hover:opacity-100 cursor-pointer"
-                        title="Удалить"
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </button>
-                )
-            )}
+            ) : null}
         </div>
     );
 };

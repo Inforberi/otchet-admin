@@ -18,6 +18,7 @@ import type {
     SectionBlockData,
     ImageData,
 } from '@/lib/db-types';
+import { getAttachmentLabel, isImageData } from '@/lib/db-types';
 import {
     buildEditorTree,
     getBlocksToDeleteWithGroup,
@@ -76,6 +77,10 @@ import {
 import { TaskBlockCard } from '@/components/report/task-block-card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { generateClientId } from '@/lib/generate-id';
+import {
+    getUploadStoragePath,
+    queueUploadDeletion,
+} from '@/lib/pending-upload-deletions';
 import { useReportDraftSync } from '@/hooks/use-report-draft-sync';
 import {
     DEFAULT_AUTOSAVE_INTERVAL_MS,
@@ -519,7 +524,6 @@ function BlockEditor({
                     }
                 }
                 for (const file of Array.from(files)) {
-                    if (!file.type.startsWith('image/')) continue;
                     const formData = new FormData();
                     formData.append('file', file);
                     formData.append('reportId', reportId);
@@ -535,6 +539,7 @@ function BlockEditor({
                             caption: '',
                             alt: file.name,
                             uploadId: upload.id,
+                            mimeType: upload.mimeType,
                         });
                     }
                 }
@@ -584,31 +589,24 @@ function BlockEditor({
         [processFiles],
     );
 
-    const handleRemoveImage = useCallback(async (index: number) => {
-        setLocalData((prevData) => {
-            const images = (prevData as ScreenshotBlockData).images || [];
-            const imageToRemove = images[index];
-            if (!imageToRemove) return prevData;
-            void (async () => {
-                try {
-                    const urlPath = imageToRemove.url.replace(
-                        '/api/static/uploads/',
-                        '',
-                    );
-                    await fetch(
-                        `/api/uploads/by-path?path=${encodeURIComponent(urlPath)}`,
-                        { method: 'DELETE' },
-                    );
-                } catch (error) {
-                    console.error('Error deleting file:', error);
+    const handleRemoveImage = useCallback(
+        (index: number) => {
+            setLocalData((prevData) => {
+                const images = (prevData as ScreenshotBlockData).images || [];
+                const imageToRemove = images[index];
+                if (!imageToRemove) return prevData;
+                const storagePath = getUploadStoragePath(imageToRemove.url);
+                if (storagePath) {
+                    queueUploadDeletion(reportId, storagePath);
                 }
-            })();
-            return {
-                ...(prevData as ScreenshotBlockData),
-                images: images.filter((_, i) => i !== index),
-            } as ScreenshotBlockData;
-        });
-    }, []);
+                return {
+                    ...(prevData as ScreenshotBlockData),
+                    images: images.filter((_, i) => i !== index),
+                } as ScreenshotBlockData;
+            });
+        },
+        [reportId],
+    );
 
     const handleUpdateImageCaption = useCallback(
         (index: number, caption: string, inputRef?: HTMLInputElement) => {
@@ -855,11 +853,22 @@ function BlockEditor({
                                             className="overflow-hidden rounded border border-zinc-700 bg-zinc-800 p-3"
                                         >
                                             <div className="relative flex flex-col gap-3 sm:flex-row">
-                                                <img
-                                                    src={img.url}
-                                                    alt={img.alt}
-                                                    className="relative z-0 h-auto w-full max-h-48 shrink-0 rounded object-cover sm:h-36 sm:w-36 sm:max-h-none"
-                                                />
+                                                {isImageData(img) ? (
+                                                    <img
+                                                        src={img.url}
+                                                        alt={img.alt}
+                                                        className="relative z-0 h-auto w-full max-h-48 shrink-0 rounded object-cover sm:h-36 sm:w-36 sm:max-h-none"
+                                                    />
+                                                ) : (
+                                                    <a
+                                                        href={img.url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="relative z-0 flex h-36 w-full shrink-0 items-center justify-center rounded border border-zinc-600 bg-zinc-900 px-3 text-center text-sm text-blue-400 sm:w-36"
+                                                    >
+                                                        {getAttachmentLabel(img)}
+                                                    </a>
+                                                )}
                                                 <div className="relative z-10 min-w-0 flex-1 space-y-2">
                                                     <input
                                                         type="text"
@@ -1021,7 +1030,7 @@ function BlockEditor({
                                             </span>
                                             <input
                                                 type="file"
-                                                accept="image/*"
+                                                accept="*/*"
                                                 multiple
                                                 onChange={handleImageUpload}
                                                 disabled={uploading}
@@ -1638,11 +1647,6 @@ export default function ReportEditPage({
     ]);
 
     useEffect(() => {
-        if (report && !report.date)
-            markMetadataDirty({ date: new Date().toISOString().split('T')[0] });
-    }, [report, markMetadataDirty]);
-
-    useEffect(() => {
         if (selectedBlockId) {
             document
                 .getElementById(`block-${selectedBlockId}`)
@@ -1868,15 +1872,10 @@ export default function ReportEditPage({
                                         <input
                                             type="date"
                                             aria-label="Дата отчета"
-                                            value={
-                                                report.date ||
-                                                new Date()
-                                                    .toISOString()
-                                                    .split('T')[0]
-                                            }
+                                            value={report.date || ''}
                                             onChange={(e) =>
                                                 markMetadataDirty({
-                                                    date: e.target.value,
+                                                    date: e.target.value || null,
                                                 })
                                             }
                                             className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent [color-scheme:dark]"

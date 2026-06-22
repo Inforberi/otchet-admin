@@ -7,7 +7,11 @@ import {
     isViewerRole,
     requireEditorMiddleware,
 } from '@/lib/auth-helpers';
-import { canAccessGroupId, getAccessibleGroupFilter } from '@/lib/group-access';
+import { canAccessGroupId, getAccessibleGroupFilter, getGroupAccessOptionsFromRequest } from '@/lib/group-access';
+import {
+    filterVisibleReports,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 import { getCurrentMonthDateRange } from '@/lib/report-date-range';
 
@@ -21,27 +25,35 @@ export async function GET(request: NextRequest) {
         const dateFrom = searchParams.get('dateFrom');
         const dateTo = searchParams.get('dateTo');
         const allTime = searchParams.get('allTime') === '1';
+        const noDateFilter = searchParams.get('noDateFilter') === '1';
+        const accessOptions = getReportAccessOptionsFromRequest(request);
+        const groupAccessOptions = getGroupAccessOptionsFromRequest(request);
 
         const where: Prisma.ReportWhereInput = {};
 
         if (user && isViewerRole(user)) {
             where.status = 'published';
         }
+
         const defaultRange = getCurrentMonthDateRange();
-        const effectiveDateFrom = allTime
-            ? null
-            : dateFrom || defaultRange.dateFrom;
-        const effectiveDateTo = allTime
-            ? null
-            : dateTo || defaultRange.dateTo;
+        let effectiveDateFrom: string | null = null;
+        let effectiveDateTo: string | null = null;
+
+        if (!allTime && !noDateFilter) {
+            effectiveDateFrom = dateFrom || defaultRange.dateFrom;
+            effectiveDateTo = dateTo || defaultRange.dateTo;
+        } else if (!allTime && noDateFilter && (dateFrom || dateTo)) {
+            effectiveDateFrom = dateFrom;
+            effectiveDateTo = dateTo;
+        }
 
         if (groupId) {
-            if (user && !(await canAccessGroupId(user, groupId))) {
+            if (user && !(await canAccessGroupId(user, groupId, groupAccessOptions))) {
                 return NextResponse.json({ reports: [] }, { status: 200 });
             }
             where.groupId = groupId;
         } else if (user && isViewerRole(user)) {
-            const groupFilter = await getAccessibleGroupFilter(user);
+            const groupFilter = await getAccessibleGroupFilter(user, groupAccessOptions);
             if (groupFilter) {
                 where.groupId = groupFilter.id;
             }
@@ -55,13 +67,27 @@ export async function GET(request: NextRequest) {
         }
 
         if (effectiveDateFrom || effectiveDateTo) {
-            where.date = {
+            const dateRange: Prisma.StringNullableFilter = {
                 ...(effectiveDateFrom && { gte: effectiveDateFrom }),
                 ...(effectiveDateTo && { lte: effectiveDateTo }),
             };
+
+            const existingAnd = where.AND
+                ? Array.isArray(where.AND)
+                    ? where.AND
+                    : [where.AND]
+                : [];
+
+            where.AND = [
+                ...existingAnd,
+                {
+                    OR: [{ date: dateRange }, { excludeFromDateFilter: true }],
+                },
+            ];
         }
 
-        const reports = await prisma.report.findMany({
+        const reports = filterVisibleReports(
+            await prisma.report.findMany({
             where: Object.keys(where).length > 0 ? where : undefined,
             orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
             include: {
@@ -72,7 +98,10 @@ export async function GET(request: NextRequest) {
                     orderBy: { position: 'asc' },
                 },
             },
-        });
+        }),
+            user,
+            accessOptions
+        );
 
         // Сортируем: сначала по date (null в конец), затем по createdAt
         reports.sort((a, b) => {
@@ -105,6 +134,8 @@ export async function POST(request: NextRequest) {
     // Проверка прав администратора
     const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
+
+    const user = await getRequestUser(request);
 
     try {
         const body: CreateReportInput & { groupId?: string } = await request.json();
@@ -161,6 +192,7 @@ export async function POST(request: NextRequest) {
                 date: body.date,
                 status: body.status || 'draft',
                 groupId: body.groupId,
+                createdByUserId: user?.id ?? null,
             },
         });
 

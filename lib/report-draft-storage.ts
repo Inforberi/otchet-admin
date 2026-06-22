@@ -36,6 +36,7 @@ const toDraftMetadata = (
         | 'subtitle'
         | 'client'
         | 'date'
+        | 'excludeFromDateFilter'
         | 'titleFontSize'
         | 'descriptionFontSize'
         | 'contentHeadingFontSize'
@@ -46,6 +47,7 @@ const toDraftMetadata = (
     subtitle: report.subtitle ?? null,
     client: report.client ?? null,
     date: report.date ?? null,
+    excludeFromDateFilter: report.excludeFromDateFilter ?? false,
     titleFontSize: report.titleFontSize ?? null,
     descriptionFontSize: report.descriptionFontSize ?? null,
     contentHeadingFontSize: report.contentHeadingFontSize ?? null,
@@ -61,6 +63,7 @@ export const buildStoredDraftSnapshot = (
         | 'subtitle'
         | 'client'
         | 'date'
+        | 'excludeFromDateFilter'
         | 'titleFontSize'
         | 'descriptionFontSize'
         | 'contentHeadingFontSize'
@@ -144,6 +147,7 @@ export const loadStoredDraftSnapshot = (
                 subtitle: parsed.report.subtitle ?? null,
                 client: parsed.report.client ?? null,
                 date: parsed.report.date ?? null,
+                excludeFromDateFilter: parsed.report.excludeFromDateFilter ?? false,
                 titleFontSize: parsed.report.titleFontSize ?? null,
                 descriptionFontSize: parsed.report.descriptionFontSize ?? null,
                 contentHeadingFontSize:

@@ -8,11 +8,12 @@ import { ROOT_GROUPS_CRUMB } from '@/lib/breadcrumbs';
 import type { ReportFromDB } from '@/lib/db-types';
 import { useUserRole } from '@/hooks/use-user-role';
 import { ReportCard } from '@/components/reports/report-card';
+import { EditReportSettingsDialog } from '@/components/reports/edit-report-settings-dialog';
 import { getCurrentMonthDateRange } from '@/lib/report-date-range';
 
 export default function ReportsListPage() {
     const router = useRouter();
-    const { canEdit } = useUserRole();
+    const { user, canEdit } = useUserRole();
     const defaultDateRange = getCurrentMonthDateRange();
 
     const [reports, setReports] = useState<ReportFromDB[]>([]);
@@ -22,6 +23,8 @@ export default function ReportsListPage() {
     const [dateTo, setDateTo] = useState(defaultDateRange.dateTo);
     const [allTime, setAllTime] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+    const [settingsReport, setSettingsReport] = useState<ReportFromDB | null>(null);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -63,9 +66,11 @@ export default function ReportsListPage() {
 
             if (allTime) {
                 params.append('allTime', '1');
-            } else {
+            } else if (dateFrom || dateTo) {
                 params.append('dateFrom', dateFrom);
                 params.append('dateTo', dateTo);
+            } else {
+                params.append('noDateFilter', '1');
             }
 
             const queryString = params.toString();
@@ -145,23 +150,13 @@ export default function ReportsListPage() {
     };
 
     const handleDateFromChange = (value: string) => {
-        if (!value) {
-            applyCurrentMonthFilter();
-            return;
-        }
-
         setDateFrom(value);
-        setAllTime(false);
+        if (value) setAllTime(false);
     };
 
     const handleDateToChange = (value: string) => {
-        if (!value) {
-            applyCurrentMonthFilter();
-            return;
-        }
-
         setDateTo(value);
-        setAllTime(false);
+        if (value) setAllTime(false);
     };
 
     const handleDelete = async (id: string) => {
@@ -298,11 +293,30 @@ export default function ReportsListPage() {
                                 onAskDelete={setDeleteConfirm}
                                 onCancelDelete={() => setDeleteConfirm(null)}
                                 onDelete={handleDelete}
+                                onOpenSettings={(r) => {
+                                    setSettingsReport(r);
+                                    setIsSettingsOpen(true);
+                                }}
                             />
                         ))}
                     </div>
                 )}
             </main>
+
+            <EditReportSettingsDialog
+                open={isSettingsOpen}
+                onOpenChange={(open) => {
+                    setIsSettingsOpen(open);
+                    if (!open) setSettingsReport(null);
+                }}
+                report={settingsReport}
+                currentUserId={user?.id}
+                onUpdated={(updated) => {
+                    setReports((prev) =>
+                        prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
+                    );
+                }}
+            />
         </div>
     );
 }

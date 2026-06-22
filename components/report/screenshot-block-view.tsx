@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { ScreenshotBlockData } from '@/lib/db-types';
+import { getAttachmentLabel, isImageData } from '@/lib/db-types';
 import { ImageLightbox } from './image-lightbox';
 import { RichTextView } from './rich-text-view';
 import { ImageOff } from 'lucide-react';
@@ -59,27 +60,33 @@ export function ScreenshotBlockView({
     const layoutClasses = getViewLayoutClasses(isEmbedded);
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
+    const lightboxImages = data.images.filter(isImageData);
 
     const openLightbox = (index: number) => {
-        setCurrentImageIndex(index);
+        const img = data.images[index];
+        if (!isImageData(img)) return;
+        const lightboxIndex = data.images
+            .slice(0, index + 1)
+            .filter(isImageData).length - 1;
+        setCurrentImageIndex(lightboxIndex);
         setLightboxOpen(true);
     };
 
     const goToPrev = () => {
         setCurrentImageIndex((prev) =>
-            prev === 0 ? data.images.length - 1 : prev - 1
+            prev === 0 ? lightboxImages.length - 1 : prev - 1
         );
     };
 
     const goToNext = () => {
         setCurrentImageIndex((prev) =>
-            prev === data.images.length - 1 ? 0 : prev + 1
+            prev === lightboxImages.length - 1 ? 0 : prev + 1
         );
     };
 
     const lightboxProps = {
-        images: data.images.map((img) => img.url),
-        captions: data.images.map((img) => img.caption),
+        images: lightboxImages.map((img) => img.url),
+        captions: lightboxImages.map((img) => img.caption),
         currentIndex: currentImageIndex,
         onClose: () => setLightboxOpen(false),
         onPrev: goToPrev,
@@ -111,6 +118,26 @@ export function ScreenshotBlockView({
     const embeddedMaxPx = 480;
 
     const renderImg = (img: (typeof data.images)[0], index: number, title: string, layoutClass: string, captionClass?: string) => {
+        if (!isImageData(img)) {
+            return (
+                <div key={index} className="space-y-2">
+                    <a
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/60 px-4 py-3 text-sm text-blue-400 hover:bg-zinc-800"
+                    >
+                        {getAttachmentLabel(img)}
+                    </a>
+                    {!isEmpty(img.caption) && (
+                        <p className={`font-medium mt-3 ${captionClass ?? 'text-zinc-400'}`} style={{ fontSize: `${captionFontSize}px` }}>
+                            {img.caption}
+                        </p>
+                    )}
+                </div>
+            );
+        }
+
         const isAutoHeight = img.fit === 'auto-height' || img.fit === 'vertical';
         const align = img.align ?? (img.center ? 'center' : 'left');
         const justify = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start';

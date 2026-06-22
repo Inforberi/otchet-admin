@@ -5,7 +5,10 @@ import {
     getRequestUser,
     requireEditorMiddleware,
 } from '@/lib/auth-helpers';
-import { getAccessibleGroupFilter } from '@/lib/group-access';
+import {
+    getAccessibleGroupFilter,
+    getGroupAccessOptionsFromRequest,
+} from '@/lib/group-access';
 import { generateGroupSlugAndPath } from '@/lib/group-service';
 
 // GET /api/groups - список всех групп
@@ -13,7 +16,8 @@ export async function GET(request: NextRequest) {
     try {
         const user = await getRequestUser(request);
         const tree = request.nextUrl.searchParams.get('tree');
-        const groupFilter = await getAccessibleGroupFilter(user);
+        const accessOptions = getGroupAccessOptionsFromRequest(request);
+        const groupFilter = await getAccessibleGroupFilter(user, accessOptions);
         const groups = await prisma.reportGroup.findMany({
             where: {
                 ...(tree === '1' ? {} : { parentId: null }),
@@ -45,6 +49,8 @@ export async function POST(request: NextRequest) {
     const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
+    const user = await getRequestUser(request);
+
     try {
         const body = await request.json();
         const { name, description, order, parentId } = body;
@@ -69,6 +75,7 @@ export async function POST(request: NextRequest) {
                 description: description?.trim() || null,
                 order: order ?? 0,
                 parentId: parentId ?? null,
+                createdByUserId: user?.id ?? null,
             },
         });
 

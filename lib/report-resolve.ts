@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/prisma';
 import type { AuthenticatedUser } from '@/lib/auth';
-import { canAccessGroupId } from '@/lib/group-access';
+import { canAccessGroupId, type GroupAccessOptions } from '@/lib/group-access';
+import {
+    type ReportAccessOptions,
+    isReportVisible,
+} from '@/lib/report-access';
 import { getGroupAncestors, resolveGroupByPath } from '@/lib/group-service';
 import {
     getReportPublicPath,
@@ -45,12 +49,13 @@ const reportInclude = {
 export const resolveReportByGroupPathAndSlug = async (
     groupPathSegments: string[],
     reportSlug: string,
-    user: AuthenticatedUser | null
+    user: AuthenticatedUser | null,
+    accessOptions?: GroupAccessOptions & ReportAccessOptions
 ) => {
     const group = await resolveGroupByPath(groupPathSegments);
     if (!group) return null;
 
-    if (user && !(await canAccessGroupId(user, group.id))) {
+    if (user && !(await canAccessGroupId(user, group.id, accessOptions))) {
         return null;
     }
 
@@ -66,6 +71,10 @@ export const resolveReportByGroupPathAndSlug = async (
 
     if (!report) return null;
 
+    if (!isReportVisible(report, user, accessOptions)) {
+        return null;
+    }
+
     const ancestors = group.parentId
         ? await getGroupAncestors(group.parentId)
         : [];
@@ -76,7 +85,8 @@ export const resolveReportByGroupPathAndSlug = async (
 /** Legacy URL `/reports/:slug` без группы в пути */
 export const resolveReportBySlug = async (
     slug: string,
-    user: AuthenticatedUser | null
+    user: AuthenticatedUser | null,
+    accessOptions?: GroupAccessOptions & ReportAccessOptions
 ) => {
     const reports = await prisma.report.findMany({
         where: { slug },
@@ -86,7 +96,10 @@ export const resolveReportBySlug = async (
     if (reports.length === 0) return null;
 
     for (const report of reports) {
-        if (user && !(await canAccessGroupId(user, report.groupId))) {
+        if (user && !(await canAccessGroupId(user, report.groupId, accessOptions))) {
+            continue;
+        }
+        if (!isReportVisible(report, user, accessOptions)) {
             continue;
         }
         const ancestors = report.group?.parentId
@@ -100,7 +113,8 @@ export const resolveReportBySlug = async (
 
 export const resolveReportById = async (
     id: string,
-    user: AuthenticatedUser | null
+    user: AuthenticatedUser | null,
+    accessOptions?: GroupAccessOptions & ReportAccessOptions
 ) => {
     const report = await prisma.report.findUnique({
         where: { id },
@@ -109,7 +123,11 @@ export const resolveReportById = async (
 
     if (!report) return null;
 
-    if (user && !(await canAccessGroupId(user, report.groupId))) {
+    if (user && !(await canAccessGroupId(user, report.groupId, accessOptions))) {
+        return null;
+    }
+
+    if (!isReportVisible(report, user, accessOptions)) {
         return null;
     }
 

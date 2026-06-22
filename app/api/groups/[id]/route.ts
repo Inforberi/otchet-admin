@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
-import { requireEditorMiddleware } from '@/lib/auth-helpers';
+import { requireEditorMiddleware, getRequestUser } from '@/lib/auth-helpers';
+import {
+    canAccessGroupId,
+    getGroupAccessOptionsFromRequest,
+} from '@/lib/group-access';
 import { rm, unlink } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
@@ -56,6 +60,8 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
+        const user = await getRequestUser(request);
+        const accessOptions = getGroupAccessOptionsFromRequest(request);
         const group = await prisma.reportGroup.findUnique({
             where: { id },
             include: {
@@ -69,6 +75,13 @@ export async function GET(
         });
 
         if (!group) {
+            return NextResponse.json(
+                { error: 'Group not found' },
+                { status: 404 }
+            );
+        }
+
+        if (user && !(await canAccessGroupId(user, group.id, accessOptions))) {
             return NextResponse.json(
                 { error: 'Group not found' },
                 { status: 404 }
@@ -93,10 +106,12 @@ export async function PATCH(
     const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
+    const user = await getRequestUser(request);
+
     try {
         const { id } = await params;
         const body = await request.json();
-        const { name, description, order, parentId } = body;
+        const { name, description, order, parentId, isHidden } = body;
         const expectedVersion =
             typeof body.expectedVersion === 'number'
                 ? body.expectedVersion
@@ -121,13 +136,34 @@ export async function PATCH(
             );
         }
 
-        let updateData: any = {
+        if (isHidden !== undefined) {
+            if (
+                existing.createdByUserId &&
+                existing.createdByUserId !== user?.id
+            ) {
+                return NextResponse.json(
+                    { error: 'Only the folder creator can hide or show it' },
+                    { status: 403 }
+                );
+            }
+        }
+
+        let updateData: Record<string, unknown> = {
             ...(description !== undefined && {
                 description: description?.trim() || null,
             }),
             ...(order !== undefined && { order }),
             ...(parentId !== undefined && { parentId: parentId || null }),
+            ...(isHidden !== undefined && { isHidden: Boolean(isHidden) }),
         };
+
+        if (
+            isHidden !== undefined &&
+            !existing.createdByUserId &&
+            user?.id
+        ) {
+            updateData.createdByUserId = user.id;
+        }
 
         const nextName =
             name && typeof name === 'string' && name.trim() !== ''

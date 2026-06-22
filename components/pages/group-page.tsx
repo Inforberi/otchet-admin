@@ -11,6 +11,7 @@ import { CreateGroupDialog } from '@/components/groups/create-group-dialog';
 import { EditGroupDialog } from '@/components/groups/edit-group-dialog';
 import { GroupFolderCard } from '@/components/groups/group-folder-card';
 import { CreateReportDialog } from '@/components/reports/create-report-dialog';
+import { EditReportSettingsDialog } from '@/components/reports/edit-report-settings-dialog';
 import { ReportCard } from '@/components/reports/report-card';
 import {
     getCurrentMonthDateRange,
@@ -33,6 +34,8 @@ interface GroupChild {
     path: string;
     description: string | null;
     parentId: string | null;
+    createdByUserId?: string | null;
+    isHidden?: boolean;
     version: number;
     _count: {
         reports: number;
@@ -47,6 +50,8 @@ interface ReportGroup {
     slug: string;
     description: string | null;
     parentId: string | null;
+    createdByUserId?: string | null;
+    isHidden?: boolean;
     version: number;
     _count: {
         reports: number;
@@ -63,7 +68,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     const router = useRouter();
     const groupPathString = useMemo(() => groupPath.join('/'), [groupPath]);
     const defaultDateRange = getCurrentMonthDateRange();
-    const { canEdit } = useUserRole();
+    const { user, canEdit } = useUserRole();
 
     const [group, setGroup] = useState<ReportGroup | null>(null);
     const [breadcrumbs, setBreadcrumbs] = useState<GroupBreadcrumbItem[]>([]);
@@ -84,6 +89,8 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
         null
     );
     const [isCreateReportOpen, setIsCreateReportOpen] = useState(false);
+    const [settingsReport, setSettingsReport] = useState<ReportFromDB | null>(null);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -228,9 +235,11 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
 
             if (allTime) {
                 params.append('allTime', '1');
-            } else {
+            } else if (dateFrom || dateTo) {
                 params.append('dateFrom', dateFrom);
                 params.append('dateTo', dateTo);
+            } else {
+                params.append('noDateFilter', '1');
             }
 
             const response = await fetch(`/api/reports?${params.toString()}`, {
@@ -275,23 +284,13 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
     });
 
     const handleDateFromChange = (value: string) => {
-        if (!value) {
-            applyCurrentMonthFilter();
-            return;
-        }
-
         setDateFrom(value);
-        setAllTime(false);
+        if (value) setAllTime(false);
     };
 
     const handleDateToChange = (value: string) => {
-        if (!value) {
-            applyCurrentMonthFilter();
-            return;
-        }
-
         setDateTo(value);
-        setAllTime(false);
+        if (value) setAllTime(false);
     };
 
     const handleDelete = async (id: string) => {
@@ -603,6 +602,10 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                                             setDeleteConfirm(null)
                                         }
                                         onDelete={handleDelete}
+                                        onOpenSettings={(r) => {
+                                            setSettingsReport(r);
+                                            setIsSettingsOpen(true);
+                                        }}
                                     />
                                 ))}
                             </div>
@@ -646,6 +649,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                         open={isEditGroupOpen}
                         onOpenChange={setIsEditGroupOpen}
                         group={group}
+                        currentUserId={user?.id}
                         onUpdated={handleGroupUpdated}
                         onDeleted={handleGroupDeleted}
                     />
@@ -656,6 +660,7 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                             if (!open) setEditingChildGroup(null);
                         }}
                         group={editingChildGroup}
+                        currentUserId={user?.id}
                         onUpdated={handleChildGroupUpdated}
                         onDeleted={handleChildGroupDeleted}
                     />
@@ -680,6 +685,22 @@ export default function GroupPage({ groupPath }: GroupPageProps) {
                                     slug: report.slug,
                                     group: { path: group.path },
                                 })
+                            );
+                        }}
+                    />
+                    <EditReportSettingsDialog
+                        open={isSettingsOpen}
+                        onOpenChange={(open) => {
+                            setIsSettingsOpen(open);
+                            if (!open) setSettingsReport(null);
+                        }}
+                        report={settingsReport}
+                        currentUserId={user?.id}
+                        onUpdated={(updated) => {
+                            setReports((prev) =>
+                                prev.map((r) =>
+                                    r.id === updated.id ? { ...r, ...updated } : r
+                                )
                             );
                         }}
                     />
