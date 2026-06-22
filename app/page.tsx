@@ -17,6 +17,8 @@ interface ReportGroup {
     description: string | null;
     order: number;
     parentId: string | null;
+    createdByUserId?: string | null;
+    isHidden?: boolean;
     version: number;
     _count: {
         reports: number;
@@ -24,11 +26,14 @@ interface ReportGroup {
     };
 }
 
+const SHOW_HIDDEN_STORAGE_KEY = 'show-hidden-groups';
+
 export default function HomePage() {
     const router = useRouter();
-    const { canEdit, loading: roleLoading } = useUserRole();
+    const { user, canEdit, isSuperAdmin, loading: roleLoading } = useUserRole();
     const [groups, setGroups] = useState<ReportGroup[]>([]);
     const [loading, setLoading] = useState(true);
+    const [showHidden, setShowHidden] = useState(false);
     const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
     const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
     const [editingGroup, setEditingGroup] = useState<ReportGroup | null>(null);
@@ -36,7 +41,12 @@ export default function HomePage() {
     const loadGroups = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await fetch('/api/groups');
+            const params = new URLSearchParams();
+            if (showHidden) params.set('showHidden', '1');
+            const query = params.toString();
+            const response = await fetch(
+                query ? `/api/groups?${query}` : '/api/groups'
+            );
             if (response.ok) {
                 const data = await response.json();
                 setGroups(data.groups || []);
@@ -46,11 +56,30 @@ export default function HomePage() {
         } finally {
             setLoading(false);
         }
+    }, [showHidden]);
+
+    useEffect(() => {
+        try {
+            setShowHidden(
+                localStorage.getItem(SHOW_HIDDEN_STORAGE_KEY) === '1'
+            );
+        } catch {
+            setShowHidden(false);
+        }
     }, []);
 
     useEffect(() => {
         void loadGroups();
     }, [loadGroups]);
+
+    const handleShowHiddenChange = useCallback((checked: boolean) => {
+        setShowHidden(checked);
+        try {
+            localStorage.setItem(SHOW_HIDDEN_STORAGE_KEY, checked ? '1' : '0');
+        } catch {
+            // ignore
+        }
+    }, []);
 
     const handleSelectGroup = useCallback(
         (group: ReportGroup) => {
@@ -104,16 +133,31 @@ export default function HomePage() {
                 breadcrumbs={[{ label: 'Группы' }]}
                 title="Группы отчетов"
                 actions={
-                    canEdit ? (
-                        <button
-                            type="button"
-                            onClick={() => setIsCreateGroupOpen(true)}
-                            className="flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
-                        >
-                            <Plus className="h-4 w-4" />
-                            Создать папку
-                        </button>
-                    ) : undefined
+                    <div className="flex items-center gap-4">
+                        {isSuperAdmin && (
+                            <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--color-grayscale-5)]">
+                                <input
+                                    type="checkbox"
+                                    checked={showHidden}
+                                    onChange={(e) =>
+                                        handleShowHiddenChange(e.target.checked)
+                                    }
+                                    className="rounded border-[var(--color-alpha-3)]"
+                                />
+                                Показывать скрытые
+                            </label>
+                        )}
+                        {canEdit ? (
+                            <button
+                                type="button"
+                                onClick={() => setIsCreateGroupOpen(true)}
+                                className="flex items-center gap-2 rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 cursor-pointer"
+                            >
+                                <Plus className="h-4 w-4" />
+                                Создать папку
+                            </button>
+                        ) : null}
+                    </div>
                 }
             />
 
@@ -167,6 +211,8 @@ export default function HomePage() {
                             if (!open) setEditingGroup(null);
                         }}
                         group={editingGroup}
+                        currentUserId={user?.id}
+                        showHiddenGroups={showHidden}
                         onUpdated={handleGroupUpdated}
                         onDeleted={loadGroups}
                     />

@@ -1,9 +1,14 @@
 'use client';
 
+import { Folder, FolderOpen } from 'lucide-react';
+import { getSubtreeIdsByParent } from '@/lib/group-utils';
+
 type GroupOption = {
     id: string;
     name: string;
     path: string;
+    parentId?: string | null;
+    depth?: number;
 };
 
 type GroupAccessChecklistProps = {
@@ -19,36 +24,68 @@ export function GroupAccessChecklist({
     onChange,
     disabled = false,
 }: GroupAccessChecklistProps) {
+    const sortedGroups = [...groups].sort((a, b) => {
+        const depthA = a.depth ?? 0;
+        const depthB = b.depth ?? 0;
+        if (depthA !== depthB) return depthA - depthB;
+        return a.name.localeCompare(b.name, 'ru');
+    });
+
+    const treeGroups = groups.map((g) => ({
+        id: g.id,
+        parentId: g.parentId ?? null,
+    }));
+
     return (
-        <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950/50 p-3">
-            {groups.length === 0 ? (
-                <p className="text-sm text-zinc-500">Нет доступных групп</p>
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-zinc-800/80 bg-zinc-900/40 p-2">
+            {sortedGroups.length === 0 ? (
+                <p className="px-2 py-3 text-sm text-zinc-500">Нет доступных групп</p>
             ) : (
-                groups.map((group) => (
-                    <label
-                        key={group.id}
-                        className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer"
-                    >
-                        <input
-                            type="checkbox"
-                            checked={selectedGroupIds.includes(group.id)}
-                            disabled={disabled}
-                            onChange={(e) => {
-                                onChange(
-                                    e.target.checked
-                                        ? [...selectedGroupIds, group.id]
-                                        : selectedGroupIds.filter(
-                                              (id) => id !== group.id
-                                          )
-                                );
+                sortedGroups.map((group) => {
+                    const depth = group.depth ?? 0;
+                    const Icon = depth > 0 ? FolderOpen : Folder;
+
+                    return (
+                        <label
+                            key={group.id}
+                            title={group.path}
+                            className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800/50 ${
+                                depth > 0 ? 'border-l border-zinc-700/60' : ''
+                            }`}
+                            style={{
+                                marginLeft: depth > 0 ? depth * 12 : 0,
+                                paddingLeft: depth > 0 ? 8 : undefined,
                             }}
-                        />
-                        <span>
-                            {group.name}{' '}
-                            <span className="text-zinc-500">({group.path})</span>
-                        </span>
-                    </label>
-                ))
+                        >
+                            <input
+                                type="checkbox"
+                                checked={selectedGroupIds.includes(group.id)}
+                                disabled={disabled}
+                                onChange={(e) => {
+                                    const subtree = getSubtreeIdsByParent(
+                                        group.id,
+                                        treeGroups
+                                    );
+                                    onChange(
+                                        e.target.checked
+                                            ? [
+                                                  ...new Set([
+                                                      ...selectedGroupIds,
+                                                      ...subtree,
+                                                  ]),
+                                              ]
+                                            : selectedGroupIds.filter(
+                                                  (id) => !subtree.includes(id)
+                                              )
+                                    );
+                                }}
+                                className="h-4 w-4 shrink-0 rounded border-zinc-600 accent-blue-500"
+                            />
+                            <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                            <span className="truncate">{group.name}</span>
+                        </label>
+                    );
+                })
             )}
         </div>
     );

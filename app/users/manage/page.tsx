@@ -15,6 +15,7 @@ import { AppPageHeader } from '@/components/layout/app-page-header';
 import { ROOT_GROUPS_CRUMB } from '@/lib/breadcrumbs';
 import { GroupAccessChecklist } from '@/components/users/group-access-checklist';
 import { useUserRole } from '@/hooks/use-user-role';
+import { buildFlatGroupTree } from '@/lib/group-utils';
 import {
     DEFAULT_EDITOR_ROLE_ID,
     SYSTEM_SUPER_ADMIN_ROLE_ID,
@@ -46,7 +47,15 @@ type ManagedUser = {
     };
 };
 
-type ReportGroupOption = { id: string; name: string; path: string };
+type ReportGroupOption = {
+    id: string;
+    name: string;
+    path: string;
+    parentId: string | null;
+    depth?: number;
+};
+
+const SHOW_HIDDEN_STORAGE_KEY = 'show-hidden-groups';
 
 export default function ManageUsersPage() {
     const router = useRouter();
@@ -102,14 +111,29 @@ export default function ManageUsersPage() {
     }, []);
 
     const loadGroups = useCallback(async () => {
-        const response = await fetch('/api/groups?tree=1');
+        const showHidden =
+            typeof window !== 'undefined' &&
+            localStorage.getItem(SHOW_HIDDEN_STORAGE_KEY) === '1';
+        const params = new URLSearchParams({ tree: '1' });
+        if (showHidden) params.set('showHidden', '1');
+        const response = await fetch(`/api/groups?${params.toString()}`);
         if (response.ok) {
             const data = await response.json();
+            const flat = buildFlatGroupTree(
+                (data.groups || []) as Array<{
+                    id: string;
+                    name: string;
+                    path: string;
+                    parentId: string | null;
+                }>
+            );
             setGroups(
-                (data.groups || []).map((g: ReportGroupOption) => ({
+                flat.map((g) => ({
                     id: g.id,
                     name: g.name,
                     path: g.path,
+                    parentId: g.parentId,
+                    depth: g.depth,
                 }))
             );
         }

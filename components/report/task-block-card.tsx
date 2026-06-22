@@ -20,6 +20,7 @@ import {
     AlignRight,
 } from 'lucide-react';
 import type { TaskBlockData, ImageData, ScreenshotBlockData, PhotoBlockLayout } from '@/lib/db-types';
+import { getAttachmentLabel, isImageData } from '@/lib/db-types';
 import type { TaskBlockDirtyPatch } from '@/hooks/use-report-draft-sync';
 import {
     formatAssigneesList,
@@ -28,6 +29,10 @@ import {
 import { taskBlockDataSemanticallyEqual } from '@/lib/block-data-equal';
 import { canonicalRichTextValue } from '@/lib/rich-text';
 import { registerDraftFlushHandler } from '@/lib/report-draft-flush-registry';
+import {
+    getUploadStoragePath,
+    queueUploadDeletion,
+} from '@/lib/pending-upload-deletions';
 import { ScreenshotBlockView } from '@/components/report/screenshot-block-view';
 import {
     TaskAssigneesBadges,
@@ -210,7 +215,18 @@ function TaskImageListEditor({
             {images.map((img, idx) => (
                 <div key={img.uploadId || `img-${idx}-${img.url}`} className="overflow-hidden rounded border border-zinc-700 bg-zinc-800 p-3">
                     <div className="relative flex gap-3">
-                        <img src={img.url} alt={img.alt} className="relative z-0 h-36 w-36 shrink-0 rounded object-cover" />
+                        {isImageData(img) ? (
+                            <img src={img.url} alt={img.alt} className="relative z-0 h-36 w-36 shrink-0 rounded object-cover" />
+                        ) : (
+                            <a
+                                href={img.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative z-0 flex h-36 w-36 shrink-0 items-center justify-center rounded border border-zinc-600 bg-zinc-900 px-2 text-center text-xs text-blue-400"
+                            >
+                                {getAttachmentLabel(img)}
+                            </a>
+                        )}
                         <div className="relative z-10 min-w-0 flex-1 space-y-2">
                             <input
                                 type="text"
@@ -284,12 +300,12 @@ function TaskImageListEditor({
                 <label className="flex w-full cursor-pointer items-center justify-center gap-2">
                     <Upload className="w-5 h-5 text-zinc-400" />
                     <span className="text-sm text-zinc-300">
-                        {uploading ? 'Загрузка...' : isDragOver ? 'Отпустите для загрузки' : 'Перетащите изображения или нажмите для выбора'}
+                        {uploading ? 'Загрузка...' : isDragOver ? 'Отпустите для загрузки' : 'Перетащите файлы или нажмите для выбора'}
                     </span>
                     <input
                         ref={fileInputRef}
                         type="file"
-                        accept="image/*"
+                        accept="*/*"
                         multiple
                         aria-label={uploadAriaLabel}
                         onChange={onFileInputChange}
@@ -615,19 +631,19 @@ export function TaskBlockCard({
         }
         if (!gid) return result;
         for (const file of Array.from(files)) {
-            if (!file.type.startsWith('image/')) continue;
             const form = new FormData();
             form.append('file', file);
             form.append('reportId', reportId);
             form.append('groupId', gid);
             const res = await fetch('/api/uploads', { method: 'POST', body: form });
             if (res.ok) {
-                const { upload } = await res.json() as { upload: { id: string; path: string } };
+                const { upload } = await res.json() as { upload: { id: string; path: string; mimeType: string } };
                 result.push({
                     url: `/api/static/uploads/${upload.path}`,
                     caption: '',
                     alt: file.name,
                     uploadId: upload.id,
+                    mimeType: upload.mimeType,
                 });
             }
         }
@@ -665,8 +681,9 @@ export function TaskBlockCard({
 
     const removeTaskImage = useCallback((idx: number) => {
         const img = localData.images?.[idx];
-        if (img?.uploadId) {
-            void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => { });
+        const storagePath = img ? getUploadStoragePath(img.url) : null;
+        if (storagePath) {
+            queueUploadDeletion(reportId, storagePath);
         }
         const nextData = {
             ...localData,
@@ -674,7 +691,7 @@ export function TaskBlockCard({
         };
         setLocalData(nextData);
         pushTaskChange({ data: nextData });
-    }, [localData, pushTaskChange]);
+    }, [localData, pushTaskChange, reportId]);
 
     const screenshotViewData = useMemo(
         (): ScreenshotBlockData => ({
@@ -723,13 +740,14 @@ export function TaskBlockCard({
 
     const removeCompletionImage = useCallback((idx: number) => {
         const img = completionImages[idx];
-        if (img?.uploadId) {
-            void fetch(`/api/uploads/by-path?path=${encodeURIComponent(img.url.replace('/api/static/uploads/', ''))}`, { method: 'DELETE' }).catch(() => { });
+        const storagePath = img ? getUploadStoragePath(img.url) : null;
+        if (storagePath) {
+            queueUploadDeletion(reportId, storagePath);
         }
         const nextImages = completionImages.filter((_, i) => i !== idx);
         setCompletionImages(nextImages);
         pushTaskChange({ taskCompletionImages: nextImages });
-    }, [completionImages, pushTaskChange]);
+    }, [completionImages, pushTaskChange, reportId]);
 
     // --- Shared style helpers ---
     const inputCls = 'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500';

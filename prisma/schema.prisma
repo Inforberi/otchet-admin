@@ -50,7 +50,9 @@ model User {
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
-  appRole AppRole @relation(fields: [appRoleId], references: [id], onDelete: Restrict)
+  appRole        AppRole       @relation(fields: [appRoleId], references: [id], onDelete: Restrict)
+  createdGroups  ReportGroup[] @relation("GroupCreatedBy")
+  createdReports Report[]      @relation("ReportCreatedBy")
 
   @@map("users")
   @@index([appRoleId])
@@ -65,13 +67,16 @@ model ReportGroup {
   path        String        @unique // полный путь группы, например "otchety/seo"
   description String?       // описание группы
   order       Int           @default(0) // порядок отображения
-  parentId    String?       @map("parent_id")
-  version     Int           @default(1)
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  parentId        String?   @map("parent_id")
+  createdByUserId String?   @map("created_by_user_id")
+  isHidden        Boolean   @default(false) @map("is_hidden")
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  parent      ReportGroup?  @relation("ReportGroupTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children    ReportGroup[] @relation("ReportGroupTree")
+  parent    ReportGroup?  @relation("ReportGroupTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  ReportGroup[] @relation("ReportGroupTree")
+  createdBy User?         @relation("GroupCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   reports     Report[]
   uploads     Upload[]
   roleAccess  AppRoleGroup[]
@@ -79,6 +84,7 @@ model ReportGroup {
   @@map("report_groups")
   @@index([parentId])
   @@index([slug])
+  @@index([createdByUserId])
 }
 
 // Отчеты
@@ -88,13 +94,16 @@ model Report {
   slug              String   // URL-friendly название (например, "otchet-studia-54")
   subtitle          String?
   client            String?
-  date              String?
-  status            String   @default("draft") // draft | published
+  date                  String?
+  excludeFromDateFilter Boolean  @default(false) @map("exclude_from_date_filter")
+  status                String   @default("draft") // draft | published
   titleFontSize     String?  @default("40") @map("title_font_size") // размер шрифта заголовка в px
   descriptionFontSize String? @default("20") @map("description_font_size") // размер шрифта описания в px
   contentHeadingFontSize String? @default("24") @map("content_heading_font_size") // пресет «Заголовок» в тексте блока, px
   captionFontSize   String?  @default("16") @map("caption_font_size") // размер шрифта подписи к изображениям в px
   groupId           String   @map("group_id")
+  createdByUserId   String?  @map("created_by_user_id")
+  isHidden          Boolean  @default(false) @map("is_hidden")
   version           Int      @default(1)
   draftHash         String?  @map("draft_hash")
   publishedHash     String?  @map("published_hash")
@@ -104,11 +113,13 @@ model Report {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  group       ReportGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  blocks      ReportBlock[]
+  group     ReportGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy User?       @relation("ReportCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  blocks    ReportBlock[]
 
   @@map("reports")
   @@index([groupId])
+  @@index([createdByUserId])
   @@unique([groupId, slug]) // slug уникален в рамках группы
 }
 

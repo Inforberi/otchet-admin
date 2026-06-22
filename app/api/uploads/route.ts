@@ -9,41 +9,22 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 const MAX_FILE_SIZE = Number.parseInt(
     process.env.MAX_UPLOAD_SIZE || '10485760'
 ); // 10MB default
-const ALLOWED_TYPES = [
-    'image/png',
-    'image/jpeg',
-    'image/jpg',
-    'image/webp',
-    'image/gif',
-];
+const ALLOWED_EXTENSIONS: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.pdf': 'application/pdf',
+};
 
-const ALLOWED_EXTENSIONS = new Set([
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.webp',
-    '.gif',
-]);
-
-const resolveMimeType = (file: File): string | null => {
-    if (file.type && ALLOWED_TYPES.includes(file.type)) {
+const resolveMimeType = (file: File): string => {
+    if (file.type) {
         return file.type;
     }
 
     const ext = path.extname(file.name).toLowerCase();
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-        return null;
-    }
-
-    const byExt: Record<string, string> = {
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.webp': 'image/webp',
-        '.gif': 'image/gif',
-    };
-
-    return byExt[ext] ?? null;
+    return ALLOWED_EXTENSIONS[ext] ?? 'application/octet-stream';
 };
 
 // Получаем абсолютный путь к директории загрузок
@@ -260,13 +241,10 @@ export async function POST(request: NextRequest) {
         }
 
         const mimeType = resolveMimeType(file);
-        if (!mimeType) {
+
+        if (file.size === 0) {
             return NextResponse.json(
-                {
-                    error: `Invalid file type. Allowed: ${ALLOWED_TYPES.join(
-                        ', '
-                    )}`,
-                },
+                { error: 'Empty file' },
                 { status: 400 }
             );
         }

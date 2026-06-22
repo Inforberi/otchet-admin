@@ -5,6 +5,7 @@ export type DraftMetadata = {
     subtitle: string | null;
     client: string | null;
     date: string | null;
+    excludeFromDateFilter: boolean;
     titleFontSize: string | null;
     descriptionFontSize: string | null;
     contentHeadingFontSize: string | null;
@@ -61,6 +62,7 @@ export type DraftMetadataPatch = Partial<{
     subtitle: string | null;
     client: string | null;
     date: string | null;
+    excludeFromDateFilter?: boolean;
     titleFontSize: string | null;
     descriptionFontSize: string | null;
     contentHeadingFontSize: string | null;
@@ -72,6 +74,7 @@ export const METADATA_FIELDS = [
     'subtitle',
     'client',
     'date',
+    'excludeFromDateFilter',
     'titleFontSize',
     'descriptionFontSize',
     'contentHeadingFontSize',
@@ -105,6 +108,7 @@ export const buildDraftPayload = (
         | 'subtitle'
         | 'client'
         | 'date'
+        | 'excludeFromDateFilter'
         | 'titleFontSize'
         | 'descriptionFontSize'
         | 'contentHeadingFontSize'
@@ -117,6 +121,7 @@ export const buildDraftPayload = (
         subtitle: report.subtitle ?? null,
         client: report.client ?? null,
         date: report.date ?? null,
+        excludeFromDateFilter: report.excludeFromDateFilter ?? false,
         titleFontSize: report.titleFontSize ?? null,
         descriptionFontSize: report.descriptionFontSize ?? null,
         contentHeadingFontSize: report.contentHeadingFontSize ?? null,

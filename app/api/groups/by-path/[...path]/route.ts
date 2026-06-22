@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGroupAncestors, resolveGroupByPath } from '@/lib/group-service';
 import { getRequestUser } from '@/lib/auth-helpers';
+import {
+    canAccessGroupId,
+    getGroupAccessOptionsFromRequest,
+} from '@/lib/group-access';
 import { GROUP_REPORTS_SEGMENT } from '@/lib/group-utils';
 import { jsonReportGetResponse } from '@/lib/report-get-response';
 import { resolveReportByGroupPathAndSlug } from '@/lib/report-resolve';
@@ -19,11 +23,13 @@ export async function GET(
             const reportSlug = path[reportsIdx + 1];
             const user = await getRequestUser(request);
             const view = request.nextUrl.searchParams.get('view');
+            const accessOptions = getGroupAccessOptionsFromRequest(request);
 
             const resolved = await resolveReportByGroupPathAndSlug(
                 groupSegments,
                 reportSlug,
-                user
+                user,
+                accessOptions
             );
 
             if (!resolved) {
@@ -45,6 +51,16 @@ export async function GET(
         const group = await resolveGroupByPath(path);
 
         if (!group) {
+            return NextResponse.json(
+                { error: 'Group not found' },
+                { status: 404 }
+            );
+        }
+
+        const user = await getRequestUser(request);
+        const accessOptions = getGroupAccessOptionsFromRequest(request);
+
+        if (user && !(await canAccessGroupId(user, group.id, accessOptions))) {
             return NextResponse.json(
                 { error: 'Group not found' },
                 { status: 404 }

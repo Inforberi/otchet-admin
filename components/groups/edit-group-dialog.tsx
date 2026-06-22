@@ -9,6 +9,8 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { EyeOff } from 'lucide-react';
+import { SettingToggleRow } from '@/components/ui/setting-toggle-row';
 import { getIndentedGroupLabel } from '@/lib/group-utils';
 
 type GroupRecord = {
@@ -17,6 +19,8 @@ type GroupRecord = {
     path: string;
     description: string | null;
     parentId: string | null;
+    createdByUserId?: string | null;
+    isHidden?: boolean;
     version: number;
 };
 
@@ -24,6 +28,8 @@ interface EditGroupDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     group: GroupRecord | null;
+    currentUserId?: string | null;
+    showHiddenGroups?: boolean;
     onUpdated?: (group: GroupRecord) => void | Promise<void>;
     onDeleted?: () => void | Promise<void>;
 }
@@ -73,29 +79,35 @@ export const EditGroupDialog = ({
     open,
     onOpenChange,
     group,
+    currentUserId,
+    showHiddenGroups = false,
     onUpdated,
     onDeleted,
 }: EditGroupDialogProps) => {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [parentId, setParentId] = useState('');
+    const [isHidden, setIsHidden] = useState(false);
     const [allGroups, setAllGroups] = useState<GroupRecord[]>([]);
     const [saving, setSaving] = useState(false);
     const [deleting, setDeleting] = useState(false);
 
     const loadGroups = useCallback(async () => {
-        const response = await fetch('/api/groups?tree=1');
+        const params = new URLSearchParams({ tree: '1' });
+        if (showHiddenGroups) params.set('showHidden', '1');
+        const response = await fetch(`/api/groups?${params.toString()}`);
         if (response.ok) {
             const data = await response.json();
             setAllGroups(data.groups || []);
         }
-    }, []);
+    }, [showHiddenGroups]);
 
     useEffect(() => {
         if (!open || !group) return;
         setName(group.name);
         setDescription(group.description || '');
         setParentId(group.parentId || '');
+        setIsHidden(Boolean(group.isHidden));
         void loadGroups();
     }, [open, group, loadGroups]);
 
@@ -110,6 +122,14 @@ export const EditGroupDialog = ({
         if (!group) return [];
         return buildFlatGroups(allGroups).filter((g) => g.id !== group.id);
     }, [allGroups, group]);
+
+    const canToggleHidden =
+        Boolean(currentUserId) &&
+        (!group?.createdByUserId || group.createdByUserId === currentUserId);
+
+    const hideFolderDescription = !group?.createdByUserId
+        ? 'Папка без создателя — при скрытии вы станете владельцем'
+        : 'Папка будет видна только вам (и super admin с флагом)';
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -127,6 +147,7 @@ export const EditGroupDialog = ({
                     name: name.trim(),
                     description: description.trim() || null,
                     parentId: parentId || null,
+                    ...(canToggleHidden ? { isHidden } : {}),
                     expectedVersion: group.version,
                 }),
             });
@@ -195,7 +216,7 @@ export const EditGroupDialog = ({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] text-[var(--color-grayscale-3)] sm:max-w-md">
+            <DialogContent className="border-[var(--color-alpha-3)] bg-[var(--color-grayscale-15)] text-[var(--color-grayscale-3)] sm:max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Настройки папки</DialogTitle>
                     <DialogDescription className="text-[var(--color-grayscale-6)]">
@@ -246,6 +267,16 @@ export const EditGroupDialog = ({
                             ))}
                         </select>
                     </div>
+
+                    {canToggleHidden ? (
+                        <SettingToggleRow
+                            icon={EyeOff}
+                            label="Скрыть папку"
+                            description={hideFolderDescription}
+                            checked={isHidden}
+                            onChange={setIsHidden}
+                        />
+                    ) : null}
 
                     <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
                         <button

@@ -23,6 +23,10 @@ import { reportBlocksSemanticallyEqual } from '@/lib/block-data-equal';
 import { mergeTaskBlockAfterSave } from '@/lib/report-block-merge';
 import { normalizeBlockOrder } from '@/lib/block-tree';
 import { runDraftFlushHandlers } from '@/lib/report-draft-flush-registry';
+import {
+    clearPendingUploadDeletions,
+    flushPendingUploadDeletions,
+} from '@/lib/pending-upload-deletions';
 
 export type SyncStatus =
     | 'synced'
@@ -91,6 +95,7 @@ const toDraftRequest = (
         subtitle: report.subtitle ?? null,
         client: report.client ?? null,
         date: report.date ?? null,
+        excludeFromDateFilter: report.excludeFromDateFilter ?? false,
         titleFontSize: report.titleFontSize ?? null,
         descriptionFontSize: report.descriptionFontSize ?? null,
         contentHeadingFontSize: report.contentHeadingFontSize ?? null,
@@ -280,6 +285,7 @@ export const useReportDraftSync = (
 
                 if (options?.discardLocalDraft) {
                     clearLocalDraft();
+                    clearPendingUploadDeletions(reportId);
                     setReport(reportData);
                     setBlocks(sortedBlocks);
                     setHasLocalChanges(false);
@@ -385,6 +391,7 @@ export const useReportDraftSync = (
 
                 const data = (await response.json()) as DraftSaveResponse;
                 commitServerState(data.report);
+                void flushPendingUploadDeletions(reportId);
                 return true;
             } catch (error) {
                 console.error(error);
@@ -487,6 +494,7 @@ export const useReportDraftSync = (
                 | 'subtitle'
                 | 'client'
                 | 'date'
+                | 'excludeFromDateFilter'
                 | 'titleFontSize'
                 | 'descriptionFontSize'
                 | 'contentHeadingFontSize'
@@ -566,8 +574,9 @@ export const useReportDraftSync = (
     useEffect(
         () => () => {
             clearLocalTimers();
+            clearPendingUploadDeletions(reportId);
         },
-        [clearLocalTimers]
+        [clearLocalTimers, reportId]
     );
 
     return {
