@@ -54,7 +54,7 @@ export default function SetupPage() {
                 return;
             }
 
-            router.push('/reports');
+            router.push('/');
             router.refresh();
         } catch {
             setError('Ошибка подключения к серверу');

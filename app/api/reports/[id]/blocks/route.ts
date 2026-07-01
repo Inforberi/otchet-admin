@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import type { CreateBlockInput } from "@/lib/db-types"
 import { Prisma } from "@prisma/client"
-import { requireEditorMiddleware } from "@/lib/auth-helpers"
+import {
+  getRequestUser,
+  isViewerRole,
+  requireEditorMiddleware,
+} from "@/lib/auth-helpers"
+import {
+  canAccessReportId,
+  getReportAccessOptionsFromRequest,
+} from "@/lib/report-access"
+import { getGroupAccessOptionsFromRequest } from "@/lib/group-access"
 
 const VERSION_CONFLICT = "VERSION_CONFLICT"
 
@@ -10,6 +19,19 @@ const VERSION_CONFLICT = "VERSION_CONFLICT"
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
+    const user = await getRequestUser(request)
+    const accessOptions = {
+      ...getGroupAccessOptionsFromRequest(request),
+      ...getReportAccessOptionsFromRequest(request),
+    }
+
+    if (!user) {
+      return NextResponse.json({ error: "Требуется авторизация." }, { status: 401 })
+    }
+
+    if (isViewerRole(user) || !(await canAccessReportId(id, user, accessOptions))) {
+      return NextResponse.json({ error: "Report not found" }, { status: 404 })
+    }
 
     const blocks = await prisma.reportBlock.findMany({
       where: { reportId: id },
@@ -31,6 +53,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   try {
     const { id: reportId } = await params
+    const user = await getRequestUser(request)
+    const accessOptions = {
+      ...getGroupAccessOptionsFromRequest(request),
+      ...getReportAccessOptionsFromRequest(request),
+    }
+
+    if (!(await canAccessReportId(reportId, user, accessOptions))) {
+      return NextResponse.json({ error: "Report not found" }, { status: 404 })
+    }
+
     const body: Omit<CreateBlockInput, "reportId"> & { expectedReportVersion?: number } = await request.json()
     const expectedReportVersion =
       typeof body.expectedReportVersion === "number"

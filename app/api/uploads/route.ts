@@ -3,7 +3,16 @@ import { prisma } from '@/lib/prisma';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
-import { requireEditorMiddleware } from '@/lib/auth-helpers';
+import { getRequestUser, requireEditorMiddleware } from '@/lib/auth-helpers';
+import {
+    canAccessGroupId,
+    getGroupAccessOptionsFromRequest,
+} from '@/lib/group-access';
+import {
+    canAccessReport,
+    canAccessReportId,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 const MAX_FILE_SIZE = Number.parseInt(
@@ -221,6 +230,11 @@ export async function POST(request: NextRequest) {
     if (adminCheck) return adminCheck;
 
     try {
+        const user = await getRequestUser(request);
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
         const formData = await request.formData();
         const file = formData.get('file') as File | null;
         const reportId = formData.get('reportId') as string | null;
@@ -237,6 +251,36 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
                 { error: 'Group ID is required' },
                 { status: 400 }
+            );
+        }
+
+        if (reportId) {
+            const report = await prisma.report.findUnique({
+                where: { id: reportId },
+                select: {
+                    groupId: true,
+                    isHidden: true,
+                    createdByUserId: true,
+                },
+            });
+
+            if (
+                !report ||
+                report.groupId !== groupId ||
+                !(await canAccessReport(report, user, accessOptions))
+            ) {
+                return NextResponse.json(
+                    { error: 'Report not found' },
+                    { status: 404 }
+                );
+            }
+        } else if (
+            !user ||
+            !(await canAccessGroupId(user, groupId, accessOptions))
+        ) {
+            return NextResponse.json(
+                { error: 'Group not found' },
+                { status: 404 }
             );
         }
 
@@ -370,14 +414,52 @@ export async function POST(request: NextRequest) {
     }
 }
 
-// GET /api/uploads - список загрузок (опционально с фильтром по reportId)
+// GET /api/uploads - список загрузок только по доступному reportId или groupId
 export async function GET(request: NextRequest) {
     try {
+        const user = await getRequestUser(request);
+        if (!user) {
+            return NextResponse.json(
+                { error: 'Требуется авторизация.' },
+                { status: 401 }
+            );
+        }
+
         const searchParams = request.nextUrl.searchParams;
         const reportId = searchParams.get('reportId');
+        const groupId = searchParams.get('groupId');
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        let where: { reportId: string } | { groupId: string; reportId: null };
+
+        if (reportId) {
+            if (!(await canAccessReportId(reportId, user, accessOptions))) {
+                return NextResponse.json(
+                    { error: 'Report not found' },
+                    { status: 404 }
+                );
+            }
+            where = { reportId };
+        } else if (groupId) {
+            if (!(await canAccessGroupId(user, groupId, accessOptions))) {
+                return NextResponse.json(
+                    { error: 'Group not found' },
+                    { status: 404 }
+                );
+            }
+            where = { groupId, reportId: null };
+        } else {
+            return NextResponse.json(
+                { error: 'reportId or groupId is required' },
+                { status: 400 }
+            );
+        }
 
         const uploads = await prisma.upload.findMany({
-            where: reportId ? { reportId } : undefined,
+            where,
             orderBy: { createdAt: 'desc' },
         });
 

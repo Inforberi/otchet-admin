@@ -14,6 +14,13 @@ import { buildEditorTree, flattenTree } from '@/lib/block-tree';
 import { isEmptyRichHtml } from '@/lib/rich-text-empty';
 import { formatAssigneesList, normalizeTaskAssignees } from '@/lib/task-assignees';
 import { resolvePdfImageSrc } from '@/lib/pdf-embed-images';
+import { getRequestUser } from '@/lib/auth-helpers';
+import { canEditContent } from '@/lib/auth';
+import {
+    canAccessReport,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
+import { getGroupAccessOptionsFromRequest } from '@/lib/group-access';
 
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
@@ -25,6 +32,14 @@ export async function GET(
 ) {
     try {
         const { id } = await params;
+        const user = await getRequestUser(request);
+
+        if (!user) {
+            return NextResponse.json(
+                { error: 'Требуется авторизация.' },
+                { status: 401 }
+            );
+        }
 
         // Получаем отчет из БД
         const report = await prisma.report.findUnique({
@@ -37,6 +52,21 @@ export async function GET(
         });
 
         if (!report) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        if (
+            !canEditContent(user) ||
+            !(await canAccessReport(report, user, accessOptions))
+        ) {
             return NextResponse.json(
                 { error: 'Report not found' },
                 { status: 404 }
@@ -633,4 +663,3 @@ function escapeHTML(text: string): string {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 }
-
