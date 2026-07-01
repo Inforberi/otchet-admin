@@ -187,17 +187,14 @@ const PASTE_ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions['allowedAttributes'] = {
 
 const PASTE_ALLOWED_STYLES: sanitizeHtml.IOptions['allowedStyles'] = {
     '*': {
-        color: [
-            /^#[0-9a-fA-F]{6}$/,
-            /^rgb\(\s?\d{1,3}\s?,\s?\d{1,3}\s?,\s?\d{1,3}\s?\)$/,
-        ],
         'text-align': [/^(left|center|right)$/],
     },
 };
 
-const stripStyleFontSize = (style: string | undefined): string | undefined => {
+const stripPastedInlineStyle = (style: string | undefined): string | undefined => {
     if (!style) return undefined;
     const cleaned = style
+        .replace(/\s*color:\s*[^;]+;?/gi, '')
         .replace(/\s*font-size:\s*[^;]+;?/gi, '')
         .replace(/\s*font-family:\s*[^;]+;?/gi, '')
         .trim()
@@ -207,7 +204,7 @@ const stripStyleFontSize = (style: string | undefined): string | undefined => {
     return cleaned || undefined;
 };
 
-/** Вставка из буфера: без чужих font-size; заголовки → абзацы */
+/** Вставка из буфера: без чужих цветов/font-size; заголовки → абзацы */
 export const sanitizePastedHtml = (html: string): string =>
     normalizePastedTypographyHtml(
         sanitizeHtml(html, {
@@ -220,7 +217,7 @@ export const sanitizePastedHtml = (html: string): string =>
                 h2: () => ({ tagName: 'p', attribs: {} }),
                 h3: () => ({ tagName: 'p', attribs: {} }),
                 span: (_tag, attribs) => {
-                    const style = stripStyleFontSize(attribs.style);
+                    const style = stripPastedInlineStyle(attribs.style);
                     const next: Record<string, string> = {};
                     if (style) next.style = style;
                     return { tagName: 'span', attribs: next };
