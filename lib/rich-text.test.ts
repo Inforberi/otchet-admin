@@ -2,6 +2,7 @@ import {
     countSpacerParagraphs,
     normalizeRichTextHtml,
     preferRichTextWithMoreSpacers,
+    sanitizePastedHtml,
 } from './rich-text';
 import { sanitizeRichTextHtml } from './rich-text-sanitize';
 
@@ -29,6 +30,25 @@ const run = () => {
         preferRichTextWithMoreSpacers(local, server) === local,
         'prefer local when more spacers with same text'
     );
+
+    const pastedColor = sanitizePastedHtml(
+        '<p><span style="color:#000000">x</span></p>'
+    );
+    assert(!/color\s*:/i.test(pastedColor), 'paste strips hex color');
+
+    const pastedColorWithAlign = sanitizePastedHtml(
+        '<p><span style="color:rgb(1,2,3); text-align:center">x</span></p>'
+    );
+    assert(!/color\s*:/i.test(pastedColorWithAlign), 'paste strips rgb color');
+    assert(
+        /text-align:\s*center/i.test(pastedColorWithAlign),
+        'paste keeps allowed text-align'
+    );
+
+    const manualColor = sanitizeRichTextHtml(
+        '<p><span style="color:#ffffff">x</span></p>'
+    );
+    assert(/color:\s*#ffffff/i.test(manualColor), 'save keeps manual color');
 
     console.log('rich-text.test.ts: all assertions passed');
 };

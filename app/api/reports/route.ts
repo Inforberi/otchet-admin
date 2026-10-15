@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import type { CreateReportInput } from '@/lib/db-types';
+import { createReportSchema } from '@/lib/report-api';
+import { validationErrorResponse } from '@/lib/api-validation';
 import { Prisma } from '@prisma/client';
 import {
     getRequestUser,
     isViewerRole,
     requireEditorMiddleware,
 } from '@/lib/auth-helpers';
-import { canAccessGroupId, getAccessibleGroupFilter, getGroupAccessOptionsFromRequest } from '@/lib/group-access';
+import {
+    canAccessGroupId,
+    getGroupAccessOptionsFromRequest,
+} from '@/lib/group-access';
 import {
     filterVisibleReports,
     getReportAccessOptionsFromRequest,
@@ -15,7 +19,7 @@ import {
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 import { getCurrentMonthDateRange } from '@/lib/report-date-range';
 
-// GET /api/reports - список всех отчетов
+// GET /api/reports?groupId=... - список отчетов в доступной группе
 export async function GET(request: NextRequest) {
     try {
         const user = await getRequestUser(request);
@@ -30,6 +34,20 @@ export async function GET(request: NextRequest) {
         const groupAccessOptions = getGroupAccessOptionsFromRequest(request);
 
         const where: Prisma.ReportWhereInput = {};
+
+        if (!user) {
+            return NextResponse.json(
+                { error: 'Требуется авторизация.' },
+                { status: 401 }
+            );
+        }
+
+        if (!groupId) {
+            return NextResponse.json(
+                { error: 'Group ID is required' },
+                { status: 400 }
+            );
+        }
 
         if (user && isViewerRole(user)) {
             where.status = 'published';
@@ -47,17 +65,10 @@ export async function GET(request: NextRequest) {
             effectiveDateTo = dateTo;
         }
 
-        if (groupId) {
-            if (user && !(await canAccessGroupId(user, groupId, groupAccessOptions))) {
-                return NextResponse.json({ reports: [] }, { status: 200 });
-            }
-            where.groupId = groupId;
-        } else if (user && isViewerRole(user)) {
-            const groupFilter = await getAccessibleGroupFilter(user, groupAccessOptions);
-            if (groupFilter) {
-                where.groupId = groupFilter.id;
-            }
+        if (!(await canAccessGroupId(user, groupId, groupAccessOptions))) {
+            return NextResponse.json({ reports: [] }, { status: 200 });
         }
+        where.groupId = groupId;
 
         if (search) {
             where.OR = [
@@ -136,23 +147,10 @@ export async function POST(request: NextRequest) {
     if (adminCheck) return adminCheck;
 
     const user = await getRequestUser(request);
+    const groupAccessOptions = getGroupAccessOptionsFromRequest(request);
 
     try {
-        const body: CreateReportInput & { groupId?: string } = await request.json();
-
-        if (!body.title) {
-            return NextResponse.json(
-                { error: 'Title is required' },
-                { status: 400 }
-            );
-        }
-
-        if (!body.groupId) {
-            return NextResponse.json(
-                { error: 'Group ID is required' },
-                { status: 400 }
-            );
-        }
+        const body = createReportSchema.parse(await request.json());
 
         // Проверяем существование группы
         const group = await prisma.reportGroup.findUnique({
@@ -160,6 +158,16 @@ export async function POST(request: NextRequest) {
         });
 
         if (!group) {
+            return NextResponse.json(
+                { error: 'Group not found' },
+                { status: 404 }
+            );
+        }
+
+        if (
+            !user ||
+            !(await canAccessGroupId(user, body.groupId, groupAccessOptions))
+        ) {
             return NextResponse.json(
                 { error: 'Group not found' },
                 { status: 404 }
@@ -198,6 +206,8 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ report }, { status: 201 });
     } catch (error) {
+        const validationError = validationErrorResponse(error);
+        if (validationError) return validationError;
         if (
             error instanceof Prisma.PrismaClientKnownRequestError &&
             error.code === 'P2002'

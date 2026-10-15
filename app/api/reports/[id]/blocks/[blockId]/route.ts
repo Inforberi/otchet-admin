@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { UpdateBlockInput } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
-import { requireEditorMiddleware } from '@/lib/auth-helpers';
+import { getRequestUser, requireEditorMiddleware } from '@/lib/auth-helpers';
+import {
+    canAccessReportId,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
+import { getGroupAccessOptionsFromRequest } from '@/lib/group-access';
 
 const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
@@ -17,6 +22,19 @@ export async function PATCH(
 
     try {
         const { id: reportId, blockId } = await params;
+        const user = await getRequestUser(request);
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        if (!(await canAccessReportId(reportId, user, accessOptions))) {
+            return NextResponse.json(
+                { error: 'Block not found' },
+                { status: 404 }
+            );
+        }
+
         const body: Partial<UpdateBlockInput> = await request.json();
         const expectedReportVersion =
             typeof body.expectedReportVersion === 'number'
@@ -129,6 +147,19 @@ export async function DELETE(
 
     try {
         const { id: reportId, blockId } = await params;
+        const user = await getRequestUser(request);
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        if (!(await canAccessReportId(reportId, user, accessOptions))) {
+            return NextResponse.json(
+                { error: 'Block not found' },
+                { status: 404 }
+            );
+        }
+
         const body = await request.json().catch(() => ({}));
         const expectedReportVersion =
             typeof body.expectedReportVersion === 'number'

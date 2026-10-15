@@ -12,8 +12,7 @@ const inputClassName =
 function ChangePasswordForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const { user, loading, mustChangePassword, canEdit } = useUserRole();
-    const isReadOnly = !canEdit;
+    const { user, loading, mustChangePassword } = useUserRole();
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -46,9 +45,7 @@ function ChangePasswordForm() {
                 return;
             }
 
-            const redirect =
-                searchParams.get('redirect') ||
-                (isReadOnly ? '/' : '/reports');
+            const redirect = searchParams.get('redirect') || '/';
             router.push(redirect);
             router.refresh();
         } catch {
@@ -81,7 +78,7 @@ function ChangePasswordForm() {
                 {!mustChangePassword && (
                     <button
                         type="button"
-                        onClick={() => router.push(isReadOnly ? '/' : '/reports')}
+                        onClick={() => router.push('/')}
                         className="mb-4 text-sm text-[var(--color-grayscale-6)] underline underline-offset-4 cursor-pointer"
                     >
                         Назад

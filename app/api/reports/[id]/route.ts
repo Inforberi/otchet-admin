@@ -13,6 +13,7 @@ import {
 import { canEditContent } from '@/lib/auth';
 import { canAccessGroupId, getGroupAccessOptionsFromRequest } from '@/lib/group-access';
 import {
+    canAccessReport,
     getReportAccessOptionsFromRequest,
     isReportVisible,
 } from '@/lib/report-access';
@@ -44,6 +45,13 @@ export async function GET(
         const groupAccessOptions = getGroupAccessOptionsFromRequest(request);
         const forcePublished = user ? isViewerRole(user) : false;
 
+        if (!user) {
+            return NextResponse.json(
+                { error: 'Требуется авторизация.' },
+                { status: 401 }
+            );
+        }
+
         const report = await prisma.report.findUnique({
             where: { id },
             include: {
@@ -68,7 +76,7 @@ export async function GET(
             );
         }
 
-        if (user && !(await canAccessGroupId(user, report.groupId, groupAccessOptions))) {
+        if (!(await canAccessGroupId(user, report.groupId, groupAccessOptions))) {
             return NextResponse.json(
                 { error: 'Report not found' },
                 { status: 404 }
@@ -154,6 +162,10 @@ export async function PATCH(
     if (adminCheck) return adminCheck;
 
     const user = await getRequestUser(request);
+    const accessOptions = {
+        ...getGroupAccessOptionsFromRequest(request),
+        ...getReportAccessOptionsFromRequest(request),
+    };
 
     try {
         const { id } = await params;
@@ -178,10 +190,18 @@ export async function PATCH(
                 title: true,
                 version: true,
                 createdByUserId: true,
+                isHidden: true,
             },
         });
 
         if (!currentReport) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
+        if (!(await canAccessReport(currentReport, user, accessOptions))) {
             return NextResponse.json(
                 { error: 'Report not found' },
                 { status: 404 }
@@ -326,16 +346,34 @@ export async function DELETE(
     const adminCheck = await requireEditorMiddleware(request);
     if (adminCheck) return adminCheck;
 
+    const user = await getRequestUser(request);
+    const accessOptions = {
+        ...getGroupAccessOptionsFromRequest(request),
+        ...getReportAccessOptionsFromRequest(request),
+    };
+
     try {
         const { id } = await params;
 
         // Получаем отчет перед удалением, чтобы узнать название папки и группу
         const report = await prisma.report.findUnique({
             where: { id },
-            select: { title: true, groupId: true },
+            select: {
+                title: true,
+                groupId: true,
+                isHidden: true,
+                createdByUserId: true,
+            },
         });
 
         if (!report) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
+        if (!(await canAccessReport(report, user, accessOptions))) {
             return NextResponse.json(
                 { error: 'Report not found' },
                 { status: 404 }

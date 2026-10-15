@@ -4,6 +4,7 @@ import { unlink } from "fs/promises"
 import path from "path"
 import { existsSync } from "fs"
 import { requireEditorMiddleware } from "@/lib/auth-helpers"
+import { canAccessUploadFromRequest } from "@/lib/upload-access"
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "./uploads"
 
@@ -29,6 +30,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     })
 
     if (!upload) {
+      return NextResponse.json({ error: "Upload not found" }, { status: 404 })
+    }
+
+    if (!(await canAccessUploadFromRequest(request, upload))) {
       return NextResponse.json({ error: "Upload not found" }, { status: 404 })
     }
 
