@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import type { CreateBlockInput } from "@/lib/db-types"
+import { appendBlocksSchema } from "@/lib/report-api"
+import { validationErrorResponse } from "@/lib/api-validation"
+import { buildDraftPayload, computeDraftHash } from "@/lib/draft-hash"
+import type { ReportBlockFromDB } from "@/lib/db-types"
 import { Prisma } from "@prisma/client"
 import {
   getRequestUser,
@@ -63,19 +66,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Report not found" }, { status: 404 })
     }
 
-    const body: Omit<CreateBlockInput, "reportId"> & { expectedReportVersion?: number } = await request.json()
-    const expectedReportVersion =
-      typeof body.expectedReportVersion === "number"
-        ? body.expectedReportVersion
-        : Number(body.expectedReportVersion)
-
-    if (!body.type || !body.data) {
-      return NextResponse.json({ error: "Type and data are required" }, { status: 400 })
-    }
-
-    if (!Number.isInteger(expectedReportVersion) || expectedReportVersion < 1) {
-      return NextResponse.json({ error: "expectedReportVersion is required" }, { status: 400 })
-    }
+    const body = appendBlocksSchema.parse(await request.json())
+    const { expectedReportVersion } = body
+    const inputs = 'blocks' in body ? body.blocks : [body]
 
     const result = await prisma.$transaction(async (tx) => {
       const report = await tx.report.findUnique({
@@ -97,33 +90,58 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         select: { position: true },
       })
 
-      const block = await tx.reportBlock.create({
-        data: {
-          reportId,
-          type: body.type,
-          parentId: body.parentId ?? null,
-          position: (maxPosition?.position ?? -1) + 1,
-          data: body.data as Prisma.InputJsonValue,
-        },
+      // Условное обновление блокирует строку отчета до конца транзакции.
+      // Проигравший параллельный запрос не записывает ни одного блока.
+      const claimed = await tx.report.updateMany({
+        where: { id: reportId, version: expectedReportVersion },
+        data: { version: { increment: 1 }, draftUpdatedAt: new Date() },
       })
+      if (claimed.count !== 1) throw new Error(VERSION_CONFLICT)
 
+      const parentIds = [...new Set(inputs.flatMap((input) => input.parentId ? [input.parentId] : []))]
+      const parents = await tx.reportBlock.findMany({
+        where: { reportId, id: { in: parentIds }, type: 'section', parentId: null },
+        select: { id: true },
+      })
+      if (parents.length !== parentIds.length || inputs.some((input) => input.type === 'section' && input.parentId)) {
+        throw new Error('INVALID_PARENT')
+      }
+
+      const blocks = []
+      for (const [index, input] of inputs.entries()) {
+        blocks.push(await tx.reportBlock.create({
+          data: {
+            reportId,
+            type: input.type,
+            parentId: input.parentId ?? null,
+            position: (maxPosition?.position ?? -1) + 1 + index,
+            data: input.data as Prisma.InputJsonValue,
+          },
+        }))
+      }
+
+      const draft = await tx.report.findUniqueOrThrow({
+        where: { id: reportId },
+        include: { blocks: { orderBy: { position: 'asc' } } },
+      })
       await tx.report.update({
         where: { id: reportId },
-        data: {
-          version: {
-            increment: 1,
-          },
-        },
+        data: { draftHash: await computeDraftHash(buildDraftPayload(draft, draft.blocks as ReportBlockFromDB[])) },
       })
 
-      return {
-        block,
-        reportVersion: report.version + 1,
-      }
+      return 'blocks' in body
+        ? { blocks, reportVersion: report.version + 1 }
+        : { block: blocks[0], reportVersion: report.version + 1 }
+
     })
 
     return NextResponse.json(result, { status: 201 })
   } catch (error) {
+    const validationError = validationErrorResponse(error)
+    if (validationError) return validationError
+    if (error instanceof Error && error.message === 'INVALID_PARENT') {
+      return NextResponse.json({ error: 'parentId должен ссылаться на секцию этого отчета' }, { status: 400 })
+    }
     if (error instanceof Error) {
       if (error.message === VERSION_CONFLICT) {
         return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import type { CreateReportInput } from '@/lib/db-types';
+import { createReportSchema } from '@/lib/report-api';
+import { validationErrorResponse } from '@/lib/api-validation';
 import { Prisma } from '@prisma/client';
 import {
     getRequestUser,
@@ -149,21 +150,7 @@ export async function POST(request: NextRequest) {
     const groupAccessOptions = getGroupAccessOptionsFromRequest(request);
 
     try {
-        const body: CreateReportInput & { groupId?: string } = await request.json();
-
-        if (!body.title) {
-            return NextResponse.json(
-                { error: 'Title is required' },
-                { status: 400 }
-            );
-        }
-
-        if (!body.groupId) {
-            return NextResponse.json(
-                { error: 'Group ID is required' },
-                { status: 400 }
-            );
-        }
+        const body = createReportSchema.parse(await request.json());
 
         // Проверяем существование группы
         const group = await prisma.reportGroup.findUnique({
@@ -219,6 +206,8 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ report }, { status: 201 });
     } catch (error) {
+        const validationError = validationErrorResponse(error);
+        if (validationError) return validationError;
         if (
             error instanceof Prisma.PrismaClientKnownRequestError &&
             error.code === 'P2002'

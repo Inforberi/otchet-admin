@@ -60,6 +60,13 @@ export const POST = async (
             return NextResponse.json({ error: 'Report not found' }, { status: 404 });
         }
 
+        if (currentReport.version !== expectedVersion) {
+            return NextResponse.json({
+                error: 'Report has been modified by another user',
+                code: VERSION_CONFLICT,
+            }, { status: 409 });
+        }
+
         const payload = buildDraftPayload(
             currentReport,
             currentReport.blocks as ReportBlockFromDB[]
@@ -67,6 +74,7 @@ export const POST = async (
         const nextDraftHash = await computeDraftHash(payload);
 
         if (
+            currentReport.status === 'published' &&
             currentReport.publishedHash &&
             currentReport.publishedHash === nextDraftHash
         ) {

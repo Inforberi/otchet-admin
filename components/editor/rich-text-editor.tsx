@@ -244,6 +244,48 @@ const clampPresetPx = (value: string, fallback: string): string => {
     return String(Math.min(200, Math.max(8, Math.round(n))));
 };
 
+const FontSizeInput = ({ value, label, onCommit }: {
+    value: string;
+    label: string;
+    onCommit: (value: string) => void;
+}) => {
+    const [draft, setDraft] = useState(value);
+    const focusedRef = useRef(false);
+    useEffect(() => {
+        if (!focusedRef.current) setDraft(value);
+    }, [value]);
+
+    return (
+        <input
+            type="number"
+            min={8}
+            max={200}
+            aria-label={label}
+            value={draft}
+            onMouseDown={(event) => event.stopPropagation()}
+            onFocus={() => { focusedRef.current = true; }}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={() => {
+                focusedRef.current = false;
+                const next = clampPresetPx(draft, value);
+                setDraft(next);
+                if (next !== value) onCommit(next);
+            }}
+            onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                }
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setDraft(value);
+                }
+            }}
+            className="w-14 rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+        />
+    );
+};
+
 const isHeadingFontMark = (
     fontSize: string | undefined | null,
     headingPx: string
@@ -267,6 +309,7 @@ const getEditorExtensions = (mode: 'inline' | 'block') => {
     const base = [
         StarterKit.configure({
             hardBreak: false,
+            link: false,
             heading: false,
             bulletList: mode === 'block' ? {} : false,
             orderedList: mode === 'block' ? {} : false,
@@ -363,7 +406,6 @@ export default function RichTextEditor({
     });
     const colorPickerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<Editor | null>(null);
-    const emitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastEmittedRef = useRef('');
 
     const canonicalValue = useMemo(
@@ -387,6 +429,9 @@ export default function RichTextEditor({
             content: editorContent,
             editorProps: {
                 attributes: {
+                    role: 'textbox',
+                    'aria-label': placeholder || (mode === 'inline' ? 'Заголовок' : 'Текст блока'),
+                    'aria-multiline': 'true',
                     class:
                         'min-h-full px-3 py-2 text-zinc-200 outline-none [&_blockquote]:my-3 [&_blockquote]:border-l-4 [&_blockquote]:border-zinc-600 [&_blockquote]:pl-4 [&_strong]:font-semibold',
                     style: `word-break: break-word; min-height: ${minHeight}; color: rgb(228, 228, 231); font-size: ${wrapperFontPx}px;`,
@@ -420,10 +465,10 @@ export default function RichTextEditor({
                 setToolbarState(syncToolbarState(currentEditor, headingPx));
             },
             onSelectionUpdate: ({ editor: currentEditor }) => {
-                setToolbarState(syncToolbarState(currentEditor, headingPx));
+                setToolbarState(syncToolbarState(currentEditor, headingPxRef.current));
             },
             onTransaction: ({ editor: currentEditor }) => {
-                setToolbarState(syncToolbarState(currentEditor, headingPx));
+                setToolbarState(syncToolbarState(currentEditor, headingPxRef.current));
             },
             onUpdate: ({ editor: currentEditor }) => {
                 const nextValue = canonicalRichTextValue(
@@ -431,11 +476,8 @@ export default function RichTextEditor({
                     mode
                 );
 
-                if (emitTimerRef.current) clearTimeout(emitTimerRef.current);
-                emitTimerRef.current = setTimeout(() => {
-                    lastEmittedRef.current = nextValue;
-                    onChange(nextValue);
-                }, 120);
+                lastEmittedRef.current = nextValue;
+                onChange(nextValue);
             },
             onDestroy: () => {
                 editorRef.current = null;
@@ -494,13 +536,6 @@ export default function RichTextEditor({
             dom.removeEventListener('keydown', handleKeyDown);
         };
     }, [editor, mode]);
-
-    useEffect(
-        () => () => {
-            if (emitTimerRef.current) clearTimeout(emitTimerRef.current);
-        },
-        []
-    );
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -609,7 +644,17 @@ export default function RichTextEditor({
 
     return (
         <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-1.5 rounded-t border border-zinc-700 bg-zinc-800 p-2">
+            <div
+                role="toolbar"
+                aria-label="Форматирование текста"
+                className="flex flex-wrap items-center gap-1.5 rounded-t border border-zinc-700 bg-zinc-800 p-2"
+                onMouseDown={(event) => {
+                    // Кнопки форматирования сохраняют выделение в тексте.
+                    if (event.target instanceof Element && event.target.closest('button')) {
+                        event.preventDefault();
+                    }
+                }}
+            >
                 <button
                     type="button"
                     onClick={() => editor.chain().focus().toggleBold().run()}
@@ -721,7 +766,7 @@ export default function RichTextEditor({
                                     placeholder="https://example.com"
                                     className="mb-2 w-full rounded border border-zinc-600 bg-zinc-900 px-2 py-1 text-xs text-zinc-200"
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
+                                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                                             e.preventDefault();
                                             applyLink(linkUrl);
                                         }
@@ -854,27 +899,10 @@ export default function RichTextEditor({
                         <span className="whitespace-nowrap text-xs text-zinc-400">
                             Размер
                         </span>
-                        <input
-                            type="number"
-                            min={8}
-                            max={200}
-                            aria-label="Размер заголовка, px"
+                        <FontSizeInput
+                            label="Размер заголовка, px"
                             value={titlePx}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onChange={(e) =>
-                                onTitleFontSizeChange?.(e.target.value)
-                            }
-                            onBlur={(e) => commitTitlePreset(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    commitTitlePreset(
-                                        (e.currentTarget as HTMLInputElement).value
-                                    );
-                                    e.currentTarget.blur();
-                                }
-                            }}
-                            className="w-11 rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                            onCommit={commitTitlePreset}
                         />
                         <span className="text-[10px] text-zinc-500">px</span>
                     </div>
@@ -896,28 +924,10 @@ export default function RichTextEditor({
                             >
                                 Текст
                             </button>
-                            <input
-                                type="number"
-                                min={8}
-                                max={200}
-                                aria-label="Размер текста, px"
+                            <FontSizeInput
+                                label="Размер текста, px"
                                 value={bodyPx}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                    onBasePresetChange?.(e.target.value)
-                                }
-                                onBlur={(e) => commitBodyPreset(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        commitBodyPreset(
-                                            (e.currentTarget as HTMLInputElement)
-                                                .value
-                                        );
-                                        e.currentTarget.blur();
-                                    }
-                                }}
-                                className="w-11 rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                                onCommit={commitBodyPreset}
                             />
                             <span className="text-[10px] text-zinc-500">px</span>
                         </div>
@@ -933,30 +943,10 @@ export default function RichTextEditor({
                             >
                                 Заголовок
                             </button>
-                            <input
-                                type="number"
-                                min={8}
-                                max={200}
-                                aria-label="Размер заголовка в тексте, px"
+                            <FontSizeInput
+                                label="Размер заголовка в тексте, px"
                                 value={headingPx}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                    onHeadingPresetChange?.(e.target.value)
-                                }
-                                onBlur={(e) =>
-                                    commitHeadingPreset(e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        commitHeadingPreset(
-                                            (e.currentTarget as HTMLInputElement)
-                                                .value
-                                        );
-                                        e.currentTarget.blur();
-                                    }
-                                }}
-                                className="w-11 rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-200 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                                onCommit={commitHeadingPreset}
                             />
                             <span className="text-[10px] text-zinc-500">px</span>
                         </div>

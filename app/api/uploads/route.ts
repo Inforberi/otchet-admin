@@ -236,22 +236,26 @@ export async function POST(request: NextRequest) {
             ...getReportAccessOptionsFromRequest(request),
         };
         const formData = await request.formData();
-        const file = formData.get('file') as File | null;
-        const reportId = formData.get('reportId') as string | null;
-        const groupId = formData.get('groupId') as string | null;
+        const file = formData.get('file');
+        const reportId = formData.get('reportId');
+        const groupId = formData.get('groupId');
 
-        if (!file) {
+        if (!(file instanceof File)) {
             return NextResponse.json(
                 { error: 'No file provided' },
                 { status: 400 }
             );
         }
 
-        if (!groupId) {
+        if (typeof groupId !== 'string' || !groupId.trim()) {
             return NextResponse.json(
                 { error: 'Group ID is required' },
                 { status: 400 }
             );
+        }
+
+        if (reportId !== null && (typeof reportId !== 'string' || !reportId.trim())) {
+            return NextResponse.json({ error: 'Invalid reportId' }, { status: 400 });
         }
 
         if (reportId) {
@@ -376,6 +380,12 @@ export async function POST(request: NextRequest) {
             {
                 upload,
                 url: `/api/static/uploads/${relativePath}`, // URL для доступа к файлу
+                image: {
+                    url: `/api/static/uploads/${relativePath}`,
+                    uploadId: upload.id,
+                    mimeType: upload.mimeType,
+                    alt: upload.filename,
+                },
             },
             { status: 201 }
         );
