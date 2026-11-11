@@ -1,57 +1,27 @@
-# Админ-панель для сборки отчетов
+# Отчетник
 
-Production-ready система для создания и управления отчетами с блоками контента.
+Next.js 16, React 19, TypeScript, Tailwind CSS 4, Prisma 6, PostgreSQL 16.
 
-## 🚀 Возможности
+Отчеты состоят из текстов, фото и вложений, задач, секций и разделителей.
+Редактор поддерживает форматирование, drag & drop, локальные черновики,
+автосохранение и отдельную публикацию снимка. PDF генерируется через Playwright.
+Доступ определяется пользователем, ролью и правами на группы.
 
--   ✅ **PostgreSQL** - основная база данных
--   ✅ **Prisma ORM** - типобезопасная работа с БД
--   ✅ **Авторизация** - защита доступа с сессиями
--   ✅ **Список отчетов** - создание, редактирование, удаление, поиск
--   ✅ **Редактор блоков** - удобный интерфейс с drag & drop
--   ✅ **Markdown** - поддержка разметки в текстовых блоках
--   ✅ **Загрузка изображений** - хранение на сервере (не в БД)
--   ✅ **Расширенные фото-блоки** - 2 фото рядом, подписи, настройки layout
--   ✅ **PDF экспорт** - серверная генерация через Playwright
--   ✅ **Docker** - простой запуск одной командой
+## API
 
-## 📋 Стек технологий
+[Полная инструкция, типы и примеры запросов](docs/API.md).
 
--   **Frontend**: Next.js 16, React 19, TypeScript
--   **Styling**: Tailwind CSS 4
--   **UI**: Radix UI, lucide-react
--   **Database**: PostgreSQL 16, Prisma 7
--   **PDF**: Playwright (headless Chromium)
--   **DnD**: @dnd-kit
--   **Markdown**: react-markdown, remark-gfm
+Через API можно создавать отчеты, загружать файлы, добавлять отдельные блоки
+или пакеты, передавать настройки фото и публиковать готовый отчет.
+Типы запросов и JSON-ответов: `lib/report-api-types.ts`.
 
-## 🛠️ Установка и запуск
+## Локальный запуск
 
-### Предварительные требования
-
--   Node.js 20+
--   pnpm 10+
--   Docker & Docker Compose
-
-### Быстрый старт
+Нужны Node.js 22, pnpm 10 и Docker Compose. Создайте `.env` по `.env.template`
+и заполните настройки подключения к БД, `JWT_SECRET` и `SETUP_CODE`.
 
 ```bash
-# 1. Клонировать репозиторий
-git clone <repo-url>
-cd admin-panel
-
-# 2. Установить зависимости
-make install
-# или
-pnpm install
-
-# 3. Поднять БД
-make db-up
-
-# 4. Применить миграции
-make migrate-dev
-
-# 5. Запустить приложение в dev режиме
+pnpm install --frozen-lockfile
 make dev
 # или
 pnpm dev
@@ -299,74 +269,49 @@ SESSION_SECRET="your-random-secret-key-here"
 -   `VIEWER_PASSWORD` = `viewer123`
 -   `SESSION_SECRET` = `change-me-in-production`
 
-**⚠️ ВАЖНО**: Обязательно измените эти значения перед деплоем в production!
-
-## 🐛 Troubleshooting
-
-### Проблема: Docker не запускается
+## Проверки
 
 ```bash
-# Проверить статус Docker
-docker ps
-
-# Запустить Docker Desktop (macOS)
-open -a Docker
+pnpm typecheck
+pnpm exec tsx --test lib/*.test.ts
+pnpm build
 ```
 
-### Проблема: Ошибка подключения к БД
+## Docker и сохранность данных
 
 ```bash
-# Проверить что БД запущена
-make logs-db
-
-# Пересоздать контейнер
-make reset
+make backup
+make prod
 ```
 
-### Проблема: Ошибка миграций
+Compose публикует приложение на `http://localhost:3002`.
+PostgreSQL хранится в volume `postgres_data`, файлы — в каталоге `./uploads`,
+смонтированном в `/app/uploads`. Для переноса нужны оба хранилища.
 
-```bash
-# Сбросить БД и применить миграции заново
-make migrate-reset
-```
+`make backup` создает резервные копии БД и uploads. Обновления API в этой версии
+не меняют Prisma-схему и не требуют новых миграций.
+Команды `make clean` и `docker compose down -v` удаляют volumes;
+не используйте их для обычного обновления существующей установки.
 
-### Проблема: Playwright не работает
+## Основные переменные окружения
 
-```bash
-# Установить браузеры Playwright
-pnpm exec playwright install chromium
-```
+| Переменная | Назначение |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string; внутри Compose хост БД — `postgres` |
+| `JWT_SECRET` | Секрет подписи сессий |
+| `SETUP_CODE` | Код первичного создания администратора |
+| `COOKIE_SECURE` | `true` для HTTPS; `false` для локального HTTP |
+| `UPLOAD_DIR` | Каталог файлов, по умолчанию `./uploads` |
+| `MAX_UPLOAD_SIZE` | Лимит файла в байтах, по умолчанию 10485760 |
+| `PDF_INTERNAL_BASE_URL` | Внутренний адрес приложения для PDF |
 
-## 📝 Миграция со старой версии
+## Структура
 
-Старая версия использовала localStorage. Для миграции:
-
-1. Экспортируйте данные из localStorage (если нужно)
-2. Создайте новый отчет через UI
-3. Добавьте блоки вручную
-
-Старые файлы (`lib/storage.ts`, старые страницы) оставлены для reference, но не используются.
-
-## 🚀 Production Deployment
-
-1. Настройте `.env` с production значениями
-2. Запустите: `make prod`
-4. Проверьте логи: `make logs`
-
-### Чеклист перед деплоем
-
--   ✅ БД настроена и доступна
--   ✅ Миграции применены
--   ✅ Переменные окружения корректны
--   ✅ UPLOAD_DIR существует и доступен
--   ✅ Playwright установлен в Docker образе
-
-## 📄 Лицензия
-
-MIT
-
-## 👨‍💻 Автор
-
-Разработано как production-ready админ-панель для сборки отчетов.
-
-# otchet-admin
+- `app/api` — API приложения.
+- `components/pages/report-edit-page.tsx` — редактор отчета.
+- `components/editor/rich-text-editor.tsx` — ввод и форматирование текста.
+- `hooks/use-report-draft-sync.ts` — черновики и синхронизация.
+- `lib/report-api.ts` — схемы валидации запросов добавления блоков и отчетов.
+- `lib/report-api-types.ts` — типы для интеграций.
+- `prisma` — схема и миграции БД.
+- `docs/API.md` — сценарии заполнения через API.

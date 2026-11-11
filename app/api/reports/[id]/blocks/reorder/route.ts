@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireEditorMiddleware } from '@/lib/auth-helpers';
+import { getRequestUser, requireEditorMiddleware } from '@/lib/auth-helpers';
+import {
+    canAccessReportId,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
+import { getGroupAccessOptionsFromRequest } from '@/lib/group-access';
 const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
 interface ReorderBlockIdsInput {
@@ -18,6 +23,19 @@ const reorderBlocks = async (
 
     try {
         const { id: reportId } = await params;
+        const user = await getRequestUser(request);
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        if (!(await canAccessReportId(reportId, user, accessOptions))) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
         const body: ReorderBlockIdsInput = await request.json();
 
         const expectedReportVersion =

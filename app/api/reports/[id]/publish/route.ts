@@ -3,7 +3,12 @@ import { prisma } from '@/lib/prisma';
 import { buildDraftPayload, computeDraftHash } from '@/lib/draft-hash';
 import type { ReportBlockFromDB } from '@/lib/db-types';
 import type { Prisma } from '@prisma/client';
-import { requireEditorMiddleware } from '@/lib/auth-helpers';
+import { getRequestUser, requireEditorMiddleware } from '@/lib/auth-helpers';
+import {
+    canAccessReportId,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
+import { getGroupAccessOptionsFromRequest } from '@/lib/group-access';
 
 const VERSION_CONFLICT = 'VERSION_CONFLICT';
 
@@ -16,6 +21,19 @@ export const POST = async (
 
     try {
         const { id } = await params;
+        const user = await getRequestUser(request);
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        if (!(await canAccessReportId(id, user, accessOptions))) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
         const body = await request.json().catch(() => ({}));
         const expectedVersion =
             typeof body.expectedVersion === 'number'
@@ -42,6 +60,13 @@ export const POST = async (
             return NextResponse.json({ error: 'Report not found' }, { status: 404 });
         }
 
+        if (currentReport.version !== expectedVersion) {
+            return NextResponse.json({
+                error: 'Report has been modified by another user',
+                code: VERSION_CONFLICT,
+            }, { status: 409 });
+        }
+
         const payload = buildDraftPayload(
             currentReport,
             currentReport.blocks as ReportBlockFromDB[]
@@ -49,6 +74,7 @@ export const POST = async (
         const nextDraftHash = await computeDraftHash(payload);
 
         if (
+            currentReport.status === 'published' &&
             currentReport.publishedHash &&
             currentReport.publishedHash === nextDraftHash
         ) {
