@@ -16,8 +16,8 @@ import {
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
 const MAX_FILE_SIZE = Number.parseInt(
-    process.env.MAX_UPLOAD_SIZE || '10485760'
-); // 10MB default
+    process.env.MAX_UPLOAD_SIZE || '104857600'
+); // 100 MiB default
 const ALLOWED_EXTENSIONS: Record<string, string> = {
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
