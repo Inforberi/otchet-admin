@@ -252,7 +252,7 @@ make help             # Показать все команды
 DATABASE_URL="postgresql://admin:password@localhost:5432/admin_panel?schema=public"
 PORT=3000
 UPLOAD_DIR="./uploads"
-MAX_UPLOAD_SIZE=10485760
+MAX_UPLOAD_SIZE=104857600
 
 # Авторизация
 ADMIN_USERNAME="admin"
@@ -261,6 +261,13 @@ VIEWER_USERNAME="viewer"
 VIEWER_PASSWORD="your-viewer-password-here"
 SESSION_SECRET="your-random-secret-key-here"
 ```
+
+Лимит одного файла — 100 МиБ (104857600 байт) для фото-блоков, вложений задач
+и отчетов о выполнении задач: все используют `/api/uploads`. Лимит тела запроса
+в `next.config.mjs` — 110 МиБ с учетом multipart/form-data.
+После изменения `.env` перезапустите приложение; для Docker пересоберите
+образ и пересоздайте контейнер приложения. Если перед приложением настроен
+внешний reverse proxy, его лимит тела запроса также должен быть не ниже 110 МиБ.
 
 ### Настройка авторизации
 
