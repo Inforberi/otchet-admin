@@ -452,32 +452,27 @@ function BlockEditor({
     onContentHeadingFontSizeChange?: (px: string) => void;
     onTitleFontSizeChange?: (px: string) => void;
 }) {
-    const [localData, setLocalData] = useState(block.data);
+    const [localData, setLocalDataState] = useState(block.data);
+    const localDataRef = useRef(localData);
+    const changeTargetRef = useRef({ id: block.id, onLocalChange });
+    changeTargetRef.current = { id: block.id, onLocalChange };
+    const setLocalData = useCallback((update: React.SetStateAction<ReportBlockFromDB['data']>) => {
+        const next = typeof update === 'function' ? update(localDataRef.current) : update;
+        if (next === localDataRef.current) return;
+        localDataRef.current = next;
+        setLocalDataState(next);
+        const target = changeTargetRef.current;
+        target.onLocalChange(target.id, next);
+    }, []);
     const [uploading, setUploading] = useState(false);
     const [isExpanded, setIsExpanded] = useState(true);
     const [isDragOver, setIsDragOver] = useState(false);
-    const skipNextChangeRef = useRef(true);
-
     useEffect(() => {
-        setLocalData((current) => {
-            if (JSON.stringify(current) === JSON.stringify(block.data)) {
-                return current;
-            }
-            return block.data;
-        });
-        skipNextChangeRef.current = true;
+        localDataRef.current = block.data;
+        setLocalDataState((current) =>
+            JSON.stringify(current) === JSON.stringify(block.data) ? current : block.data
+        );
     }, [block.id, block.data]);
-
-    useEffect(() => {
-        if (skipNextChangeRef.current) {
-            skipNextChangeRef.current = false;
-            return;
-        }
-        const debounce = setTimeout(() => {
-            onLocalChange(block.id, localData);
-        }, 100);
-        return () => clearTimeout(debounce);
-    }, [localData, block.id, onLocalChange]);
 
     const blockPreview = useMemo(
         () =>

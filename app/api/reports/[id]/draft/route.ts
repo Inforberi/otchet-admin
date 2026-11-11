@@ -15,6 +15,11 @@ import {
 import { createSlug, generateUniqueSlug } from '@/lib/slug';
 import { sanitizeRichTextHtml } from '@/lib/rich-text-sanitize';
 import { canEditContent } from '@/lib/auth';
+import {
+    canAccessReportId,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
+import { getGroupAccessOptionsFromRequest } from '@/lib/group-access';
 import { canUserActOnTask, normalizeTaskAssignees } from '@/lib/task-assignees';
 import {
     buildTaskBlockPrismaData,
@@ -178,6 +183,19 @@ export const PATCH = async (
 
     try {
         const { id } = await params;
+        const requestUser = await getRequestUser(request);
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        if (!(await canAccessReportId(id, requestUser, accessOptions))) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
         const body = (await request.json()) as DraftSnapshotBody;
         const expectedVersion =
             typeof body.expectedVersion === 'number'
@@ -203,7 +221,6 @@ export const PATCH = async (
             (a, b) => a.position - b.position
         );
 
-        const requestUser = await getRequestUser(request);
         const isEditor = requestUser ? canEditContent(requestUser) : false;
 
         await prisma.$transaction(async (tx) => {
@@ -539,6 +556,18 @@ export const GET = async (
 
     try {
         const { id } = await params;
+        const accessOptions = {
+            ...getGroupAccessOptionsFromRequest(request),
+            ...getReportAccessOptionsFromRequest(request),
+        };
+
+        if (!(await canAccessReportId(id, user, accessOptions))) {
+            return NextResponse.json(
+                { error: 'Report not found' },
+                { status: 404 }
+            );
+        }
+
         const report = await prisma.report.findUnique({
             where: { id },
             select: {

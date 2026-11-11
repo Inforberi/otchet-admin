@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { getRequestUser } from '@/lib/auth-helpers';
+import { getRequestUser, isViewerRole } from '@/lib/auth-helpers';
 import { canEditContent } from '@/lib/auth';
 import type { TaskBlockData, ImageData, PhotoBlockLayout } from '@/lib/db-types';
 import { canUserActOnTask, normalizeTaskAssignees } from '@/lib/task-assignees';
 import { sanitizeRichTextHtml } from '@/lib/rich-text-sanitize';
+import {
+    canAccessReportId,
+    getReportAccessOptionsFromRequest,
+} from '@/lib/report-access';
+import { getGroupAccessOptionsFromRequest } from '@/lib/group-access';
 
 const VALID_LAYOUTS: PhotoBlockLayout[] = [
     'full-width',
@@ -30,6 +35,35 @@ function parseClosedAt(value: unknown): Date | null {
 
 type RouteParams = { params: Promise<{ id: string; blockId: string }> };
 
+async function canUseTaskEndpoint(
+    request: NextRequest,
+    user: NonNullable<Awaited<ReturnType<typeof getRequestUser>>>,
+    reportId: string
+): Promise<boolean> {
+    const accessOptions = {
+        ...getGroupAccessOptionsFromRequest(request),
+        ...getReportAccessOptionsFromRequest(request),
+    };
+
+    if (!(await canAccessReportId(reportId, user, accessOptions))) {
+        return false;
+    }
+
+    if (!isViewerRole(user)) {
+        return true;
+    }
+
+    const report = await prisma.report.findUnique({
+        where: { id: reportId },
+        select: {
+            status: true,
+            publishedSnapshot: true,
+        },
+    });
+
+    return Boolean(report?.status === 'published' && report.publishedSnapshot);
+}
+
 // POST /api/reports/[id]/blocks/[blockId]/complete — mark task as complete
 export async function POST(request: NextRequest, { params }: RouteParams) {
     const user = await getRequestUser(request);
@@ -41,10 +75,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     try {
-        const { blockId } = await params;
+        const { id: reportId, blockId } = await params;
 
-        const block = await prisma.reportBlock.findUnique({
-            where: { id: blockId },
+        if (!(await canUseTaskEndpoint(request, user, reportId))) {
+            return NextResponse.json({ error: 'Block not found' }, { status: 404 });
+        }
+
+        const block = await prisma.reportBlock.findFirst({
+            where: { id: blockId, reportId },
         });
 
         if (!block) {
@@ -122,10 +160,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     try {
-        const { blockId } = await params;
+        const { id: reportId, blockId } = await params;
 
-        const block = await prisma.reportBlock.findUnique({
-            where: { id: blockId },
+        if (!(await canUseTaskEndpoint(request, user, reportId))) {
+            return NextResponse.json({ error: 'Block not found' }, { status: 404 });
+        }
+
+        const block = await prisma.reportBlock.findFirst({
+            where: { id: blockId, reportId },
         });
 
         if (!block) {
